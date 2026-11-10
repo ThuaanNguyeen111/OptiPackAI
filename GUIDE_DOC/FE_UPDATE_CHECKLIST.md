@@ -29,6 +29,7 @@
 | 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | 🟡 09/11 — đã làm `React.lazy` (gói chính 2,4 MB → 271 kB), dừng polling khi tab ẩn, `client_event_id` kho; **còn** huỷ request cũ khi đổi bộ lọc (13.3) |
 | 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
 | 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
+| 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -454,6 +455,33 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 **Thử push trên điện thoại** (người test FE / mobile): làm theo `MOBILE_UPDATE_CHECKLIST.md` mục **9c** — gồm cách test khi file khoá Firebase chỉ nằm ở máy Thuận.
 
 **Không cần FE làm:** `POST/DELETE /notifications/devices` (chỉ app mobile dùng), `GET /shipments?shipper_id=` (bộ lọc mới cho app; web tuỳ chọn dùng nếu muốn có tab "Vận đơn của tôi"), sửa Swagger `JWT-auth` (chỉ ảnh hưởng trang `/api/docs`).
+
+## 16. 🆕 11/11/2026 — Đăng nhập Google trên app mobile (dòng 19)
+
+**Ai làm gì:** Thuận làm phần Google Cloud (mục 9d bước A trong `MOBILE_UPDATE_CHECKLIST.md`) và gửi cho nhóm **client id Web** (`GOOGLE_CLIENT_ID` của BE — không phải secret). Nhóm mobile làm phần app (mục 9d bước B). **Web (`fe/`) không phải sửa gì** — luồng Google web cũ giữ nguyên.
+
+**Mỗi bạn chạy `flutter run` trên máy mình:** chạy `cd mobile/android` → `.\gradlew signingReport`, gửi Thuận dòng `SHA1:` mục `Variant: debug` để thêm vào Google Cloud. Chưa thêm SHA-1 của máy mình thì chọn tài khoản xong sẽ báo `canceled`.
+
+**Việc trong app (`mobile/`):**
+1. `pubspec.yaml`: thêm `google_sign_in: ^7.2.0` → `flutter pub get`.
+2. Khởi tạo 1 lần (VD trong `main.dart` hoặc lúc mở màn đăng nhập): `await GoogleSignIn.instance.initialize(serverClientId: const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'));` — chạy app với `--dart-define=GOOGLE_SERVER_CLIENT_ID=<client id Web>`.
+3. `mobile/lib/features/auth/login_screen.dart` (khoảng dòng 331–337): bỏ chữ "(chờ BE)", mở khoá nút. Bấm nút → `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → gọi `POST /auth/google/mobile` body `{ "id_token": idToken }`.
+4. Response **giống hệt `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`) → đi tiếp đúng đường của đăng nhập mật khẩu trong `AuthController` (lưu token, bắt đổi mật khẩu nếu `must_change_password`, bật push).
+5. Bắt lỗi:
+   - `GoogleSignInException` mã `canceled` → không báo gì (người dùng tự đóng), trừ khi vừa chọn tài khoản xong → thường do thiếu SHA-1 máy mình.
+   - `401 AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` → "Email này chưa có tài khoản OptiPack, liên hệ Admin".
+   - `401 AUTH_GOOGLE_ID_TOKEN_INVALID` / `AUTH_GOOGLE_AUTH_FAILED` → "Đăng nhập Google thất bại, thử lại".
+   - `401 AUTH_ACCOUNT_INACTIVE`, `403 AUTH_PASSWORD_DEADLINE_LOCKED` → cùng câu như đăng nhập mật khẩu.
+6. Đăng xuất: gọi `GoogleSignIn.instance.signOut()` (để lần sau được chọn lại tài khoản) và gửi `push_token` (FCM token hiện tại) trong body `POST /auth/logout` cùng `refresh_token` → BE gỡ máy khỏi push. Đã gửi `push_token` thì không cần gọi thêm `DELETE /notifications/devices/:token`.
+
+**Thử (người test):**
+| # | Làm | Kết quả đúng |
+|---|---|---|
+| 1 | Đăng nhập Google bằng email trùng 1 user đang hoạt động | Vào đúng màn theo role, có push |
+| 2 | Email Google chưa có trong hệ thống | Báo chưa có tài khoản, vẫn ở màn đăng nhập |
+| 3 | Admin vô hiệu hoá user đó, đăng nhập Google lại | Báo tài khoản bị vô hiệu hoá |
+| 4 | Đăng nhập, đăng xuất, Admin giao việc cho user đó | Điện thoại **không** nhận push nữa |
+| 5 | Đăng xuất xong bấm Google lại | Hiện danh sách chọn tài khoản (không tự vào tài khoản cũ) |
 
 ## Phụ lục ✅ — đã hoàn thành
 
