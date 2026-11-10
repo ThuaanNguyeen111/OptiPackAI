@@ -30,6 +30,7 @@
 | 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
 | 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
 | 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
+| 20 | 🆕 11/11 ⚠ **App mobile gọi sai đường sau khi BE thêm tiền tố `/api`** (⚠ **chặn** — mọi màn app báo 404): sửa địa chỉ mặc định trong `mobile/lib/core/config/env.dart` thành `http://10.0.2.2:3000/api`, mọi lệnh `--dart-define=API_BASE_URL=` thêm `/api` | 17 | Nhỏ | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -465,6 +466,7 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 **Việc trong app (`mobile/`):**
 1. `pubspec.yaml`: thêm `google_sign_in: ^7.2.0` → `flutter pub get`.
 2. Khởi tạo 1 lần (VD trong `main.dart` hoặc lúc mở màn đăng nhập): `await GoogleSignIn.instance.initialize(serverClientId: const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'));` — chạy app với `--dart-define=GOOGLE_SERVER_CLIENT_ID=<client id Web>`.
+0. Làm **dòng 20 / mục 17 trước** (app phải gọi qua `/api`, nếu không mọi route kể cả Google đều 404).
 3. `mobile/lib/features/auth/login_screen.dart` (khoảng dòng 331–337): bỏ chữ "(chờ BE)", mở khoá nút. Bấm nút → `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → gọi `POST /auth/google/mobile` body `{ "id_token": idToken }`.
 4. Response **giống hệt `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`) → đi tiếp đúng đường của đăng nhập mật khẩu trong `AuthController` (lưu token, bắt đổi mật khẩu nếu `must_change_password`, bật push).
 5. Bắt lỗi:
@@ -482,6 +484,17 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 | 3 | Admin vô hiệu hoá user đó, đăng nhập Google lại | Báo tài khoản bị vô hiệu hoá |
 | 4 | Đăng nhập, đăng xuất, Admin giao việc cho user đó | Điện thoại **không** nhận push nữa |
 | 5 | Đăng xuất xong bấm Google lại | Hiện danh sách chọn tài khoản (không tự vào tài khoản cũ) |
+
+## 17. 🆕 11/11/2026 — App mobile phải gọi qua tiền tố `/api` (dòng 20) ⚠ chặn
+
+**Vấn đề:** `main` đã bật `app.setGlobalPrefix('api')` trong `be/src/main.ts` → mọi route BE giờ là `/api/...` (VD `/api/auth/login`, `/api/health`). App mobile vẫn gọi `http://10.0.2.2:3000` + `/auth/login` → **404 ở mọi màn** (đăng nhập, push, lấy hàng…). Web đã được sửa trong `main`; app chưa.
+
+**Cần làm (nhóm mobile, 1 dòng):**
+1. `mobile/lib/core/config/env.dart`: `defaultValue: 'http://10.0.2.2:3000'` → `defaultValue: 'http://10.0.2.2:3000/api'` (sửa luôn câu chú thích đầu file: VD `--dart-define=API_BASE_URL=http://192.168.1.10:3000/api`).
+2. **Không** sửa các đường trong code (`'/auth/login'`, `'/auth/logout'`, `'/notifications/devices'`…): dio tự ghép `baseUrl` + đường → `http://10.0.2.2:3000/api/auth/login`.
+3. Chạy trên điện thoại thật: `flutter run --dart-define=API_BASE_URL=http://<IP máy BE>:3000/api` (có `/api` ở cuối, không có dấu `/` sau `api`).
+
+**Thử:** trình duyệt trên điện thoại mở `http://<IP máy BE>:3000/api/health` → `"status":"ok"`; app đăng nhập được, vào "Việc của tôi" có dữ liệu; terminal BE không còn log `Cannot POST /auth/...`.
 
 ## Phụ lục ✅ — đã hoàn thành
 

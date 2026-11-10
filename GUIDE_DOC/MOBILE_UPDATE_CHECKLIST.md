@@ -206,7 +206,7 @@ Chỉ chạy được trên **máy ảo Android** (Android Emulator). `flutter r
 1. Mở **Android Studio** → **Device Manager** → **+ (Create Virtual Device)** → chọn máy có biểu tượng **Play Store** ở cột Play Store (VD **Pixel 8**) → Next.
 2. Chọn bản hệ điều hành có chữ **Google Play** (VD API 35 "Google Play"), bấm tải nếu chưa có → Next → Finish. Không chọn bản "AOSP" / không có Google (không nhận push).
 3. Bấm ▶ để bật máy ảo. Đăng nhập tài khoản Google trong máy ảo **không bắt buộc**; push không đến thì đăng nhập rồi mở CH Play cho Google Play services tự cập nhật.
-4. Ở thư mục `mobile/`: `flutter pub get` rồi **`flutter run`** (không cần `--dart-define`: mặc định app gọi `http://10.0.2.2:3000` = BE trên chính máy tính; không cần mở tường lửa). Nhiều máy thì thêm `-d emulator-5554` (xem `flutter devices`).
+4. Ở thư mục `mobile/`: `flutter pub get` rồi **`flutter run`** (không cần `--dart-define`: mặc định app gọi `http://10.0.2.2:3000/api` = BE trên chính máy tính — ⚠ sau khi sửa `env.dart` theo `FE_UPDATE_CHECKLIST.md` dòng 20; không cần mở tường lửa). Nhiều máy thì thêm `-d emulator-5554` (xem `flutter devices`).
 5. Làm tiếp bước 8 phần điện thoại thật (đăng nhập Warehouse Staff → Cho phép thông báo) rồi bảng **Các bước thử**. Push hiện ở thanh thông báo của máy ảo (kéo từ trên xuống).
 
 Giới hạn máy ảo: quét mã bằng camera chỉ là camera giả → dùng ô **nhập tay** mã ô / SKU; máy cần RAM ≥ 8 GB (máy ảo chiếm ~2–3 GB). Demo trước hội đồng nên dùng điện thoại thật.
@@ -226,11 +226,11 @@ Cần: điện thoại Android có **CH Play / Google Play** (Huawei đời mớ
    ```powershell
    New-NetFirewallRule -DisplayName "OptiPack BE 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow -Profile Private
    ```
-   Wifi phải đặt là **Private network** (Cài đặt → Mạng → wifi đang dùng → Private). Kiểm tra: mở trình duyệt **trên điện thoại** vào `http://192.168.1.10:3000/health` → thấy `"status":"ok"` là điện thoại gọi được BE.
+   Wifi phải đặt là **Private network** (Cài đặt → Mạng → wifi đang dùng → Private). Kiểm tra: mở trình duyệt **trên điện thoại** vào `http://192.168.1.10:3000/api/health` → thấy `"status":"ok"` là điện thoại gọi được BE.
 7. **Chạy app:** ở thư mục `mobile/`:
    ```
    flutter pub get
-   flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000
+   flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000/api
    ```
    Có nhiều máy thì thêm `-d <id máy>` (lấy ở `flutter devices`). Lần đầu build mất vài phút; app tự cài lên điện thoại (icon OptiPackAI).
 8. **Đăng nhập:** tài khoản **Warehouse Staff** → "Vào trang làm việc" → điện thoại hỏi quyền thông báo → **Cho phép**. Terminal in `FCM token: …` (dùng ở bước thử 3). Lỡ bấm "Không cho phép": Cài đặt → Ứng dụng → OptiPackAI → Thông báo → bật.
@@ -256,7 +256,7 @@ Cần: điện thoại Android có **CH Play / Google Play** (Huawei đời mớ
 
 ### 9d. Đăng nhập Google trên app (BE xong 11/11/2026)
 
-BE: `POST /auth/google/mobile` body `{ id_token }` → trả **cùng dạng `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`); xử lý y như đăng nhập mật khẩu. Chỉ tài khoản **đã có** trong hệ thống (không tự đăng ký). Lỗi: `AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` → "Email chưa có tài khoản, liên hệ Admin"; `AUTH_GOOGLE_ID_TOKEN_INVALID` → "Đăng nhập Google thất bại, thử lại"; `AUTH_ACCOUNT_INACTIVE`, `AUTH_PASSWORD_DEADLINE_LOCKED` (403) giống đăng nhập thường. Đăng xuất: gửi thêm `push_token` (FCM token đang dùng) trong body `POST /auth/logout` → BE gỡ máy khỏi push (thay cho `DELETE /notifications/devices/:token`, dùng 1 trong 2).
+BE: `POST /auth/google/mobile` (đường thật `/api/auth/google/mobile` — app ghép từ `API_BASE_URL` có `/api`) body `{ id_token }` → trả **cùng dạng `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`); xử lý y như đăng nhập mật khẩu. Chỉ tài khoản **đã có** trong hệ thống (không tự đăng ký). Lỗi: `AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` → "Email chưa có tài khoản, liên hệ Admin"; `AUTH_GOOGLE_ID_TOKEN_INVALID` → "Đăng nhập Google thất bại, thử lại"; `AUTH_ACCOUNT_INACTIVE`, `AUTH_PASSWORD_DEADLINE_LOCKED` (403) giống đăng nhập thường. Đăng xuất: gửi thêm `push_token` (FCM token đang dùng) trong body `POST /auth/logout` → BE gỡ máy khỏi push (thay cho `DELETE /notifications/devices/:token`, dùng 1 trong 2).
 
 **A. Google Cloud (Thuận làm 1 lần; mỗi bạn chạy `flutter run` gửi SHA-1 máy mình cho Thuận thêm vào):**
 1. Mở [console.cloud.google.com](https://console.cloud.google.com) → chọn **đúng project đang chứa client Web** của BE (client có id = `GOOGLE_CLIENT_ID` trong `be/.env`).
