@@ -60,6 +60,7 @@ class AuthController extends Notifier<AuthState> {
         state = const AuthState.signedOut();
       }
     }
+    if (state.status == AuthStatus.signedIn) ref.read(pushServiceProvider).start();
   }
 
   /// Trả [LoginMfaRequired] khi cần nhập mã 6 số; gọi lại với `mfaToken`.
@@ -97,9 +98,11 @@ class AuthController extends Notifier<AuthState> {
       user: user,
       mustChangePassword: state.pendingMustChange,
     );
+    ref.read(pushServiceProvider).start();
   }
 
   Future<void> logout() async {
+    await ref.read(pushServiceProvider).stop(); // gỡ máy khỏi BE trước khi xoá phiên
     await ref.read(authRepositoryProvider).logout();
     state = const AuthState.signedOut();
   }

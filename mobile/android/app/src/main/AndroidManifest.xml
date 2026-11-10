@@ -4,11 +4,17 @@
     <!-- Quét mã ô / SKU bằng camera. Máy không có camera (dùng máy quét Bluetooth) vẫn cài được. -->
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <!-- Android 13+: hiện push (FCM). App hỏi quyền lúc vào trang làm việc. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
         android:label="OptiPackAI"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- Push đến lúc app đóng đi vào kênh optipack_alerts (lib/core/push/push_service.dart). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="optipack_alerts"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

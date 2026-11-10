@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../core/network/api_client.dart';
 import '../core/network/api_exception.dart';
+import '../core/push/push_service.dart';
 import '../core/storage/json_cache.dart';
 import '../core/storage/token_store.dart';
 import '../features/auth/auth_controller.dart';
@@ -14,6 +15,7 @@ import '../features/offline/sync_service.dart';
 import '../features/warehouse/warehouse_logic.dart';
 import '../features/warehouse/warehouse_models.dart';
 import '../features/warehouse/warehouse_repository.dart';
+import 'router.dart';
 
 /// Mở SQLite một lần ở `main()` rồi ghi đè provider này.
 final databaseProvider = Provider<Database>(
@@ -63,6 +65,13 @@ final syncServiceProvider = Provider<SyncService>((ref) {
 
 final authControllerProvider =
     NotifierProvider<AuthController, AuthState>(AuthController.new);
+
+/// 10/11/2026 — push FCM. `ref.read` (không watch) để không tạo lại service khi router đổi.
+final pushServiceProvider = Provider<PushService>((ref) => PushService(
+      api: ref.read(apiClientProvider),
+      router: ref.read(routerProvider),
+      canPick: () => ref.read(authControllerProvider).user?.isWarehouse ?? false,
+    ));
 
 final syncControllerProvider =
     NotifierProvider<SyncController, SyncState>(SyncController.new);
