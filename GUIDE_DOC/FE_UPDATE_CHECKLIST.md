@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8). 10/11: **ảnh bằng chứng** (dòng 17, mục 14 — chặn nút Giao thành công của vận đơn shop tự giao).
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8). 10/11: **ảnh bằng chứng** (dòng 17, mục 14 — chặn nút Giao thành công của vận đơn shop tự giao). 10/11 tối: thông báo `picking_assigned` (dòng 18, mục 15).
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -28,6 +28,7 @@
 | 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ✅ 09/11 — `PackagingMaterialsPage` 5 tab, cột Ngưỡng + trạng thái, tab Túi niêm phong đọc `stockStatus` của BE |
 | 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | 🟡 09/11 — đã làm `React.lazy` (gói chính 2,4 MB → 271 kB), dừng polling khi tab ẩn, `client_event_id` kho; **còn** huỷ request cũ khi đổi bộ lọc (13.3) |
 | 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
+| 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -440,6 +441,17 @@ Việc FE (`PackagingWorkbench.tsx`):
 **14.3 Hiện ảnh:** `GET /shipments/:id/events` mỗi sự kiện có `photoUrls` (ảnh nhỏ bấm phóng to); phiếu trả `inspectionPhotoUrls`; kế hoạch đóng gói `issues[].photoUrls`. URL là ảnh JPG công khai trên Cloudinary, dùng thẳng trong `<img>`.
 
 Chi tiết + mã lỗi: `API_LIST.md` mục 30.
+
+## 15. 🆕 10/11/2026 tối — Thông báo `picking_assigned` (dòng 18)
+
+BE vừa thêm push cho app mobile (`API_LIST.md` mục 31). Phía web chỉ cần đúng 1 việc:
+
+1. `fe/src/types/notifications.ts`: thêm `'picking_assigned'` vào `NOTIFICATION_TYPES` và nhãn `picking_assigned: { vi: 'Được giao lấy hàng', en: 'Picking assigned' }`.
+2. `fe/src/lib/notification-nav.ts`: thêm `type === 'picking_assigned'` vào nhóm điều hướng cùng `packing_assigned` (Warehouse Staff → `/app/warehouse?groupId=<related_entity_id>`).
+
+Thông báo gửi đích danh người được giao (`related_entity_type: order_group`); nhóm Hỏa Tốc có `severity: warning` và câu có hạn đóng gói.
+
+**Không cần FE làm:** `POST/DELETE /notifications/devices` (chỉ app mobile dùng), `GET /shipments?shipper_id=` (bộ lọc mới cho app; web tuỳ chọn dùng nếu muốn có tab "Vận đơn của tôi"), sửa Swagger `JWT-auth` (chỉ ảnh hưởng trang `/api/docs`).
 
 ## Phụ lục ✅ — đã hoàn thành
 
