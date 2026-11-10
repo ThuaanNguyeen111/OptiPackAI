@@ -1,6 +1,6 @@
 # BE — Việc phải làm để app mobile chạy được
 
-> **Phiên bản 1.1 — 10/11/2026** (1.0 — 09/11/2026). Danh sách việc phía **backend** (`be/`) để app mobile (Flutter, BM04 RF-07) dùng được. Việc phía app nằm ở `MOBILE_UPDATE_CHECKLIST.md`; việc phía web nằm ở `FE_UPDATE_CHECKLIST.md`.
+> **Phiên bản 1.2 — 10/11/2026 tối** (1.1 — 10/11/2026; 1.0 — 09/11/2026). 1.2: xong push FCM (mục 3), thêm mục 11–12 theo `MOBILE_BE_REQUESTS.md`. Danh sách việc phía **backend** (`be/`) để app mobile (Flutter, BM04 RF-07) dùng được. Việc phía app nằm ở `MOBILE_UPDATE_CHECKLIST.md`; việc phía web nằm ở `FE_UPDATE_CHECKLIST.md`.
 > Làm xong mục nào thì đổi `- [ ]` thành `- [x]` và ghi ngày + mã commit vào phần Ghi chú. Mỗi mục là chức năng mới: hỏi Thuận chốt trước khi code. Các mục đã chốt ghi ở dòng **Đã chốt**.
 
 ---
@@ -17,12 +17,12 @@
   - Vì sao: cả kho chung một wifi (một IP), 600 lần/phút (`THROTTLE_LIMIT_PER_MINUTE`) bị chia cho mọi máy, dễ bị 429.
   - Độ lớn: nhỏ. Ghi chú: xong 09/11/2026 (AOFP-252). `common/throttle/throttle-tracker.ts`: token hợp lệ (đúng chữ ký, còn hạn) → `user:<id>`; không có / sai → `ip:<ip>`.
 
-- [ ] **3. Push thông báo (FCM)**
+- [x] **3. Push thông báo (FCM)**
   - Route đăng ký / gỡ token thiết bị (`POST /notifications/devices`, `DELETE /notifications/devices/:token`), collection lưu token theo user, gửi push trong `NotificationsService.notify()` cùng lúc với in-app và email; token hết hạn thì tự xóa.
   - Vì sao: báo việc mới và việc có hạn chót mà app không phải hỏi liên tục (tốn pin).
   - Phân việc: **BE** lưu token, gửi push qua Firebase Admin, dọn token hết hạn. **App** xin quyền thông báo, lấy token từ Firebase gửi lên BE, hiện thông báo và mở đúng màn khi bấm. Web FE không liên quan.
   - **Đã chốt — nguyên tắc chọn loại push** (theo hướng dẫn thông báo của Android): chỉ push việc **phải làm ngay hoặc có hạn chót**; không push tác vụ nền hệ thống tự xử lý, lỗi tự phục hồi, thông tin không gấp. Không chia theo mức `severity` (VD `packing_assigned` là `info` nhưng cần push nhất).
-  - **Đề xuất loại push (chờ Thuận duyệt bảng này):**
+  - **Đã chốt (10/11/2026) — Thuận duyệt bảng loại push:**
 
     | Khâu | Push (19 loại) | Chỉ hiện trong app (8 loại) |
     |---|---|---|
@@ -31,13 +31,13 @@
     | Giao hàng | `delivery_failed`, `delivery_overdue`, `sla_warning` / `sla_breach` (hạn giao) | `delivery_returning` |
     | Store Owner / Admin | `cancel_confirmation_required`, `marketplace_confirm_required`, `connection_lost`, `return_requested`, `group_auto_canceled` (chỉ cho nhân viên đang làm nhóm đó), `mfa_disabled` | `sync_failed` (lượt sau tự chạy lại), `consolidation_name_mismatch`, `group_auto_canceled` (cho Owner) |
 
-  - **Chờ chốt — thiếu thông báo giao việc lấy hàng:** `staff-assignment.service.ts` (phân công tự động / thủ công) không gọi `notify()`, nên Warehouse Staff không được báo khi có nhóm đơn mới. Đề xuất thêm loại `picking_assigned` (push, gửi đích danh người được giao), giống `packing_assigned` bên đóng gói.
-  - **Cần trước (Thuận làm):** repo hiện chưa có gì của Firebase (không có `google-services.json`, `firebase` trong `pubspec.yaml`, `firebase-admin` trong `be/package.json`, biến môi trường). Các bước:
+  - **Đã chốt (10/11/2026) — thêm `picking_assigned` (push đích danh):** `staff-assignment.service.ts` (phân công tự động / thủ công) không gọi `notify()`, nên Warehouse Staff không được báo khi có nhóm đơn mới. Đã thêm loại `picking_assigned` (push, gửi đích danh người được giao), giống `packing_assigned` bên đóng gói.
+  - **Cần trước khi chạy thật (Thuận làm):** repo hiện chưa có gì của Firebase (không có `google-services.json`, `firebase` trong `pubspec.yaml`, `firebase-admin` trong `be/package.json`, biến môi trường). Các bước:
     1. Tạo project tại console.firebase.google.com — gói **Spark miễn phí** là đủ cho FCM (chỉ Cloud Storage mới bắt gói Blaze).
     2. Add app **Android**, package name `vn.optipack.optipack_mobile` (đúng `applicationId` trong `mobile/android/app/build.gradle`), tải `google-services.json` đặt vào `mobile/android/app/`.
-    3. Project settings → Service accounts → Generate new private key: file JSON này là khóa bí mật của BE, **để ngoài repo**, BE đọc qua biến môi trường.
+    3. Project settings → Service accounts → Generate new private key: file JSON này là khóa bí mật của BE, **để ngoài repo**; điền đường dẫn tuyệt đối vào `FCM_SERVICE_ACCOUNT_FILE` trong `be/.env`.
     4. iOS bỏ qua cho demo (push trên iPhone cần tài khoản Apple Developer trả phí).
-  - Độ lớn: vừa. Ghi chú: _
+  - Độ lớn: vừa. Ghi chú: xong 10/11/2026 (AOFP-265). Gửi qua FCM HTTP v1 bằng service account (tự ký JWT, không thêm `firebase-admin`). Route `POST /notifications/devices` (`{ token, platform, app_version? }`, tối đa 10 máy/người), `DELETE /notifications/devices/:token` (chỉ token của mình). Collection `device_tokens` (`token` unique). Bảng loại push ở `notifications/push/push-policy.ts`; `data` push = `notification_id`, `type`, `severity`, `related_entity_type`, `related_entity_id`; kênh Android `optipack_alerts`. Token chết (`UNREGISTERED` / `INVALID_ARGUMENT`) tự xoá. Chưa có `FCM_SERVICE_ACCOUNT_FILE` → không gửi push, in-app + email vẫn chạy. **Chưa gửi thử push thật** (chờ project Firebase).
 
 - [x] **4. Upload ảnh bằng chứng**
   - Route upload ảnh, thêm `photo_urls` cho: giao thành công / thất bại (`/shipments/:id/deliver`, `/fail`), kiểm hàng hoàn (`/returns/:id/inspect`), báo lỗi kiện (`packing-plan/report-issue`). `shipment-event.schema.ts` đã chừa chỗ `proof{photo_urls}`.
@@ -70,11 +70,22 @@
 
 ---
 
+- [x] **11. Lọc vận đơn theo shipper** (`MOBILE_BE_REQUESTS.md` mục 2) — màn "Việc của tôi" của shipper Hỏa Tốc. Nhỏ.
+  - **Đã chốt (10/11/2026):** chỉ thêm bộ lọc, **không** thu hẹp quyền xem (web vẫn cho Coordinator xem mọi vận đơn).
+  - Ghi chú: xong 10/11/2026 (AOFP-264). `GET /shipments?shipper_id=me|<userId>&status=…&before=<updatedAt>&limit=`; có `before` thì bỏ qua `page` (con trỏ theo `updated_at`), `total` vẫn là tổng theo bộ lọc. Index `{ shipper_id, status, updated_at }` (partial).
+- [ ] **12. Đăng nhập Google cho app mobile** (`MOBILE_BE_REQUESTS.md` mục 6). Vừa.
+  - **Đã chốt (10/11/2026): làm sau push**, theo cách 1: `POST /auth/google/mobile` nhận `id_token`, kiểm với Google, áp đúng luật web (chỉ tài khoản đã có; `ACCOUNT_NOT_REGISTERED`, `ACCOUNT_INACTIVE`, `ACCOUNT_LOCKED`, `EMAIL_NOT_VERIFIED`), trả cùng dạng `POST /auth/login`.
+  - **Cần trước (Thuận làm):** tạo OAuth client Android trong Google Cloud (package `vn.optipack.optipack_mobile` + SHA-1 của khoá ký app), cho BE biết client id.
+  - Ghi chú: _
+
+**Giữ nguyên đã chốt khi đối chiếu `MOBILE_BE_REQUESTS.md` (10/11/2026):** mục 6 `GET /app/version` vẫn **bỏ** (file mobile ghi "phát cho người dùng thật" nhưng Thuận chốt app không đưa lên store); link ảnh bằng chứng **giữ công khai** (link Cloudinary ngẫu nhiên, khó đoán; không ký hạn).
+
 ## Thứ tự đề xuất
 
 1. ✅ Đã xong 10/11/2026: **10, 7, 8, 9**.
 2. ✅ Đã xong 10/11/2026: **4**.
-3. **3** — sau khi Thuận duyệt bảng loại push, chốt `picking_assigned` và tạo xong project Firebase.
+3. ✅ Đã xong 10/11/2026 tối: **3** (code), **11**. Chạy thật **3** khi Thuận tạo project Firebase và điền `FCM_SERVICE_ACCOUNT_FILE`.
+4. **12** — đăng nhập Google cho mobile, sau khi có OAuth client Android.
 
 ## Đã có sẵn — mobile dùng được ngay (không cần làm)
 

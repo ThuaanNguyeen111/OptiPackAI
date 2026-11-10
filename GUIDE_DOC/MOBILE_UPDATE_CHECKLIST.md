@@ -1,6 +1,6 @@
 # Mobile (Flutter) — Việc phải làm để nối Backend
 
-> **Phiên bản 1.1 — 10/11/2026** (1.0 — 09/11/2026; 1.1: BE đã có upload ảnh bằng chứng, mục 9). Dành cho người làm app mobile (Flutter, BM04 RF-07). Viết theo cùng khuôn `FE_UPDATE_CHECKLIST.md` (file đó là của web). Nguồn: đề xuất chức năng mobile theo role (08/11/2026, mục "📱 Nhật ký 08/11/2026" trong `CLAUDE.md`) và route thật trong `API_LIST.md`.
+> **Phiên bản 1.2 — 10/11/2026 tối** (1.0 — 09/11/2026; 1.1: BE đã có upload ảnh bằng chứng, mục 9; 1.2: BE đã có push FCM mục 9b và lọc vận đơn theo shipper mục 7). Dành cho người làm app mobile (Flutter, BM04 RF-07). Viết theo cùng khuôn `FE_UPDATE_CHECKLIST.md` (file đó là của web). Nguồn: đề xuất chức năng mobile theo role (08/11/2026, mục "📱 Nhật ký 08/11/2026" trong `CLAUDE.md`) và route thật trong `API_LIST.md`.
 
 **Quy ước chung (giống web):**
 - Mọi request cần đăng nhập gửi `Authorization: Bearer <access_token>`.
@@ -29,12 +29,12 @@
 | 8 | Warehouse Staff — Nhận kiện hoàn, kiểm hàng hoàn | 4.5 | 2 | ☐ Chưa làm |
 | 9 | Packaging Staff — Hàng đợi, xem kế hoạch (2D theo lớp), chấp nhận / từ chối | 5.1 | 2 | ☐ Chưa làm |
 | 10 | Packaging Staff — Phiên đóng gói: quét món, niêm phong + nhập cân, báo lỗi kiện | 5.2 | 2 | ☐ Chưa làm |
-| 11 | Thông báo: chuông + số chưa đọc (gọi khi mở app / quay lại app, chưa có push) | 6 | 2 | ☐ Chưa làm |
+| 11 | Thông báo: chuông + số chưa đọc + push FCM (đăng ký máy, mở đúng màn khi bấm) | 6, 9b | 2 | ☐ Chưa làm |
 | 12 | Shipping Coordinator — Kiện đã đóng, tạo vận đơn, mở nhãn PDF, giao thành công / thất bại / giao lại | 7 | 4 | ☐ Chưa làm |
 | 13 | Store Owner — Tổng quan, đánh dấu Hỏa Tốc, duyệt hàng hoàn, tra cứu đơn | 8 | 4 | ☐ Chưa làm |
 | 14 | Hỗ trợ máy quét cầm tay / Bluetooth (nhận mã như bàn phím) bên cạnh camera | 4.2 | 1 | ☐ Chưa làm |
 
-**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** push FCM (đợt 3). Xem mục 9. 🔄 10/11/2026: upload ảnh bằng chứng **đã có** (mục 9a); `GET /app/version` **bỏ** (app không đưa lên store, demo chạy `flutter run` nên luôn là bản mới).
+**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** đăng nhập Google cho mobile (BE làm sau push). Xem mục 9. 🔄 10/11/2026: upload ảnh bằng chứng **đã có** (mục 9a); push FCM **đã có** (mục 9b, cần project Firebase để chạy thật); `GET /app/version` **bỏ** (app không đưa lên store, demo chạy `flutter run` nên luôn là bản mới).
 
 ---
 
@@ -130,11 +130,12 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 - `GET /notifications/unread-count` khi mở app và khi quay lại app (không gọi liên tục ở nền, tốn pin).
 - `GET /notifications?before=&limit=` danh sách; `PATCH /notifications/:id/read` đánh dấu đã đọc.
 - Bấm thông báo mở thẳng màn liên quan (`related_entity_type` + `related_entity_id`).
-- Push (FCM): **chờ BE** (mục 9). Khi có push thì bỏ việc gọi `unread-count` khi quay lại app.
+- Push (FCM): **BE đã có** (mục 9b). Có push rồi vẫn gọi `unread-count` khi mở app (push có thể đến trễ hoặc người dùng tắt quyền thông báo).
 
 ## 7. Shipping Coordinator (đợt 4, dòng 12)
 
 - Kiện đã đóng: `GET /order-groups?fulfillment_status=packed`.
+- 🆕 "Việc của tôi" của shipper: `GET /shipments?shipper_id=me&status=out_for_delivery&limit=20`; trang kế: thêm `before=<updatedAt của vận đơn cuối>` (BE xong 10/11/2026).
 - Tạo vận đơn: `POST /shipments`. Nhãn PDF: mở link nhãn để in bằng máy in Bluetooth hoặc gửi sang máy tính.
 - Giao Hỏa Tốc: `POST /shipments/:id/deliver` · `/fail` (chọn lý do từ `GET /shipments/reason-codes`) · `/retry`. Vận đơn có shipper thì chỉ shipper đó (hoặc Admin) bấm được (403 `SHP_NOT_ASSIGNED_SHIPPER`).
 - Ảnh bằng chứng giao hàng (mục 9a): vận đơn **shop tự giao** (không có hãng, gồm Hỏa Tốc) bấm "Giao thành công" **bắt buộc chụp ≥ 1 ảnh** (thiếu → 400 `SHP_PROOF_PHOTO_REQUIRED`). Giao thất bại: bắt chọn lý do, ảnh không bắt buộc.
@@ -151,7 +152,9 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 
 | Việc | Ảnh hưởng mobile | Trạng thái |
 |---|---|---|
-| Đăng ký thiết bị + push FCM trong `NotificationsService.notify()` | Báo đẩy cho mọi role, cảnh báo tồn vật liệu | ☐ BE chưa làm |
+| Đăng ký thiết bị + push FCM trong `NotificationsService.notify()` | Báo đẩy cho mọi role | ☑ BE xong 10/11/2026 (mục 9b) — chạy thật khi có project Firebase |
+| Lọc vận đơn theo shipper | "Việc của tôi" của shipper (mục 7) | ☑ BE xong 10/11/2026 |
+| Đăng nhập Google cho mobile (`POST /auth/google/mobile` nhận `id_token`) | Nút Google trên màn đăng nhập | ☐ BE làm sau push (cần OAuth client Android + SHA-1) |
 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☑ BE xong 10/11/2026 (mục 9a) |
 | Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
 | `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
@@ -165,7 +168,16 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 4. Mất mạng: giữ ảnh trong hàng đợi ngoại tuyến cùng thao tác, có mạng thì gửi ảnh trước rồi mới gửi thao tác (các route này dùng `expected_version`, 409 → tải lại). Lỗi `PROOF_PHOTO_UPLOAD_FAILED` (502) → cho thử lại; `PROOF_PHOTO_NOT_CONFIGURED` (503) → server chưa cấu hình, báo Admin.
 5. Xem lại ảnh: `GET /shipments/:id/events` (`photoUrls`), phiếu trả `inspectionPhotoUrls`, kế hoạch đóng gói `issues[].photoUrls`.
 
-Chi tiết và mã lỗi: `API_LIST.md` mục 30.
+Chi tiết và mã lỗi: `API_LIST.md` mục 30. Link ảnh là link Cloudinary công khai (ngẫu nhiên, khó đoán), không hết hạn — hiện thẳng bằng `Image.network`.
+
+### 9b. Push FCM (BE xong 10/11/2026)
+
+1. Thêm `firebase_core` + `firebase_messaging`, đặt `google-services.json` (project Firebase của nhóm, package `vn.optipack.optipack_mobile`) vào `android/app/`. Web không dùng Firebase.
+2. Tạo kênh thông báo Android id **`optipack_alerts`** (độ quan trọng cao) lúc mở app — BE gửi push vào kênh này.
+3. Sau khi đăng nhập (và khi `onTokenRefresh`): `POST /notifications/devices` body `{ token, platform: 'android', app_version }` → `{ registered, push_enabled }`. Gọi trực tiếp, **không** đưa vào hàng đợi ngoại tuyến (mất mạng thì gửi lại lần mở app sau).
+4. Đăng xuất: `DELETE /notifications/devices/<token>` trước khi xoá access token.
+5. Bấm push: đọc `data.related_entity_type` + `data.related_entity_id` để mở đúng màn (như bấm thông báo trong chuông); có `data.notification_id` thì `PATCH /notifications/:id/read`. `data.type` để chọn icon/màu.
+6. Loại có push (còn lại chỉ hiện trong chuông): `API_LIST.md` mục 31. Mới: `picking_assigned` (Warehouse Staff được giao lấy hàng một nhóm) → mở màn lấy hàng của nhóm đó.
 
 Đã có, mobile dùng được ngay: refresh token trả trong body, phân quyền theo role, `client_event_id` cho `pick-item` / quét món đóng gói / `restock` / `adjust` / `transfer`, `expected_version` + 409, phân trang `before` + `limit` và lọc `assigned_staff_id`, báo thiếu hàng, đơn Hỏa Tốc, thông báo in-app có phân trang, dashboard.
 

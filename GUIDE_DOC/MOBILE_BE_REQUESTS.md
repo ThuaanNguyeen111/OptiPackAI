@@ -84,3 +84,22 @@ Refresh token trong body (có xoay vòng), phân quyền theo role, `client_even
 2. Có dùng chung project Firebase với web không?
 3. Có kế hoạch nâng giới hạn gọi API cho vai trò kho không?
 4. Phiên bản app tối thiểu do ai quản lý (biến môi trường hay bảng cấu hình)?
+
+---
+
+## Trả lời của backend (10/11/2026)
+
+| # | Việc | Trạng thái | Khác đề xuất |
+|---|---|---|---|
+| 1 | Upload ảnh bằng chứng | ☑ Xong (AOFP-261) | Route `POST /proof-photos`, field `files`, 1–3 ảnh/lần, ≤ 10 MB/ảnh, thêm HEIC. Trả `{ photos: [{ url, publicId, width, height, bytes }] }`. Link ảnh **công khai** (Thuận chốt), không ký hạn. Xem `MOBILE_UPDATE_CHECKLIST.md` 9a |
+| 2 | Lọc vận đơn theo shipper | ☑ Xong (AOFP-264) | `GET /shipments?shipper_id=me&status=out_for_delivery&before=&limit=`. Chỉ là bộ lọc: Coordinator vẫn xem được mọi vận đơn (web cần) |
+| 3 | Push FCM | ☑ Code xong (AOFP-265) | Đúng đề xuất. Chỉ push loại việc gấp / có hạn chót (`API_LIST.md` mục 31). Thêm loại `picking_assigned`. Kênh Android `optipack_alerts`. Chạy thật khi có project Firebase |
+| 4 | `GET /app/version` | ✖ Không làm | Thuận chốt 10/11: app không đưa lên store, demo chạy `flutter run` |
+| 5 | Giới hạn gọi API theo user | ☑ Xong (AOFP-252) | 600 lần/phút **mỗi người** khi có token hợp lệ |
+| 6 | Đăng nhập Google cho mobile | ☐ Làm sau push | Cách 1 (`POST /auth/google/mobile` nhận `id_token`). Cần OAuth client Android + SHA-1 |
+
+**Câu hỏi:**
+1. Ảnh lưu trên Cloudinary (gói Free), thư mục `optipack/proof`, không tự xoá.
+2. Web không dùng Firebase; project Firebase chỉ cho app (Thuận tạo).
+3. Giới hạn đã tính theo từng người (600/phút); `pick-item` và quét món đóng gói không bị giới hạn. Chưa có kế hoạch nâng thêm.
+4. Không áp dụng (đã bỏ `GET /app/version`).
