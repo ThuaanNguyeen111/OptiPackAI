@@ -23,6 +23,7 @@ import {
 } from './common/utils/token-encryption.util';
 import { AppException } from '../../common/exceptions/app-exception';
 import { MKT_ERROR_CODES } from './marketplace-integration.errors';
+import { describeError } from '../../common/utils/log-error.util';
 
 // TTL của OAuth state (10 phút) chỉ khai báo Ở SCHEMA (marketplace-oauth-state.schema.ts,
 // `expireAfterSeconds: 600`) — 1 nguồn duy nhất, không lặp lại hằng số ở đây để tránh
@@ -78,7 +79,7 @@ export class MarketplaceIntegrationService {
       try {
         tokenResult = await adapter.connectDirect();
       } catch (error) {
-        this.logger.error(`Kết nối thẳng ${platform} thất bại`, error);
+        this.logger.error(`Kết nối thẳng ${platform} thất bại: ${describeError(error)}`);
         throw new AppException(
           MKT_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
           `Không kết nối được ${platform}: ${error instanceof Error ? error.message : String(error)}. Kiểm tra App ID/Secret trong be/.env và nhà bán đã đồng ý kết nối app trên Seller Center.`,
@@ -132,10 +133,7 @@ export class MarketplaceIntegrationService {
     try {
       tokenResult = await adapter.exchangeCodeForToken(code, shopIdFromQuery);
     } catch (error) {
-      this.logger.error(
-        `Đổi authorization code lấy token thất bại (${platform})`,
-        error,
-      );
+      this.logger.error(`Đổi authorization code lấy token thất bại (${platform}): ${describeError(error)}`);
       throw new AppException(
         MKT_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
         `Không thể hoàn tất kết nối với ${platform} — vui lòng thử lại. Nếu lỗi lặp lại, liên hệ quản trị viên.`,
@@ -250,8 +248,7 @@ export class MarketplaceIntegrationService {
       // đánh dấu is_active=false để cron ngưng quét shop này (nhờ partial
       // index), cần Admin vào kết nối lại thủ công.
       this.logger.error(
-        `Refresh token thất bại cho shop ${shopDoc.shop_id} (${shopDoc.platform}) — đánh dấu ngừng hoạt động.`,
-        error,
+        `Refresh token thất bại cho shop ${shopDoc.shop_id} (${shopDoc.platform}) — đánh dấu ngừng hoạt động: ${describeError(error)}`,
       );
       shopDoc.is_active = false;
       await shopDoc.save();

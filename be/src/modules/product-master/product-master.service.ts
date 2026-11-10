@@ -26,6 +26,7 @@ import {
 } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
 import type { LazadaProductRaw } from '../marketplace-integration/adapters/lazada.adapter';
 import { formatDimsCm, formatFlatMmAsCm } from '../../common/utils/measure-format.util';
+import { describeError } from '../../common/utils/log-error.util';
 
 // Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi (AURELLE
 // dùng cùng giới hạn, xem AURELLE_MARKETPLACE_DESIGN.md Mục 7.5).
@@ -216,10 +217,7 @@ export class ProductMasterService {
           results.push({ ok: true, ...(await this.syncCatalogForShop(platform, shop.shop_id, options)) });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          this.logger.error(
-            `Đồng bộ catalog shop ${shop.shop_id} (${platform}) thất bại, bỏ qua, tiếp tục shop khác.`,
-            error,
-          );
+          this.logger.error(`Đồng bộ catalog shop ${shop.shop_id} (${platform}) thất bại, bỏ qua, tiếp tục shop khác: ${describeError(error)}`);
           results.push({ ok: false, platform, shopId: shop.shop_id, error: message });
         }
       }
