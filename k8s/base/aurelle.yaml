@@ -1,0 +1,69 @@
+# Sàn giả lập AURELLE (be/scripts/aurelle-mock-server.ts) — chạy CHÍNH image be,
+# chỉ đổi lệnh, nên không cần image/Dockerfile riêng.
+#   /oauth/authorize, /developer : trình duyệt mở (ingress ra ngoài ở overlay ghcr)
+#   /rest/...                    : be gọi nội bộ http://aurelle:4000/rest
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aurelle
+  labels: { app: aurelle }
+spec:
+  replicas: 1
+  # PVC ReadWriteOnce: tắt pod cũ trước rồi mới bật pod mới.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: aurelle }
+  template:
+    metadata:
+      labels: { app: aurelle }
+    spec:
+      containers:
+        - name: aurelle
+          image: optipackai-be:local
+          imagePullPolicy: IfNotPresent
+          command: ['node', 'dist/scripts/aurelle-mock-server.js']
+          ports:
+            - containerPort: 4000
+          # MONGODB_URI, AURELLE_SELLER_ID lấy chung Secret với be.
+          envFrom:
+            - secretRef: { name: optipackai-be-env }
+          env:
+            - { name: AURELLE_MOCK_HOST, value: '0.0.0.0' }
+            - { name: AURELLE_MOCK_PORT, value: '4000' }
+          volumeMounts:
+            # Developer Console lưu app key/secret vào dist/.aurelle-local/apps.json.
+            - name: apps
+              mountPath: /repo/be/dist/.aurelle-local
+          readinessProbe:
+            tcpSocket: { port: 4000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 4000 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 256Mi }
+      volumes:
+        - name: apps
+          persistentVolumeClaim: { claimName: aurelle-apps }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: aurelle-apps
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aurelle
+spec:
+  selector: { app: aurelle }
+  ports:
+    - port: 4000
+      targetPort: 4000

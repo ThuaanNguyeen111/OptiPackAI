@@ -160,7 +160,7 @@ jobs:
             tar -xzf - -C "$d" && cd "$d"
             ENV_FILE=/root/optipackai/be.env bash scripts/k8s-create-secret.sh
             kubectl apply -k k8s/overlays/ghcr
-            for x in redis packer be fe storefront; do
+            for x in redis packer be fe storefront aurelle; do
               kubectl -n optipackai rollout status deploy/$x --timeout=300s
             done
             kubectl -n optipackai get pods'

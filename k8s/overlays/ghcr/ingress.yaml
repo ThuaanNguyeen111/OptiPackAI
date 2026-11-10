@@ -2,6 +2,7 @@
 #   https://optipack.io.vn         → fe
 #   https://optipack.io.vn/api/... → be (backend tự có global prefix /api)
 #   https://shop.optipack.io.vn    → storefront
+#   https://aurelle.optipack.io.vn → sàn giả lập AURELLE (trang cấp quyền + Developer Console)
 # packer KHÔNG ra Internet: chỉ be gọi nội bộ http://packer:8000.
 # HTTPS: cert-manager + Let's Encrypt (ClusterIssuer trong cluster-issuer.yaml).
 apiVersion: networking.k8s.io/v1
@@ -13,7 +14,7 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-    - hosts: [optipack.io.vn, shop.optipack.io.vn]
+    - hosts: [optipack.io.vn, shop.optipack.io.vn, aurelle.optipack.io.vn]
       secretName: optipack-tls
   rules:
     - host: optipack.io.vn
@@ -30,6 +31,13 @@ spec:
             pathType: Prefix
             backend:
               service: { name: storefront, port: { number: 3001 } }
+    - host: aurelle.optipack.io.vn
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: aurelle, port: { number: 4000 } }
 ---
 # Ingress riêng để giới hạn body upload chỉ cho API. Dùng chung chứng chỉ optipack-tls.
 apiVersion: networking.k8s.io/v1
