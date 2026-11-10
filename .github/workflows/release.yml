@@ -3,10 +3,11 @@ name: Release & deploy
 # CI xanh trên main → build image lên ghcr.io → SSH vào VPS k3s apply với tag
 # sha-<commit>. Image nào mã nguồn không đổi thì không build lại, chỉ gắn thêm tag.
 #
-# GitHub → Settings → Secrets and variables → Actions, tạo 4 secret cho job deploy:
+# GitHub → Settings → Secrets and variables → Actions, tạo các secret cho job deploy:
 #   DEPLOY_HOST         IP server, vd 162.4.176.64
+#   DEPLOY_PORT         cổng SSH của server, vd 24700 (bỏ trống = 22)
 #   DEPLOY_SSH_KEY      private key SSH (public key nằm trong ~/.ssh/authorized_keys của root trên server)
-#   DEPLOY_KNOWN_HOSTS  output của `ssh-keyscan <IP>` (chống giả mạo server)
+#   DEPLOY_KNOWN_HOSTS  output của `ssh-keyscan -p <PORT> <IP>` (chống giả mạo server)
 #   BE_ENV              toàn bộ nội dung file be/.env
 on:
   # Chỉ chạy khi workflow CI chạy xong trên main; job build tự bỏ qua nếu CI đỏ.
@@ -151,9 +152,10 @@ jobs:
         env:
           BE_ENV: ${{ secrets.BE_ENV }}
           HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
           printf '%s\n' "$BE_ENV" > be/.env
-          tar -czf - k8s scripts/k8s-create-secret.sh be/.env | ssh -i ~/.ssh/id_deploy "root@$HOST" '
+          tar -czf - k8s scripts/k8s-create-secret.sh be/.env | ssh -i ~/.ssh/id_deploy -p "${PORT:-22}" "root@$HOST" '
             set -euo pipefail
             d=$(mktemp -d); trap "rm -rf $d" EXIT
             tar -xzf - -C "$d" && cd "$d"
