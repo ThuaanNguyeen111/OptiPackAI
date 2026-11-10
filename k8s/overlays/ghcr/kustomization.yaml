@@ -15,6 +15,7 @@ kind: Kustomization
 namespace: optipackai
 resources:
   - ../../base
+  - ingress.yaml
 images:
   # ĐỔI "thuaannguyeen111" thành owner thật của repo trên GitHub.
   - name: optipackai-be
@@ -31,8 +32,23 @@ images:
     newTag: latest
 patches:
   # Trên cụm thật thì kéo image mới nhất theo tag, không dùng bản cache ở node.
-  - target: { kind: Deployment, name: 'be|fe|storefront|packer' }
+  - target: { kind: Deployment, name: 'be|fe|storefront|packer|aurelle' }
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Always
+  # Ingress *.optipackai.local của base chỉ dành cho máy dev; domain thật ở ingress.yaml.
+  - patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: optipackai
+  # ConfigMap đứng sau Secret trong envFrom nên ghi đè CORS_ORIGIN của be.env.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: optipackai-be-config
+      data:
+        CORS_ORIGIN: 'https://optipack.io.vn,https://shop.optipack.io.vn'

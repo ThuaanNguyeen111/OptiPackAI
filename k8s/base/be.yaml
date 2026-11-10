@@ -23,12 +23,12 @@ spec:
             - secretRef: { name: optipackai-be-env }
             - configMapRef: { name: optipackai-be-config }
           readinessProbe:
-            httpGet: { path: /, port: 3000 }
+            httpGet: { path: /api, port: 3000 }
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
-            httpGet: { path: /, port: 3000 }
+            httpGet: { path: /api, port: 3000 }
             initialDelaySeconds: 40
             periodSeconds: 20
             failureThreshold: 3

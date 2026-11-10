@@ -4,7 +4,7 @@
 # BUILD CONTEXT = THƯ MỤC GỐC REPO (giống be/Dockerfile — npm workspaces):
 #
 #   docker build -f fe/Dockerfile -t optipackai-fe:local \
-#     --build-arg VITE_API_URL=http://localhost:3000 .
+#     --build-arg VITE_API_URL=http://localhost:3000/api .
 #
 # LƯU Ý QUAN TRỌNG: Vite nhúng VITE_API_URL vào bundle NGAY LÚC BUILD,
 # không đọc lại lúc chạy container. Muốn đổi URL backend thì phải build
@@ -20,7 +20,7 @@ COPY package.json package-lock.json ./
 COPY fe/package.json ./fe/package.json
 RUN npm ci --workspace fe --include-workspace-root --ignore-scripts
 COPY fe ./fe
-ARG VITE_API_URL=http://localhost:3000
+ARG VITE_API_URL=http://localhost:3000/api
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build --workspace fe
 
