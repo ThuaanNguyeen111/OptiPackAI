@@ -12,6 +12,7 @@ import { TrustedDevice, TrustedDeviceSchema } from './schemas/trusted-device.sch
 import { MfaService } from './services/mfa.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { TokenModule } from './token.module';
+import { DeviceToken, DeviceTokenSchema } from '../notifications/schemas/device-token.schema';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { TokenModule } from './token.module';
     MongooseModule.forFeature([
       { name: LoginAuditLog.name, schema: LoginAuditLogSchema }, // FIX #6
       { name: TrustedDevice.name, schema: TrustedDeviceSchema }, // FIX #27
+      { name: DeviceToken.name, schema: DeviceTokenSchema }, // 10/11/2026 — gỡ token push khi đăng xuất
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
   ],
