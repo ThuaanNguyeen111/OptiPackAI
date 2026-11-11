@@ -6,7 +6,7 @@ import { ShipmentEventType } from '../enums/shipment-event-type.enum';
 /**
  * G1 — lịch sử vận đơn = TRACKING dạng dòng thời gian. APPEND-ONLY: code
  * không có đường nào sửa/xóa event — khi tranh chấp, lịch sử không ai chỉnh được.
- * Mở rộng sau: thêm location{lat,lng}, proof{photo_urls} vào đây.
+ * Mở rộng sau: thêm location{lat,lng} vào đây. 🔄 10/11/2026: đã có `photo_urls` (ảnh bằng chứng).
  */
 @Schema({ collection: 'shipment_events', timestamps: false })
 export class ShipmentEvent {
@@ -54,6 +54,10 @@ export class ShipmentEvent {
   /** Trạng thái gốc hãng gửi (VD `picked`, `delivery_fail`). */
   @Prop({ type: String, default: null })
   carrier_status?: string | null;
+
+  /** 10/11/2026 — ảnh bằng chứng (Cloudinary) khi giao thành công / thất bại. Sự kiện cũ không có field này. */
+  @Prop({ type: [String], default: undefined })
+  photo_urls?: string[];
 }
 
 export type ShipmentEventDocument = HydratedDocument<ShipmentEvent>;

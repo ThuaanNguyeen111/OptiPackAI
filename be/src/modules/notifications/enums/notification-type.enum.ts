@@ -42,6 +42,8 @@ export enum NotificationType {
   PACKING_BLOCKED = 'packing_blocked',
   // ---- đóng gói (05/10/2026)
   PACKING_ASSIGNED = 'packing_assigned', // được giao đóng 1 nhóm
+  // 10/11/2026 — được giao LẤY HÀNG 1 nhóm (tự động hoặc gán tay) — gửi đích danh, có push.
+  PICKING_ASSIGNED = 'picking_assigned',
   PACKING_PARCEL_HELD = 'packing_parcel_held', // kiện lệch cân đang chờ người khác xem lại
   PACKING_ISSUE = 'packing_issue', // báo món hỏng/thiếu/sai lúc đóng
   UNPACK_REQUIRED = 'unpack_required', // đơn hủy sau khi đóng — phải tháo kiện trả hàng về kệ

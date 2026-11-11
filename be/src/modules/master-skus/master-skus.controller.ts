@@ -29,7 +29,7 @@ const mapRes = (m: MarketplaceSkuMappingDocument): Record<string, unknown> => ({
 });
 
 @ApiTags('Colors')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('colors')
 export class ColorsController {
@@ -54,7 +54,7 @@ export class ColorsController {
 }
 
 @ApiTags('Master SKUs')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('master-skus')
 export class MasterSkusController {

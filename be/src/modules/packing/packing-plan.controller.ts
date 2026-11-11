@@ -309,6 +309,8 @@ export interface PackingPlanResponse {
     note: string | null;
     by: string;
     at: Date;
+    /** 10/11/2026 — ảnh món lỗi. */
+    photoUrls: string[];
   }[];
   activity: { kind: string; parcelNo: number | null; detail: string; reason: string | null; by: string | null; at: Date }[];
   session: {
@@ -566,6 +568,7 @@ export function toPlanResponse(
       note: i.note,
       by: i.by.toString(),
       at: i.at,
+      photoUrls: i.photo_urls ?? [],
     })),
     activity: plan.activity.map((a) => ({
       kind: a.kind,

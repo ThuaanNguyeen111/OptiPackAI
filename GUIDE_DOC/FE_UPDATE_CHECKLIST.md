@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8).
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8). 10/11: **ảnh bằng chứng** (dòng 17, mục 14 — chặn nút Giao thành công của vận đơn shop tự giao). 10/11 tối: thông báo `picking_assigned` (dòng 18, mục 15). 09/11: văn phong prompt AI hướng dẫn đóng gói (dòng 20, mục 17).
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -11,23 +11,26 @@
 
 | # | Việc | Mục | Ước lượng | Trạng thái |
 |---|---|---|---|---|
-| 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
+| 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ✅ 09/11 — `ShippingPage` điền sẵn 4 ô từ `GET /shipping/recipients`, chip "Địa chỉ mô phỏng", hiện `assumptions` |
 | 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ✅ 30/10 — đã làm, chưa thử với kế hoạch thật trên trình duyệt (xem mục 2) |
 | 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm). 🔄 28/10: phần Bảng điều khiển chuyển sang dòng 7 | 3 | Tuỳ | ✅ 31/10 — `getProductMaster` + nút Chi tiết ở tab Nối SKU |
 | 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ✅ 31/10 — `WarehousePage` (đếm tạm, không lưu BE) |
 | 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ✅ 31/10 — nút lấy chung trên `WarehousePage` |
-| 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
-| 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
-| 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
+| 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ✅ 09/11 — `PackagingWorkbench` khoá "Đóng nhanh" theo `packScanRequired`, bắt `PACKING_SCAN_REQUIRED` |
+| 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ✅ 09/11 — `DashboardPage` đọc `GET /dashboard/summary`; đã bỏ `dashboard-mock.ts` |
+| 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ✅ 09/11 — shipper, đếm ngược hạn đóng/giao ở màn Lấy hàng, Đóng gói, Giao hàng; 4 mã lỗi shipper |
 | 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ✅ 01/11 — `ConsolidationRulesPanel` trong trang Luật gộp đơn; chưa bấm thử với dữ liệu thật |
 | 11 | 🆕 05/11 **Bảng so sánh thùng từng kiện**: dưới khung 3D, mỗi kiện 1 bảng từ `parcels[].boxComparison` (hạng, điểm /10, cước, giá, lấp đầy, tồn, kết luận), tô dòng đang dùng, cảnh báo khi `scoresConsistent = false`, (tuỳ chọn) nút "Đổi sang thùng này" | 8 | ~nửa ngày | ✅ Đã làm 06/11 (nút "Đổi sang thùng này" tuỳ chọn chưa làm) |
 | 12 | 🆕 05/11 **AI hướng dẫn minh bạch + học từ kho**: banner `catalogStale` (+ `catalogChanges[]`) như `profileStale`; nút 👍/👎 chấm hướng dẫn (`POST …/guide/rating`); nút "Xem dữ liệu gửi AI" cho Admin (`GET …/guide/trace`) | 9 | ~nửa ngày | ✅ Đã làm 06/11 |
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
-| 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ☐ Chưa làm |
-| 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ☐ Chưa làm |
-| 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ☐ Chưa làm |
-| 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | ☐ Chưa làm |
-| 17 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 14 | ~2 giờ | ☐ Chưa làm |
+| 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ✅ 09/11 — `DirectConnectPanel` Tiki, khối xác nhận đủ hàng, nút In nhãn Tiki, Giao hàng ẩn chọn hãng |
+| 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ✅ 09/11 — `utils/units.ts` (cm/kg, dấu phẩy), ô nhập đổi về mm/g |
+| 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ✅ 09/11 — `PackagingMaterialsPage` 5 tab, cột Ngưỡng + trạng thái, tab Túi niêm phong đọc `stockStatus` của BE |
+| 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | 🟡 09/11 — đã làm `React.lazy` (gói chính 2,4 MB → 271 kB), dừng polling khi tab ẩn, `client_event_id` kho; **còn** huỷ request cũ khi đổi bộ lọc (13.3) |
+| 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
+| 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
+| 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
+| 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -419,15 +422,77 @@ Việc FE (`PackagingWorkbench.tsx`):
 
 ---
 
-## 14. 🆕 09/11/2026 — Cấu hình văn phong prompt AI hướng dẫn đóng gói (dòng 17)
+## 14. 🆕 10/11/2026 — Ảnh bằng chứng (dòng 17)
+
+**Vì sao chặn:** từ 10/11 BE bắt vận đơn shop tự giao (vận đơn **không có `carrierCode`**, gồm giao hỏa tốc có shipper) phải có ≥ 1 ảnh khi bấm Giao thành công. FE web hiện gửi `POST /shipments/:id/deliver` không kèm ảnh → nhận 400 `SHP_PROOF_PHOTO_REQUIRED`. Vận đơn hãng mẫu cập nhật tay và route cũ `fulfillment/deliver` không bị ảnh hưởng.
+
+**14.1 Gửi ảnh (bắt buộc làm):**
+1. Nút Giao thành công (vận đơn không có `carrierCode`): mở **hộp thoại chụp ảnh bằng camera** (máy tính dùng webcam, điện thoại dùng camera sau), tối đa 3 ảnh. Thẻ `<input type="file" capture>` **không** mở được webcam trên máy tính (trình duyệt máy tính bỏ qua `capture`, chỉ mở hộp chọn file) → phải dùng API camera của trình duyệt:
+   - Mở camera: `navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1600 } } })` → gắn stream vào thẻ `<video autoplay playsInline>` để người dùng nhìn thấy hình.
+   - Bấm **Chụp**: vẽ khung hình hiện tại lên `<canvas>` (`ctx.drawImage(video, 0, 0)`), rồi `canvas.toBlob(cb, 'image/jpeg', 0.8)` → được 1 file JPG (thường 200–500 KB, dưới hạn 10 MB). Hiện ảnh nhỏ xem trước, cho **Chụp lại** / bỏ từng ảnh.
+   - Đóng hộp thoại hoặc gửi xong: tắt camera (`stream.getTracks().forEach(t => t.stop())`), nếu không đèn webcam vẫn sáng.
+   - Trình duyệt chỉ cho mở camera trên `https://` hoặc `http://localhost` (chạy dev trên máy là được; mở bằng IP LAN `http://192.168...` thì **không** mở được camera). Lần đầu trình duyệt hỏi quyền camera.
+   - **Dự phòng:** máy không có camera, người dùng chặn quyền, hoặc lỗi `NotAllowedError` / `NotFoundError` → hiện thông báo và nút "Chọn ảnh từ máy" (`<input type="file" accept="image/*" multiple>`, VD ảnh shipper gửi qua Zalo).
+   - Nút "Xác nhận giao thành công" **mờ** cho tới khi có ≥ 1 ảnh (BE cũng chặn, xem bước 4).
+2. `POST /proof-photos` dạng `FormData` (mỗi ảnh `formData.append('files', blob, 'proof-1.jpg')` — ảnh chụp từ canvas là Blob nên phải truyền thêm tên file; **không** tự đặt header `Content-Type`, để trình duyệt tự thêm boundary) → `{ photos: [{ url }] }`.
+3. Gửi `POST /shipments/:id/deliver` body `{ expected_version, note?, photo_urls: photos.map(p => p.url) }`.
+4. Thiếu ảnh → BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Lỗi ảnh: `PROOF_PHOTO_TOO_LARGE` / `PROOF_PHOTO_INVALID_TYPE` / `PROOF_PHOTO_TOO_MANY` → báo người dùng chọn lại; `PROOF_PHOTO_UPLOAD_FAILED` (502) → cho thử lại; `PROOF_PHOTO_NOT_CONFIGURED` (503) → báo Admin cấu hình Cloudinary.
+
+**14.2 Tuỳ chọn (không chặn):** dùng lại hộp thoại chụp ảnh ở 14.1, cùng cách gửi `photo_urls` ở Giao thất bại (`/fail`), Kiểm hàng hoàn (`POST /returns/:id/inspect`), Báo lỗi kiện (`.../packing-plan/report-issue`).
+
+**14.3 Hiện ảnh:** `GET /shipments/:id/events` mỗi sự kiện có `photoUrls` (ảnh nhỏ bấm phóng to); phiếu trả `inspectionPhotoUrls`; kế hoạch đóng gói `issues[].photoUrls`. URL là ảnh JPG công khai trên Cloudinary, dùng thẳng trong `<img>`.
+
+Chi tiết + mã lỗi: `API_LIST.md` mục 30.
+
+## 15. 🆕 10/11/2026 tối — Thông báo `picking_assigned` (dòng 18)
+
+BE vừa thêm push cho app mobile (`API_LIST.md` mục 31). Phía web chỉ cần đúng 1 việc:
+
+1. `fe/src/types/notifications.ts`: thêm `'picking_assigned'` vào `NOTIFICATION_TYPES` và nhãn `picking_assigned: { vi: 'Được giao lấy hàng', en: 'Picking assigned' }`.
+2. `fe/src/lib/notification-nav.ts`: thêm `type === 'picking_assigned'` vào nhóm điều hướng cùng `packing_assigned` (Warehouse Staff → `/app/warehouse?groupId=<related_entity_id>`).
+
+Thông báo gửi đích danh người được giao (`related_entity_type: order_group`); nhóm Hỏa Tốc có `severity: warning` và câu có hạn đóng gói.
+
+**Thử push trên điện thoại** (người test FE / mobile): làm theo `MOBILE_UPDATE_CHECKLIST.md` mục **9c** — gồm cách test khi file khoá Firebase chỉ nằm ở máy Thuận.
+
+**Không cần FE làm:** `POST/DELETE /notifications/devices` (chỉ app mobile dùng), `GET /shipments?shipper_id=` (bộ lọc mới cho app; web tuỳ chọn dùng nếu muốn có tab "Vận đơn của tôi"), sửa Swagger `JWT-auth` (chỉ ảnh hưởng trang `/api/docs`).
+
+## 16. 🆕 11/11/2026 — Đăng nhập Google trên app mobile (dòng 19)
+
+**Ai làm gì:** Thuận làm phần Google Cloud (mục 9d bước A trong `MOBILE_UPDATE_CHECKLIST.md`) và gửi cho nhóm **client id Web** (`GOOGLE_CLIENT_ID` của BE — không phải secret). Nhóm mobile làm phần app (mục 9d bước B). **Web (`fe/`) không phải sửa gì** — luồng Google web cũ giữ nguyên.
+
+**Mỗi bạn chạy `flutter run` trên máy mình:** chạy `cd mobile/android` → `.\gradlew signingReport`, gửi Thuận dòng `SHA1:` mục `Variant: debug` để thêm vào Google Cloud. Chưa thêm SHA-1 của máy mình thì chọn tài khoản xong sẽ báo `canceled`.
+
+**Việc trong app (`mobile/`):**
+1. `pubspec.yaml`: thêm `google_sign_in: ^7.2.0` → `flutter pub get`.
+2. Khởi tạo 1 lần (VD trong `main.dart` hoặc lúc mở màn đăng nhập): `await GoogleSignIn.instance.initialize(serverClientId: const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'));` — chạy app với `--dart-define=GOOGLE_SERVER_CLIENT_ID=<client id Web>`.
+3. `mobile/lib/features/auth/login_screen.dart` (khoảng dòng 331–337): bỏ chữ "(chờ BE)", mở khoá nút. Bấm nút → `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → gọi `POST /auth/google/mobile` body `{ "id_token": idToken }`.
+4. Response **giống hệt `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`) → đi tiếp đúng đường của đăng nhập mật khẩu trong `AuthController` (lưu token, bắt đổi mật khẩu nếu `must_change_password`, bật push).
+5. Bắt lỗi:
+   - `GoogleSignInException` mã `canceled` → không báo gì (người dùng tự đóng), trừ khi vừa chọn tài khoản xong → thường do thiếu SHA-1 máy mình.
+   - `401 AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` → "Email này chưa có tài khoản OptiPack, liên hệ Admin".
+   - `401 AUTH_GOOGLE_ID_TOKEN_INVALID` / `AUTH_GOOGLE_AUTH_FAILED` → "Đăng nhập Google thất bại, thử lại".
+   - `401 AUTH_ACCOUNT_INACTIVE`, `403 AUTH_PASSWORD_DEADLINE_LOCKED` → cùng câu như đăng nhập mật khẩu.
+6. Đăng xuất: gọi `GoogleSignIn.instance.signOut()` (để lần sau được chọn lại tài khoản) và gửi `push_token` (FCM token hiện tại) trong body `POST /auth/logout` cùng `refresh_token` → BE gỡ máy khỏi push. Đã gửi `push_token` thì không cần gọi thêm `DELETE /notifications/devices/:token`.
+
+**Thử (người test):**
+| # | Làm | Kết quả đúng |
+|---|---|---|
+| 1 | Đăng nhập Google bằng email trùng 1 user đang hoạt động | Vào đúng màn theo role, có push |
+| 2 | Email Google chưa có trong hệ thống | Báo chưa có tài khoản, vẫn ở màn đăng nhập |
+| 3 | Admin vô hiệu hoá user đó, đăng nhập Google lại | Báo tài khoản bị vô hiệu hoá |
+| 4 | Đăng nhập, đăng xuất, Admin giao việc cho user đó | Điện thoại **không** nhận push nữa |
+| 5 | Đăng xuất xong bấm Google lại | Hiện danh sách chọn tài khoản (không tự vào tài khoản cũ) |
+
+## 17. 🆕 09/11/2026 — Cấu hình văn phong prompt AI hướng dẫn đóng gói (dòng 20)
 
 **BE xong.** System prompt gửi AI = **phần lõi cố định** (số bước, mỗi câu có SKU, không đổi vị trí, khuôn JSON) + **phần văn phong** Store Owner/Admin sửa được. Lưu chung bản cài đặt đóng gói (có version, lịch sử).
 
 | # | Màn | Việc FE |
 |---|---|---|
-| 14.1 | Cài đặt đóng gói | Thêm khung soạn nhiều dòng **"Văn phong hướng dẫn AI"**, hiện `settings.guideStylePrompt` (đã có sẵn văn bản mặc định). Lưu bằng `PUT /packing/settings { guide_style_prompt, expected_version }`. Tối đa 4000 ký tự; gửi chuỗi trống → 400 |
-| 14.2 | Cài đặt đóng gói | Nút **"Khôi phục mặc định"** gửi `guide_style_prompt: null`. Khi `guideStylePromptIsDefault: true` thì hiện nhãn "Mặc định" và khoá nút |
-| 14.3 | Cài đặt đóng gói | Ghi chú dưới khung: "Không sửa được phần quy tắc bắt buộc và định dạng trả về. Hướng dẫn đã tạo không tự viết lại, bấm **Viết lại** ở kiện để áp dụng." |
+| 17.1 | Cài đặt đóng gói | Thêm khung soạn nhiều dòng **"Văn phong hướng dẫn AI"**, hiện `settings.guideStylePrompt` (đã có sẵn văn bản mặc định). Lưu bằng `PUT /packing/settings { guide_style_prompt, expected_version }`. Tối đa 4000 ký tự; gửi chuỗi trống → 400 |
+| 17.2 | Cài đặt đóng gói | Nút **"Khôi phục mặc định"** gửi `guide_style_prompt: null`. Khi `guideStylePromptIsDefault: true` thì hiện nhãn "Mặc định" và khoá nút |
+| 17.3 | Cài đặt đóng gói | Ghi chú dưới khung: "Không sửa được phần quy tắc bắt buộc và định dạng trả về. Hướng dẫn đã tạo không tự viết lại, bấm **Viết lại** ở kiện để áp dụng." |
 
 **Nghiệm thu:** sửa văn phong → viết lại hướng dẫn 1 kiện → `GET …/guide/trace` thấy đoạn mới trong `systemPrompt` → khôi phục mặc định → nhãn "Mặc định" hiện lại.
 

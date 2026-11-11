@@ -11,7 +11,8 @@ describe('StaffAssignmentService — Least-Busy theo bước lấy hàng', () =>
   const binh = new Types.ObjectId();
   const chi = new Types.ObjectId();
   let userModel: { find: jest.Mock };
-  let orderGroupModel: { aggregate: jest.Mock; findByIdAndUpdate: jest.Mock };
+  let orderGroupModel: { aggregate: jest.Mock; findByIdAndUpdate: jest.Mock; findById: jest.Mock };
+  let notify: jest.Mock;
   let service: StaffAssignmentService;
 
   const chain = (value: unknown): { select: jest.Mock } => ({
@@ -31,10 +32,12 @@ describe('StaffAssignmentService — Least-Busy theo bước lấy hàng', () =>
     orderGroupModel = {
       aggregate: jest.fn(),
       findByIdAndUpdate: jest.fn((_id: string, update: { $set: { assigned_staff_id: Types.ObjectId } }) =>
-        Promise.resolve({ _id, assigned_staff_id: update.$set.assigned_staff_id }),
+        Promise.resolve({ _id: new Types.ObjectId(_id), assigned_staff_id: update.$set.assigned_staff_id, order_count: 2, order_priority: 'normal', packaging_deadline: null }),
       ),
+      findById: jest.fn(() => chain(null)),
     };
-    service = new StaffAssignmentService(orderGroupModel as never, userModel as never);
+    notify = jest.fn().mockResolvedValue({});
+    service = new StaffAssignmentService(orderGroupModel as never, userModel as never, { notify } as never);
   });
 
   it('chỉ coi nhóm chờ xử lý / đang lấy / thiếu hàng chờ quyết định là việc của người lấy hàng', () => {
@@ -78,5 +81,31 @@ describe('StaffAssignmentService — Least-Busy theo bước lấy hàng', () =>
     expect(rows.find((r) => r.fullName === 'An')?.activeWorkload).toBe(0);
     const [pipeline] = orderGroupModel.aggregate.mock.calls[0] as [{ $match: { fulfillment_status: { $in: string[] } } }[]];
     expect(pipeline[0]?.$match.fulfillment_status.$in).toEqual(PICKING_WORKLOAD_STATUSES);
+  });
+
+  // 10/11/2026 — báo nhân viên kho khi được giao lấy hàng (push đích danh).
+  it('giao việc → notify picking_assigned đích danh người nhận', async () => {
+    orderGroupModel.aggregate.mockResolvedValue([]);
+    const group = await service.autoAssign(new Types.ObjectId().toString());
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect((notify.mock.calls as [Record<string, unknown>][])[0]?.[0]).toMatchObject({
+      recipientUserId: String(group.assigned_staff_id),
+      type: 'picking_assigned',
+      severity: 'info',
+      relatedEntityType: 'order_group',
+    });
+  });
+
+  it('gán lại đúng người đang nhận việc → không báo lại', async () => {
+    orderGroupModel.aggregate.mockResolvedValue([]);
+    orderGroupModel.findById.mockReturnValue(chain({ assigned_staff_id: an }));
+    await service.autoAssign(new Types.ObjectId().toString());
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('gửi thông báo lỗi → việc gán vẫn thành công', async () => {
+    orderGroupModel.aggregate.mockResolvedValue([]);
+    notify.mockRejectedValue(new Error('db down'));
+    await expect(service.autoAssign(new Types.ObjectId().toString())).resolves.toBeDefined();
   });
 });

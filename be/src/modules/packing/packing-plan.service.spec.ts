@@ -149,6 +149,7 @@ describe('PackingPlanService', () => {
     adjustPickedUnits: jest.Mock;
     takeReplacementUnit: jest.Mock;
     reconcileReservation: jest.Mock;
+    clearPackingBlocked: jest.Mock;
   };
   let boxService: {
     listActiveSpecs: jest.Mock;
@@ -205,6 +206,7 @@ describe('PackingPlanService', () => {
       adjustPickedUnits: jest.fn(() => Promise.resolve({ restocked: 1, withoutLocation: 0 })),
       takeReplacementUnit: jest.fn(() => Promise.resolve({ binLocationId: 'b', remainingStock: 4 })),
       reconcileReservation: jest.fn(() => Promise.resolve()),
+      clearPackingBlocked: jest.fn(() => Promise.resolve()),
     };
     settings = { ...DEFAULT_PACKING_SETTINGS };
     bagService = { consumeForParcels: jest.fn(() => Promise.resolve({ consumed: [], shortfalls: [] })) };
@@ -321,6 +323,8 @@ describe('PackingPlanService', () => {
       expect(plan.orders.every((o) => o.status === 'ok')).toBe(true);
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
       expect(notificationsService.notify).toHaveBeenCalledTimes(1);
+      // 10/11/2026 — tính được kế hoạch thì gỡ cờ "kẹt đóng gói" của nhóm.
+      expect(orderGroupsService.clearPackingBlocked).toHaveBeenCalledWith(groupId);
     });
 
     it('không có CP-SAT: đơn cần chứng minh thêm ghi cp_sat = unavailable, còn lại skipped; không tạo việc nền', async () => {
@@ -1484,12 +1488,18 @@ describe('PackingPlanService', () => {
       plan = (await session.scan(groupId, 1, { code: q.sku, scan_method: 'barcode' }, userId)).plan;
       const after = await session.reportIssue(
         groupId,
-        { parcel_no: 1, item_key: plan.parcels[0]?.scans[0]?.item_key ?? q.item_key, issue: 'damaged', resolution: 'replace', warehouse_id: new Types.ObjectId().toString(), expected_version: plan.version },
+        {
+          parcel_no: 1, item_key: plan.parcels[0]?.scans[0]?.item_key ?? q.item_key, issue: 'damaged', resolution: 'replace',
+          warehouse_id: new Types.ObjectId().toString(), expected_version: plan.version,
+          photo_urls: ['https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/hong.jpg'],
+        },
         userId,
       );
       expect(orderGroupsService.adjustPickedUnits).toHaveBeenCalledWith(groupId, [{ sku: q.sku, quantity: 1 }], expect.objectContaining({ restock: false, kind: 'pack_issue' }));
       expect(orderGroupsService.takeReplacementUnit).toHaveBeenCalled();
       expect(after.issues).toHaveLength(1);
+      // 10/11/2026 — ảnh món lỗi lưu kèm sự cố.
+      expect(after.issues[0]?.photo_urls).toEqual(['https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/hong.jpg']);
       expect(after.parcels[0]?.scans).toHaveLength(0);
     });
 

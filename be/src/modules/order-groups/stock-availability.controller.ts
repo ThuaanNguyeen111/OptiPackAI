@@ -10,7 +10,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 
 /** K5 (27/09/2026) — tồn khả dụng + giữ chỗ của nhóm đơn. */
 @ApiTags('Stock Availability (K5)')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()
 export class StockAvailabilityController {

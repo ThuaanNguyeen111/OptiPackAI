@@ -23,7 +23,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
  * ⚠️ Lỗi thời — FE mới dùng /shipments/*.
  */
 @ApiTags('Order Groups (legacy fulfillment)')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('order-groups')
 export class LegacyFulfillmentController {

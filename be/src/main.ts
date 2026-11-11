@@ -5,6 +5,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { isSwaggerEnabled } from './common/utils/swagger-enabled.util';
 
 async function bootstrap(): Promise<void> {
   // rawBody: true — BẮT BUỘC cho webhook AURELLE (marketplace-webhooks/):
@@ -41,6 +42,10 @@ async function bootstrap(): Promise<void> {
   // common/filters/global-exception.filter.ts
   app.useGlobalFilters(new GlobalExceptionFilter());
 
+  // Mọi route nằm dưới /api để chung domain với FE (optipack.io.vn/api/...).
+  // Swagger giữ đường riêng 'api/docs' (setup không cộng prefix).
+  app.setGlobalPrefix('api');
+
   const swaggerConfig = new DocumentBuilder()
     .setTitle('OptiPack AI API')
     .setDescription(
@@ -52,8 +57,17 @@ async function bootstrap(): Promise<void> {
       'JWT-auth',
     )
     .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger: luôn bật khi chạy dev; production mặc định TẮT (không lộ bản đồ API
+  // ra ngoài), bật lại bằng SWAGGER_ENABLED=true (VD server demo cho FE xem API).
+  if (isSwaggerEnabled(process.env)) {
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
+  // Nhận SIGTERM/SIGINT (deploy, k8s đổi pod) → Nest đóng app gọn gàng: ngừng
+  // nhận kết nối mới, chạy onModuleDestroy (Redis, Mongo, interval...) thay vì
+  // bị tắt ngang giữa lúc đang ghi.
+  app.enableShutdownHooks();
 
   await app.listen(process.env.PORT ?? 3000);
 }

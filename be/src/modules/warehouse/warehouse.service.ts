@@ -45,7 +45,7 @@ import { LotAllocation, StockLot, StockLotDocument } from './schemas/stock-lot.s
 import { StockReceipt, StockReceiptDocument, StockReceiptLine } from './schemas/stock-receipt.schema';
 import { OldestLotInfo, StockLotLedger, fifoDateOf, generateLotCode, trimOrNull } from './stock-lot.ledger';
 import { CreateStockReceiptDto, ListStockLotsQueryDto } from './dto/stock-receipt.dto';
-import { sellerSkuEqualsIgnoreCase } from '../master-skus/stock-key.util';
+import { sellerSkuEqualsIgnoreCase, sellerSkuMatch } from '../master-skus/stock-key.util';
 
 /** Ngày nhập được phép lệch lên tương lai tối đa (đồng hồ máy khách lệch). */
 const RECEIVED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
@@ -292,6 +292,71 @@ export class WarehouseService {
     return this.assignmentModel
       .find({ warehouse_id: new Types.ObjectId(warehouseId) })
       .lean();
+  }
+
+  /**
+   * 09/11/2026 (app mobile, BE_MOBILE_CHECKLIST mục 1) — tra 1 ô theo mã vừa
+   * quét: trả ô + khu + các dòng tồn đang nằm trên ô. Màn nhập thêm / kiểm kê
+   * / chuyển ô trên app bắt đầu bằng quét mã ô; trước đây chỉ có danh sách
+   * tồn của cả kho nên app phải tải hết rồi tự lọc.
+   * Mã quét được bỏ khoảng trắng 2 đầu; thử đúng mã trước, rồi bản viết hoa
+   * (máy quét / bàn phím có thể gửi chữ thường). Ô đã ngừng dùng vẫn trả
+   * (`isActive: false`) để app báo rõ thay vì "không tìm thấy".
+   */
+  async findBinByCode(
+    warehouseId: string,
+    rawBinCode: string,
+  ): Promise<{
+    bin: BinLocationDocument;
+    zone: { zone_code: string; zone_name: string } | null;
+    assignments: SkuBinAssignmentDocument[];
+  }> {
+    if (!Types.ObjectId.isValid(warehouseId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `"${warehouseId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { warehouseId },
+      );
+    }
+    const binCode = rawBinCode.trim();
+    if (binCode === '' || binCode.length > 64) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_NOT_FOUND,
+        'Mã ô trống hoặc quá dài.',
+        HttpStatus.BAD_REQUEST,
+        { binCode: rawBinCode },
+      );
+    }
+    const warehouseOid = new Types.ObjectId(warehouseId);
+    const candidates = [...new Set([binCode, binCode.toUpperCase()])];
+    const bins = await this.binModel
+      .find({ warehouse_id: warehouseOid, bin_code: { $in: candidates } })
+      .lean();
+    const bin = bins.find((b) => b.bin_code === binCode) ?? bins[0];
+    if (!bin) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_NOT_FOUND,
+        `Không tìm thấy ô "${binCode}" trong kho này.`,
+        HttpStatus.NOT_FOUND,
+        { warehouseId, binCode },
+      );
+    }
+    const [zone, assignments] = await Promise.all([
+      this.zoneModel
+        .findById(bin.zone_id)
+        .select({ zone_code: 1, zone_name: 1 })
+        .lean<{ zone_code: string; zone_name: string } | null>(),
+      this.assignmentModel
+        .find({ warehouse_id: warehouseOid, bin_location_id: bin._id })
+        .sort({ seller_sku: 1 })
+        .lean(),
+    ]);
+    return {
+      bin,
+      zone: zone ? { zone_code: zone.zone_code, zone_name: zone.zone_name } : null,
+      assignments,
+    };
   }
 
   /**
@@ -1907,7 +1972,7 @@ export class WarehouseService {
     const doc = await this.assignmentModel.findOne(
       master
         ? { warehouse_id: warehouseId, bin_location_id: binId, master_sku: master }
-        : { warehouse_id: warehouseId, bin_location_id: binId, platform: line.platform, shop_id: line.shop_id, seller_sku: sellerSkuEqualsIgnoreCase(line.seller_sku), master_sku: null },
+        : { warehouse_id: warehouseId, bin_location_id: binId, platform: line.platform, shop_id: line.shop_id, ...sellerSkuMatch(line.seller_sku), master_sku: null },
     );
     if (!doc) {
       throw new AppException(

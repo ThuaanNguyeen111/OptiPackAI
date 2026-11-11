@@ -47,6 +47,8 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
     decidedBy: d.decided_by,
     receivedBy: d.received_by,
     inspectedBy: d.inspected_by,
+    // 10/11/2026 — ảnh hàng hoàn lúc kiểm (phiếu cũ: []).
+    inspectionPhotoUrls: d.inspection_photo_urls ?? [],
     closedAt: d.closed_at,
     version: d.__v,
     createdAt: d.created_at ?? null,
@@ -61,7 +63,7 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
  * thì hệ thống tự tạo phiếu ở bước "đã nhận".
  */
 @ApiTags('Returns')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('returns')
 export class ReturnsController {

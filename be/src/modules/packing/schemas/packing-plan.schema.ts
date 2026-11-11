@@ -445,6 +445,8 @@ export class PlanIssue {
   @Prop({ type: String, default: null }) note!: string | null;
   @Prop({ type: SchemaTypes.ObjectId, required: true }) by!: Types.ObjectId;
   @Prop({ type: Date, required: true }) at!: Date;
+  /** 10/11/2026 — ảnh món lỗi (URL Cloudinary). Sự cố cũ không có field này. */
+  @Prop({ type: [String], default: undefined }) photo_urls?: string[];
 }
 export const PlanIssueSchema = SchemaFactory.createForClass(PlanIssue);
 

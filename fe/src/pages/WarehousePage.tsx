@@ -58,6 +58,12 @@ import {
 import { fetchMyProfile } from '../api/users.api'
 import { ApiError, formatApiError, getApiErrorCode } from '../lib/api'
 import { Badge } from '../components/ui/Badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
 import { groupStatusTone } from '../lib/stage-colors'
 import { cn } from '../lib/cn'
 import { recipientBorderClass, recipientChipClass } from '../lib/recipient-color'
@@ -74,6 +80,8 @@ import {
 import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
 import { formatDateTime, formatLotReceived } from '../utils/format'
 import { formatDimsCm, formatKg } from '../utils/units'
+import { newClientEventId } from '../utils/client-event-id'
+import { setVisibleInterval } from '../utils/visible-interval'
 
 type QueueTab =
   | 'to_pick'
@@ -182,6 +190,46 @@ function statusLabel(status: string, vi: boolean): string {
   return vi ? known.vi : known.en
 }
 
+type ExpressClock = { label: string; tone: 'ok' | 'soon' | 'late' }
+
+function formatRemain(ms: number, vi: boolean): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 60) return vi ? `${minutes} phút` : `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (rest === 0) return vi ? `${hours} giờ` : `${hours}h`
+  return vi ? `${hours} giờ ${rest} phút` : `${hours}h ${rest}m`
+}
+
+/** Đơn hỏa tốc: đếm tới hạn đóng gói. Còn ≤ 15 phút thì vàng, quá hạn thì đỏ. */
+function packDeadlineClock(
+  group: OrderGroup | null | undefined,
+  nowMs: number,
+  vi: boolean,
+): ExpressClock | null {
+  if (!group || group.orderPriority !== 'express' || !group.packagingDeadline) return null
+  if (group.fulfillmentStatus === 'canceled') return null
+  const remainMs = new Date(group.packagingDeadline).getTime() - nowMs
+  if (!Number.isFinite(remainMs)) return null
+  const late = remainMs <= 0
+  const soon = !late && remainMs <= 15 * 60 * 1000
+  const amount = formatRemain(Math.abs(remainMs), vi)
+  const label = late
+    ? vi
+      ? `Quá hạn đóng ${amount}`
+      : `${amount} past pack deadline`
+    : vi
+      ? `Còn ${amount} để đóng`
+      : `${amount} left to pack`
+  return { label, tone: late ? 'late' : soon ? 'soon' : 'ok' }
+}
+
+function expressClockClass(tone: ExpressClock['tone']): string {
+  if (tone === 'late') return 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+  if (tone === 'soon') return 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'
+  return 'border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-200'
+}
+
 function shortId(id: string): string {
   return id.length > 10 ? id.slice(-10) : id
 }
@@ -192,13 +240,6 @@ function platformLabel(platform: string): string {
   if (p === 'tiktok') return 'TikTok'
   if (p === 'tiki') return 'Tiki'
   return platform
-}
-
-function newClientEventId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `pick-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function readProgress(groupId: string): PickProgress {
@@ -469,9 +510,9 @@ function BarcodeGraphic({ code }: { code: string }) {
   ]
   const label = code.length > 0 ? code : '—'
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-slate-100 bg-[#f8fafc] px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
+    <div className="flex flex-col items-center justify-center rounded-xl border border-slate-100 bg-[#f8fafc] px-4 py-2 dark:border-slate-800 dark:bg-slate-900/40">
       <svg
-        className="h-12 w-full max-w-[280px]"
+        className="h-8 w-full max-w-[240px]"
         viewBox="0 0 280 50"
         fill="currentColor"
         aria-hidden="true"
@@ -565,6 +606,8 @@ export function WarehousePage() {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => setVisibleInterval(() => setNowMs(Date.now()), 30_000), [])
 
   const [missingOpen, setMissingOpen] = useState(false)
   const [missingQty, setMissingQty] = useState(1)
@@ -738,8 +781,10 @@ export function WarehousePage() {
         : ''
     return `${row.stockShortage ? '⚠ ' : ''}${row.orderPriority === 'express' ? '⚡ ' : ''}${
       meId && row.assignedStaffId === meId ? '● ' : ''
-    }${shortId(row.id)} · ${platformLabel(row.platform)} · ${row.activeOrderCount}/${row.orderCount} ${
-      vi ? 'còn/tổng' : 'active/total'
+    }${shortId(row.id)} · ${platformLabel(row.platform)}${
+      row.activeOrderCount !== row.orderCount
+        ? ` · ${row.activeOrderCount}/${row.orderCount} ${vi ? 'đơn còn' : 'active'}`
+        : ''
     }${cancelHint}`
   }, [tabGroups, selectedId, meId, vi])
 
@@ -975,7 +1020,7 @@ export function WarehousePage() {
     if (!group?.assignedStaffId) return vi ? 'Chưa phân công' : 'Unassigned'
     if (meId && group.assignedStaffId === meId) return vi ? 'Bạn' : 'You'
     const hit = staffList.find((row) => row.staffId === group.assignedStaffId)
-    return hit?.fullName ?? shortId(group.assignedStaffId)
+    return hit?.fullName ?? (vi ? 'Nhân viên khác' : 'Another picker')
   }, [group, meId, staffList, vi])
 
   function selectLine(line: PickLine) {
@@ -1126,7 +1171,7 @@ export function WarehousePage() {
         ...(activeLine.bin_location_id
           ? { bin_location_id: activeLine.bin_location_id }
           : {}),
-        client_event_id: newClientEventId(),
+        client_event_id: newClientEventId('pick'),
       })
       const nextLines = lines.map((line) =>
         line.key === activeLine.key
@@ -1369,6 +1414,65 @@ export function WarehousePage() {
 
   const status = group?.fulfillmentStatus ?? ''
 
+  // Tab chính luôn hiện; tab đang chọn và «Hoàn hàng» (khi có việc) cũng hiện, còn lại vào «Xem thêm».
+  const PRIMARY_TAB_IDS: QueueTab[] = ['to_pick', 'review', 'picked']
+  const visibleTabs = QUEUE_TABS.filter(
+    (item) =>
+      PRIMARY_TAB_IDS.includes(item.id) ||
+      item.id === tab ||
+      (item.id === 'returns' && counts.returns > 0),
+  )
+  const moreTabs = QUEUE_TABS.filter((item) => !visibleTabs.includes(item))
+
+  const selectQueueTab = (id: QueueTab): void => {
+    setTab(id)
+    const first = groups.find((row) => {
+      if (!matchesTab(row, id)) return false
+      if (queueFilter === 'mine') {
+        return Boolean(meId && row.assignedStaffId === meId)
+      }
+      if (queueFilter === 'express') {
+        return row.orderPriority === 'express'
+      }
+      return true
+    })
+    if (first) {
+      navigate(`/app/warehouse?groupId=${first.id}`)
+    } else {
+      navigate('/app/warehouse')
+    }
+  }
+
+  const renderTab = (item: (typeof QUEUE_TABS)[number]) => (
+    <button
+      key={item.id}
+      type="button"
+      onClick={() => selectQueueTab(item.id)}
+      role="tab"
+      aria-selected={tab === item.id}
+      className={cn(
+        'inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-semibold transition-colors',
+        tab === item.id
+          ? 'bg-[var(--stage-pick)] text-white shadow-xs'
+          : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+      )}
+    >
+      {vi ? item.labelVi : item.labelEn}
+      <span
+        className={cn(
+          'min-w-[1.25rem] rounded-full px-1.5 py-px text-center text-[10px] font-bold tabular-nums',
+          tab === item.id
+            ? 'bg-white/20 text-white'
+            : item.id === 'review' && counts[item.id] > 0
+              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+        )}
+      >
+        {counts[item.id]}
+      </span>
+    </button>
+  )
+
   return (
     <>
       <PortalTopBar
@@ -1380,44 +1484,43 @@ export function WarehousePage() {
 
       <div className="flex-1 overflow-auto bg-transparent p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-4">
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs sm:px-4 sm:py-3 dark:border-slate-800 dark:bg-surface-1 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
-                {QUEUE_TABS.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-              onClick={() => {
-                      setTab(item.id)
-                      const first = groups.find((row) => {
-                        if (!matchesTab(row, item.id)) return false
-                        if (queueFilter === 'mine') {
-                          return Boolean(meId && row.assignedStaffId === meId)
-                        }
-                        if (queueFilter === 'express') {
-                          return row.orderPriority === 'express'
-                        }
-                        return true
-                      })
-                      if (first) {
-                        navigate(`/app/warehouse?groupId=${first.id}`)
-                      } else {
-                        navigate('/app/warehouse')
-                      }
-                    }}
-                    className={cn(
-                      'inline-flex h-8 items-center rounded-lg px-2.5 text-[11px] font-semibold cursor-pointer',
-                      tab === item.id
-                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                        : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800',
-                    )}
-                  >
-                    {vi ? item.labelVi : item.labelEn}
-                    <span className="ml-1 opacity-70">{counts[item.id]}</span>
-                  </button>
-                ))}
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs sm:px-4 sm:py-3 dark:border-slate-800 dark:bg-surface-1">
+            <div className="flex flex-col gap-3 text-xs">
+              <div
+                role="tablist"
+                className="-mx-1 flex items-center gap-1 overflow-x-auto px-1 pb-0.5"
+              >
+                {visibleTabs.map((item) => renderTab(item))}
+                {moreTabs.length > 0 ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        {vi ? 'Xem thêm' : 'More'}
+                        <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="min-w-[11rem]">
+                      {moreTabs.map((item) => (
+                        <DropdownMenuItem
+                          key={item.id}
+                          onSelect={() => selectQueueTab(item.id)}
+                          className="flex cursor-pointer items-center justify-between gap-3 text-xs font-semibold"
+                        >
+                          {vi ? item.labelVi : item.labelEn}
+                          <span className="rounded-full bg-slate-100 px-1.5 py-px text-[10px] font-bold tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            {counts[item.id]}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
       </div>
 
+              <div className="flex flex-wrap items-center gap-2">
               {tab === 'returns' ? null : (
               <>
               <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
@@ -1444,7 +1547,7 @@ export function WarehousePage() {
                 ))}
             </div>
 
-              <div className="relative min-w-[14rem] max-w-[22rem] flex-1 sm:flex-none" ref={groupPickerRef}>
+              <div className="relative min-w-[14rem] max-w-[28rem] flex-1" ref={groupPickerRef}>
                 <button
                   type="button"
                   disabled={tabGroups.length === 0}
@@ -1637,6 +1740,7 @@ export function WarehousePage() {
               >
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
+              </div>
         </div>
           </div>
 
@@ -1719,6 +1823,19 @@ export function WarehousePage() {
                           {vi ? 'Hỏa tốc' : 'Express'}
                         </span>
                       ) : null}
+                      {(() => {
+                        const clock = packDeadlineClock(group, nowMs, vi)
+                        return clock ? (
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold tabular-nums',
+                              expressClockClass(clock.tone),
+                            )}
+                          >
+                            {clock.label}
+                          </span>
+                        ) : null
+                      })()}
                       {group?.isOverdue ? (
                         <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300">
                           {vi ? 'Quá hạn' : 'Overdue'}
@@ -1799,7 +1916,10 @@ export function WarehousePage() {
                         <Users className="h-4 w-4" />
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+                        <p
+                          className="truncate text-sm font-bold text-slate-900 dark:text-slate-100"
+                          title={group?.assignedStaffId ?? undefined}
+                        >
                           {assignedName}
                         </p>
                         <p className="text-[11px] text-slate-500">
@@ -1817,7 +1937,7 @@ export function WarehousePage() {
                         'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs cursor-pointer',
                         group?.assignedStaffId
                           ? 'border border-slate-200 bg-white font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1'
-                          : 'bg-teal-700 font-semibold text-white shadow-sm hover:bg-teal-800',
+                          : 'bg-[var(--stage-pick)] font-semibold text-white shadow-sm hover:brightness-110',
                       )}
                     >
                       <UserCheck className="h-3.5 w-3.5" />
@@ -1991,7 +2111,7 @@ export function WarehousePage() {
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
                   <div className="space-y-3 lg:col-span-7">
                     {activeLine ? (
-                      <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1 sm:p-6">
+                      <div className="rounded-2xl border border-slate-200/90 border-t-4 border-t-[var(--stage-pick)] bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1 sm:p-6">
                         <div className="flex items-start gap-3">
                           <SkuThumb sku={activeLine.sku} />
                           <div className="min-w-0 flex-1">
@@ -2037,19 +2157,7 @@ export function WarehousePage() {
             </div>
           </div>
 
-                        {activeLine.bin_location_id && isBinAssigned(activeLine.bin_code) ? (
-                          <div className="mt-5">
-                            <BarcodeGraphic code={activeLine.bin_code} />
-                          </div>
-                        ) : (
-                          <div className="mt-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2.5 text-center text-[11px] font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
-                            {vi
-                              ? 'SKU chưa được gán ô — liên hệ Admin. Nút quét đang khóa.'
-                              : 'This SKU has no bin. Scanning is locked until an admin assigns one.'}
-                          </div>
-                        )}
-
-                        <div className="mt-5 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-surface-2/20 sm:p-4">
+                        <div className="mt-5 space-y-3 rounded-xl border border-blue-200/80 bg-blue-50/40 p-3.5 dark:border-blue-900/60 dark:bg-blue-950/20 sm:p-4">
                           <div>
                             <label
                               htmlFor="barcode-input"
@@ -2059,7 +2167,7 @@ export function WarehousePage() {
                                 ? 'Quét mã kệ/SKU'
                                 : 'Scan bin code or SKU (type if the label is unreadable)'}
                             </label>
-                            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-2.5 py-2 shadow-2xs dark:border-blue-800 dark:bg-surface-2">
+                            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-3 py-2.5 shadow-2xs focus-within:ring-2 focus-within:ring-blue-300 dark:border-blue-800 dark:bg-surface-2">
                               <input
                                 id="barcode-input"
                                 type="text"
@@ -2081,7 +2189,7 @@ export function WarehousePage() {
                                 }}
                                 placeholder={activeLine.bin_location_id ? activeLine.bin_code || activeLine.sku : ''}
                                 disabled={!canPickItems(status) || !activeLine.bin_location_id}
-                                className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
+                                className="min-w-0 flex-1 bg-transparent font-mono text-base font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
                               />
                               {isVerified ? (
                                 <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
@@ -2104,18 +2212,23 @@ export function WarehousePage() {
           </div>
           </div>
 
-                          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-                            <div className="flex items-center justify-center gap-1 sm:justify-start">
+                          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-end">
+                            <div className="flex flex-col items-center gap-1 sm:items-start">
+                              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                {vi ? 'Lấy lần này / còn cần' : 'This pick / still needed'}
+                              </span>
+                              <div className="flex items-center justify-center gap-1 sm:justify-start">
                               <button
                                 type="button"
                                 onClick={() => setCurrentQty((prev) => Math.max(1, prev - 1))}
                                 disabled={currentQty <= 1 || !canPickItems(status)}
-                                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
+                                className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
                               >
-                                <Minus className="h-3.5 w-3.5" />
+                                <Minus className="h-4 w-4" />
                               </button>
-                              <div className="flex h-10 min-w-[84px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold dark:border-slate-700 dark:bg-surface-1">
-                                {currentQty}/{remainingForActive}
+                              <div className="flex h-12 min-w-[96px] items-baseline justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 pt-2.5 font-mono dark:border-slate-700 dark:bg-surface-1">
+                                <span className="text-lg font-bold leading-none">{currentQty}</span>
+                                <span className="text-sm text-slate-400">/ {remainingForActive}</span>
             </div>
                               <button
                                 type="button"
@@ -2125,19 +2238,20 @@ export function WarehousePage() {
                                 disabled={
                                   currentQty >= remainingForActive || !canPickItems(status)
                                 }
-                                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
+                                className="flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
                               >
-                                <Plus className="h-3.5 w-3.5" />
+                                <Plus className="h-4 w-4" />
                               </button>
+                              </div>
                             </div>
                             <button
                               type="button"
                               disabled={!canConfirmItem}
                               onClick={() => void handlePickItem()}
                               className={cn(
-                                'flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold',
+                                'flex h-12 w-full items-center justify-center gap-2 rounded-lg px-3 text-base font-semibold',
                                 canConfirmItem
-                                  ? 'bg-[#2563eb] text-white cursor-pointer hover:bg-[#1d4ed8]'
+                                  ? 'bg-[var(--stage-pick)] text-white shadow-sm cursor-pointer hover:brightness-110'
                                   : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800',
                               )}
                             >
@@ -2168,6 +2282,21 @@ export function WarehousePage() {
                                   : null}
                           </p>
           ) : null}
+                        {activeLine.bin_location_id && isBinAssigned(activeLine.bin_code) ? (
+                          <div className="mt-4">
+                            <p className="mb-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              {vi ? 'Mã kệ để đối chiếu khi quét' : 'Bin code to match when scanning'}
+                            </p>
+                            <BarcodeGraphic code={activeLine.bin_code} />
+                          </div>
+                        ) : (
+                          <div className="mt-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2.5 text-center text-[11px] font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
+                            {vi
+                              ? 'SKU chưa được gán ô — liên hệ Admin. Nút quét đang khóa.'
+                              : 'This SKU has no bin. Scanning is locked until an admin assigns one.'}
+                          </div>
+                        )}
+
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-surface-1">
@@ -2179,7 +2308,7 @@ export function WarehousePage() {
                   </div>
 
                   <div className="lg:col-span-5">
-                    <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1 sm:p-6">
+                    <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1 sm:p-6 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
                       <div className="border-b border-slate-100 pb-3 dark:border-slate-800">
                         <h3 className="font-bold text-slate-900 dark:text-slate-100">
                           {vi ? 'Danh sách lấy hàng' : 'Picking list'}
@@ -2188,6 +2317,20 @@ export function WarehousePage() {
                           {pickedCount}/{lines.length} SKU · {pickedUnits}/{totalUnits}{' '}
                           {vi ? 'sản phẩm' : 'units'}
                         </p>
+                        <div
+                          className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={totalUnits}
+                          aria-valuenow={pickedUnits}
+                        >
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-[width]"
+                            style={{
+                              width: `${totalUnits > 0 ? Math.min(100, Math.round((pickedUnits / totalUnits) * 100)) : 0}%`,
+                            }}
+                          />
+                        </div>
                       </div>
                       <div className="mt-3 space-y-2">
                         {lines.map((line) => {
@@ -2199,10 +2342,12 @@ export function WarehousePage() {
                               type="button"
                               onClick={() => selectLine(line)}
                               className={cn(
-                                'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left cursor-pointer',
+                                'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left cursor-pointer transition-colors',
                                 selected
-                                  ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30'
-                                  : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2',
+                                  ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-300 dark:border-blue-700 dark:bg-blue-950/30'
+                                  : done
+                                    ? 'border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/60 dark:bg-emerald-950/20'
+                                    : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2',
                               )}
                             >
                               {done ? (
@@ -2313,7 +2458,7 @@ export function WarehousePage() {
                             className={cn(
                               'flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold shadow-xs',
                               completeTargets.every((row) => row.assignedStaffId)
-                                ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
+                                ? 'bg-emerald-600 text-white cursor-pointer hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50'
                                 : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
                             )}
                           >
@@ -2445,7 +2590,7 @@ export function WarehousePage() {
               type="button"
               onClick={() => void handleCompletePick()}
               disabled={busy}
-              className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-blue-700 disabled:opacity-50"
+              className="h-9 rounded-lg bg-[var(--stage-pick)] px-3 text-sm font-semibold text-white cursor-pointer hover:brightness-110 disabled:opacity-50"
             >
               {vi ? 'Xác nhận đã lấy xong' : 'Mark picked'}
             </button>
@@ -2535,7 +2680,7 @@ export function WarehousePage() {
               type="button"
               onClick={confirmTrayPick}
               disabled={!selectedTrayOrderId}
-              className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-blue-700 disabled:opacity-50"
+              className="h-9 rounded-lg bg-[var(--stage-pick)] px-3 text-sm font-semibold text-white cursor-pointer hover:brightness-110 disabled:opacity-50"
             >
               {vi ? 'Xếp vào khay' : 'Assign tray'}
             </button>
@@ -2679,7 +2824,7 @@ export function WarehousePage() {
                 type="button"
                 onClick={() => void handleAssign()}
                 disabled={busy || (assignMode === 'manual' && !selectedStaffId)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563eb] px-4 text-xs font-semibold text-white cursor-pointer hover:bg-[#1d4ed8] disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[var(--stage-pick)] px-4 text-xs font-semibold text-white cursor-pointer hover:brightness-110 disabled:opacity-50"
               >
                 <UserCheck className="h-3.5 w-3.5" />
                 {vi ? 'Xác nhận phân công' : 'Confirm assignment'}
