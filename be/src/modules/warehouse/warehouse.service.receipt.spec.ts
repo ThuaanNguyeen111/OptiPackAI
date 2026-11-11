@@ -1,6 +1,9 @@
 import { Types } from 'mongoose';
 import { WarehouseService } from './warehouse.service';
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
+import { ReceiptOcrService } from '../receipt-ocr/receipt-ocr.service';
+import { RECEIPT_OCR_ERROR_CODES } from '../receipt-ocr/receipt-ocr.errors';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
 
 //!=============================================
 // 15/10/2026 — phiếu nhập theo lô (nhiều SKU, cùng mã lô + ngày nhập).
@@ -9,6 +12,9 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
   const warehouseId = new Types.ObjectId();
   const binId = new Types.ObjectId();
   const actor = new Types.ObjectId().toString();
+  // 11/11/2026 — phiếu nhập NCC bắt buộc ảnh phiếu.
+  const photo = 'https://res.cloudinary.com/demo/image/upload/v1/optipack/receipts/pn.jpg';
+  const document_photo_urls = [photo];
 
   function makeAssignment(sku: string, qty: number): Record<string, unknown> {
     return {
@@ -30,8 +36,30 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
   let receiptModel: { create: jest.Mock };
   let binModel: { find: jest.Mock };
   let service: WarehouseService;
+  let notify: jest.Mock;
+  let receiptOcr: ReceiptOcrService;
+  // Phiếu NCC AI đọc: dòng 0 "Áo thun AO-1" 30 cái, dòng 1 "Quần QUAN-2" 10 cái.
+  const scanId = new Types.ObjectId();
+  const scan = {
+    _id: scanId,
+    photo_urls: [photo],
+    ai_model: 'groq/vision',
+    supplier: 'Xưởng A',
+    document_date: '2026-10-10',
+    created_at: new Date('2026-10-10T01:00:00Z'),
+    lines: [
+      { text: 'Áo thun', code: 'AO-1', quantity: 30, unit: 'cái' },
+      { text: 'Quần', code: 'QUAN-2', quantity: 10, unit: 'cái' },
+    ],
+  };
 
   beforeEach(() => {
+    notify = jest.fn().mockResolvedValue({});
+    receiptOcr = new ReceiptOcrService(
+      { get: jest.fn() } as never,
+      { findById: jest.fn((id: Types.ObjectId) => ({ lean: () => Promise.resolve(String(id) === String(scanId) ? scan : null) })) } as never,
+      { notify } as never,
+    );
     rows = [makeAssignment('AO-1', 0), makeAssignment('QUAN-2', 4)];
     assignmentModel = {
       findOne: jest.fn((f: { _id: Types.ObjectId }) => Promise.resolve(rows.find((r) => String(r._id) === String(f._id)) ?? null)),
@@ -64,6 +92,8 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never,
       lotModel as never,
       receiptModel as never,
+      undefined,
+      receiptOcr,
     );
   });
 
@@ -72,6 +102,7 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
     await service.createReceipt(
       warehouseId.toString(),
       {
+        document_photo_urls,
         received_at: '2026-10-10T08:00:00+07:00',
         lot_code: 'lo-thang-10',
         supplier: 'Xưởng A',
@@ -103,14 +134,14 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
   it('ngày nhập ở tương lai → WH_RECEIPT_DATE_IN_FUTURE, không ghi gì', async () => {
     const future = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
     await expect(
-      service.createReceipt(warehouseId.toString(), { received_at: future, lines: [{ assignment_id: String(rows[0]?._id), quantity: 1 }] }, actor),
+      service.createReceipt(warehouseId.toString(), { document_photo_urls, received_at: future, lines: [{ assignment_id: String(rows[0]?._id), quantity: 1 }] }, actor),
     ).rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.RECEIPT_DATE_IN_FUTURE });
     expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('dòng không có assignment_id lẫn đủ ô + sàn + shop + SKU → WH_RECEIPT_LINE_INVALID', async () => {
     await expect(
-      service.createReceipt(warehouseId.toString(), { lines: [{ seller_sku: 'AO-1', quantity: 1 }] }, actor),
+      service.createReceipt(warehouseId.toString(), { document_photo_urls, lines: [{ seller_sku: 'AO-1', quantity: 1 }] }, actor),
     ).rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.RECEIPT_LINE_INVALID });
   });
 
@@ -119,7 +150,7 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
     await expect(
       service.createReceipt(
         warehouseId.toString(),
-        { lines: [{ bin_location_id: binId.toString(), platform: 'lazada' as never, shop_id: 'shop-1', seller_sku: 'MOI', quantity: 1 }] },
+        { document_photo_urls, lines: [{ bin_location_id: binId.toString(), platform: 'lazada' as never, shop_id: 'shop-1', seller_sku: 'MOI', quantity: 1 }] },
         actor,
       ),
     ).rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.RECEIPT_LINE_NOT_ASSIGNED });
@@ -127,11 +158,86 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
 
   it('dòng tồn đang có hàng chưa có lô → bù lô tồn đầu kỳ trước khi tạo lô mới', async () => {
     lotModel.aggregate.mockReturnValue(Object.assign(Promise.resolve([]), { session: () => Promise.resolve([]) }));
-    await service.createReceipt(warehouseId.toString(), { lines: [{ assignment_id: String(rows[1]?._id), quantity: 2 }] }, actor);
+    await service.createReceipt(warehouseId.toString(), { document_photo_urls, lines: [{ assignment_id: String(rows[1]?._id), quantity: 2 }] }, actor);
     const sources = lotModel.create.mock.calls.flatMap((c: Record<string, unknown>[][]) => (c[0] ?? []).map((l) => [l.source, l.quantity_received]));
     expect(sources).toEqual([
       ['opening', 4],
       ['receipt', 2],
     ]);
+  });
+
+  //!=============================================
+  // 11/11/2026 — ảnh phiếu NCC + OCR đối chiếu số lượng
+  //!=============================================
+  it('không kèm ảnh phiếu → WH_RECEIPT_PHOTO_REQUIRED, không ghi gì', async () => {
+    await expect(
+      service.createReceipt(warehouseId.toString(), { lines: [{ assignment_id: String(rows[0]?._id), quantity: 1 }] }, actor),
+    ).rejects.toMatchObject({ errorCode: RECEIPT_OCR_ERROR_CODES.PHOTO_REQUIRED });
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('phiếu ghi 30, đếm được 28 có lý do → vẫn cộng 28, phiếu "mismatch" lưu số OCR + lý do, báo Store Owner + Admin', async () => {
+    const [a1, a2] = rows;
+    await service.createReceipt(
+      warehouseId.toString(),
+      {
+        document_photo_urls,
+        ocr_scan_id: scanId.toString(),
+        lines: [
+          { assignment_id: String(a1?._id), quantity: 28, ocr_line_index: 0, mismatch_reason: 'NCC giao thiếu 2' },
+          { assignment_id: String(a2?._id), quantity: 10, ocr_line_index: 1 },
+        ],
+      },
+      actor,
+    );
+    expect(rows.map((r) => r.quantity_on_hand)).toEqual([28, 14]);
+    const [receipt] = (receiptModel.create.mock.calls[0] as Record<string, unknown>[][])[0] ?? [];
+    expect(receipt).toMatchObject({
+      document_photo_urls: [photo],
+      ocr_status: 'mismatch',
+      ocr_scan_id: scanId,
+      supplier: 'Xưởng A', // lấy từ phiếu khi form bỏ trống
+      ocr: { ai_model: 'groq/vision', lines: scan.lines },
+      ocr_checks: [
+        { line_index: 0, label: 'AO-1', ocr_line_index: 0, ocr_quantity: 30, quantity: 28, mismatch_reason: 'NCC giao thiếu 2' },
+        { line_index: 1, label: 'QUAN-2', ocr_line_index: 1, ocr_quantity: 10, quantity: 10, mismatch_reason: null },
+      ],
+    });
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: NotificationType.STOCK_RECEIPT_MISMATCH, relatedEntityType: 'stock_receipt' }));
+  });
+
+  it('lệch mà không ghi lý do → WH_RECEIPT_MISMATCH_REASON_REQUIRED, không cộng tồn', async () => {
+    await expect(
+      service.createReceipt(
+        warehouseId.toString(),
+        { document_photo_urls, ocr_scan_id: scanId.toString(), lines: [{ assignment_id: String(rows[0]?._id), quantity: 28, ocr_line_index: 0 }] },
+        actor,
+      ),
+    ).rejects.toMatchObject({ errorCode: RECEIPT_OCR_ERROR_CODES.MISMATCH_REASON_REQUIRED, details: { index: 0, ocrQuantity: 30, quantity: 28 } });
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('khớp phiếu → "matched", không báo; không đọc phiếu → "not_checked"', async () => {
+    await service.createReceipt(
+      warehouseId.toString(),
+      { document_photo_urls, ocr_scan_id: scanId.toString(), lines: [{ assignment_id: String(rows[0]?._id), quantity: 30, ocr_line_index: 0 }] },
+      actor,
+    );
+    await service.createReceipt(warehouseId.toString(), { document_photo_urls, lines: [{ assignment_id: String(rows[0]?._id), quantity: 3 }] }, actor);
+    const statuses = receiptModel.create.mock.calls.map((c: Record<string, unknown>[][]) => c[0]?.[0]?.ocr_status);
+    expect(statuses).toEqual(['matched', 'not_checked']);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('kết quả đọc của ảnh khác (không nằm trong ảnh phiếu) → WH_RECEIPT_OCR_SCAN_INVALID', async () => {
+    const other = 'https://res.cloudinary.com/demo/image/upload/v1/optipack/receipts/khac.jpg';
+    await expect(
+      service.createReceipt(
+        warehouseId.toString(),
+        { document_photo_urls: [other], ocr_scan_id: scanId.toString(), lines: [{ assignment_id: String(rows[0]?._id), quantity: 30, ocr_line_index: 0 }] },
+        actor,
+      ),
+    ).rejects.toMatchObject({ errorCode: RECEIPT_OCR_ERROR_CODES.OCR_SCAN_INVALID });
   });
 });

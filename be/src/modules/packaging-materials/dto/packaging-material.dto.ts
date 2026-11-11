@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { PACKAGING_MATERIAL_KINDS, type PackagingMaterialKind } from '../schemas/packaging-material.schema';
-import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, ValidateNested, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsMongoId, ValidateNested, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsReceiptPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 
 export class CreatePackagingMaterialDto {
   @ApiProperty({ example: 'BOX-M' }) @Matches(/^[A-Z0-9-]{2,20}$/, { message: 'code 2-20 ký tự CHỮ HOA/số/gạch ngang' }) code!: string;
@@ -34,6 +35,13 @@ export class UpdatePackagingMaterialDto {
 export class PurchasePackagingDto {
   @ApiProperty({ example: 100 }) @IsInt() @Min(1) @Max(1_000_000) quantity!: number;
   @ApiPropertyOptional({ example: 'Nhập từ NCC Bao Bì Sài Gòn' }) @IsOptional() @IsString() @MaxLength(500) note?: string;
+  // 11/11/2026 — ảnh phiếu NCC (bắt buộc, service trả PKG_PURCHASE_PHOTO_REQUIRED) + đối chiếu OCR.
+  @ApiProperty({ type: [String], description: 'BẮT BUỘC 1–3 URL ảnh phiếu từ POST /proof-photos?purpose=receipt' })
+  @IsOptional() @IsReceiptPhotoUrls() document_photo_urls?: string[];
+  @ApiPropertyOptional({ example: 'Bao Bì Sài Gòn' }) @IsOptional() @IsString() @MaxLength(120) supplier?: string;
+  @ApiPropertyOptional({ description: '`scanId` của POST /receipt-ocr' }) @IsOptional() @IsMongoId() ocr_scan_id?: string;
+  @ApiPropertyOptional({ description: 'Dòng số mấy trên phiếu (`lines[].index`)', example: 0 }) @IsOptional() @IsInt() @Min(0) ocr_line_index?: number;
+  @ApiPropertyOptional({ description: 'BẮT BUỘC khi quantity khác số trên phiếu' }) @IsOptional() @IsString() @MaxLength(300) mismatch_reason?: string;
 }
 
 /** Dùng trong form kiểm hàng hoàn (G3) — kiểm luôn thùng/xốp đi kèm. */

@@ -13,6 +13,9 @@ import { createHash } from 'crypto';
 export const MAX_PROOF_PHOTO_BYTES = 10 * 1024 * 1024;
 export const MAX_PROOF_PHOTOS = 3;
 export const PROOF_PHOTO_FOLDER = 'optipack/proof';
+/** 11/11/2026 — ảnh phiếu nhập / phiếu giao hàng của NCC (minh chứng nhập kho, mua vật liệu). */
+export const RECEIPT_PHOTO_FOLDER = 'optipack/receipts';
+export type PhotoFolder = typeof PROOF_PHOTO_FOLDER | typeof RECEIPT_PHOTO_FOLDER;
 /** Thu nhỏ cạnh dài về ≤ 1600 px, nén tự động, lưu dạng JPG (ảnh HEIC iPhone cũng đổi sang JPG). */
 export const PROOF_PHOTO_TRANSFORMATION = 'c_limit,w_1600,h_1600/q_auto';
 
@@ -52,10 +55,11 @@ export function signCloudinaryParams(params: Record<string, string>, apiSecret: 
 }
 
 /** URL có đúng là ảnh bằng chứng trên cloud của mình không (https, đúng cloud, đúng thư mục). */
-export function isOwnProofPhotoUrl(url: string, cloudName: string): boolean {
+export function isOwnProofPhotoUrl(url: string, cloudName: string, folder: PhotoFolder = PROOF_PHOTO_FOLDER): boolean {
   const prefix = `https://res.cloudinary.com/${cloudName}/image/upload/`;
   if (!url.startsWith(prefix) || url.length > 500) return false;
   const rest = url.slice(prefix.length);
   // Cloudinary có thể chèn `v<số>/` (phiên bản) trước thư mục.
-  return /^(v\d+\/)?optipack\/proof\/[A-Za-z0-9_\-./]+$/.test(rest) && !rest.includes('..');
+  if (!/^(v\d+\/)?[A-Za-z0-9_\-./]+$/.test(rest) || rest.includes('..')) return false;
+  return rest.replace(/^v\d+\//, '').startsWith(`${folder}/`);
 }

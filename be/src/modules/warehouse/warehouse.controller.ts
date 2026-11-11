@@ -36,7 +36,8 @@ import { BinLocationDocument } from './schemas/bin-location.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
 import { AppException } from '../../common/exceptions/app-exception';
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
-import { CreateStockReceiptDto, ListStockLotsQueryDto } from './dto/stock-receipt.dto';
+import { CreateStockReceiptDto, ListStockLotsQueryDto, ListStockReceiptsQueryDto } from './dto/stock-receipt.dto';
+import type { OcrStatus } from '../receipt-ocr/schemas/receipt-ocr-scan.schema';
 import { StockLotDocument } from './schemas/stock-lot.schema';
 import { StockReceiptDocument } from './schemas/stock-receipt.schema';
 
@@ -95,6 +96,11 @@ interface StockReceiptResponse {
     masterSku: string | null;
     quantity: number;
   }[];
+  // 11/11/2026 — ảnh phiếu NCC + đối chiếu OCR
+  documentPhotoUrls: string[];
+  ocrStatus: OcrStatus;
+  ocr: { model: string; readAt: Date; supplier: string | null; documentDate: string | null; lines: { index: number; text: string; code: string | null; quantity: number; unit: string | null }[] } | null;
+  ocrChecks: { lineIndex: number; label: string; ocrLineIndex: number; ocrText: string; ocrQuantity: number; quantity: number; mismatchReason: string | null }[];
 }
 function toReceiptResponse(doc: StockReceiptDocument): StockReceiptResponse {
   return {
@@ -117,6 +123,26 @@ function toReceiptResponse(doc: StockReceiptDocument): StockReceiptResponse {
       sellerSku: l.seller_sku,
       masterSku: l.master_sku,
       quantity: l.quantity,
+    })),
+    documentPhotoUrls: doc.document_photo_urls,
+    ocrStatus: doc.ocr_status,
+    ocr: doc.ocr
+      ? {
+          model: doc.ocr.ai_model,
+          readAt: doc.ocr.read_at,
+          supplier: doc.ocr.supplier,
+          documentDate: doc.ocr.document_date,
+          lines: doc.ocr.lines.map((l, index) => ({ index, text: l.text, code: l.code, quantity: l.quantity, unit: l.unit })),
+        }
+      : null,
+    ocrChecks: doc.ocr_checks.map((c) => ({
+      lineIndex: c.line_index,
+      label: c.label,
+      ocrLineIndex: c.ocr_line_index,
+      ocrText: c.ocr_text,
+      ocrQuantity: c.ocr_quantity,
+      quantity: c.quantity,
+      mismatchReason: c.mismatch_reason,
     })),
   };
 }
@@ -851,7 +877,7 @@ export class WarehouseController {
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
     summary:
-      '🆕 Phiếu nhập kho theo LÔ (nhiều SKU, cùng mã lô + ngày nhập). Lấy hàng/đóng gói trừ lô có ngày nhập CŨ NHẤT trước (FIFO).',
+      '🆕 Phiếu nhập kho theo LÔ (nhiều SKU, cùng mã lô + ngày nhập). Lấy hàng/đóng gói trừ lô có ngày nhập CŨ NHẤT trước (FIFO). 11/11/2026: bắt buộc `document_photo_urls` (ảnh phiếu NCC); gửi `ocr_scan_id` + `lines[].ocr_line_index` để đối chiếu, dòng lệch phải có `mismatch_reason`.',
   })
   async createReceipt(
     @Param('warehouseId') warehouseId: string,
@@ -866,13 +892,13 @@ export class WarehouseController {
 
   @Get('warehouses/:warehouseId/receipts')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
-  @ApiOperation({ summary: '🆕 Danh sách phiếu nhập của kho (mới nhất trước).' })
+  @ApiOperation({ summary: '🆕 Danh sách phiếu nhập của kho (mới nhất trước). 11/11/2026: `?ocr_status=mismatch` = chỉ phiếu lệch số với phiếu NCC.' })
   async listReceipts(
     @Param('warehouseId') warehouseId: string,
-    @Query('limit') limit?: string,
+    @Query() query: ListStockReceiptsQueryDto,
   ): Promise<StockReceiptResponse[]> {
     this.assertObjectId(warehouseId, 'warehouseId');
-    const docs = await this.warehouseService.listReceipts(warehouseId, Number(limit) || 50);
+    const docs = await this.warehouseService.listReceipts(warehouseId, query.limit ?? 50, query.ocr_status);
     return docs.map(toReceiptResponse);
   }
 

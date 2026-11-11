@@ -10,6 +10,9 @@ import {
 } from './dto/packaging-material.dto';
 import { MaterialCondition, MaterialMovementType } from './schemas/packaging-movement.schema';
 import { PACKAGING_MATERIAL_ERROR_CODES as E } from './packaging-materials.errors';
+import { ReceiptOcrService, type ResolvedOcrChecks } from '../receipt-ocr/receipt-ocr.service';
+import { RECEIPT_OCR_ERROR_CODES } from '../receipt-ocr/receipt-ocr.errors';
+import type { OcrStatus } from '../receipt-ocr/schemas/receipt-ocr-scan.schema';
 
 export interface ConsumptionResult {
   consumed: { materialCode: string; condition: 'new' | 'reused'; quantity: number; savingVnd: number }[];
@@ -110,6 +113,8 @@ export class PackagingMaterialsService {
     @InjectConnection() private readonly connection: Connection,
     // 08/11/2026 — báo khi sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo. @Optional để spec cũ không vỡ.
     @Optional() private readonly stockAlerts?: PackagingStockAlertService,
+    // 11/11/2026 — ảnh phiếu NCC + OCR đối chiếu. @Optional để spec cũ không vỡ.
+    @Optional() private readonly receiptOcr?: ReceiptOcrService,
   ) {}
 
   // ------------------------------------------------------------ danh mục
@@ -191,17 +196,44 @@ export class PackagingMaterialsService {
   }
 
   async purchase(code: string, dto: PurchasePackagingDto, actorId: string): Promise<PackagingMaterialDocument> {
+    const photoUrls = dto.document_photo_urls ?? [];
+    if (photoUrls.length === 0) {
+      this.fail(RECEIPT_OCR_ERROR_CODES.PURCHASE_PHOTO_REQUIRED, 'Tải ảnh phiếu giao hàng / hoá đơn của nhà cung cấp trước khi lưu.', HttpStatus.BAD_REQUEST);
+    }
     const m = await this.get(code);
     if (!m.is_active) this.fail(E.INACTIVE, `Vật liệu "${code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT);
-    return this.runTx(async (session) => {
-      const updated = await this.materialModel.findOneAndUpdate({ code }, { $inc: { qty_new: dto.quantity } }, { returnDocument: 'after', session });
-      await this.record(code, 'new', 'purchase', dto.quantity, 0, null, null, dto.note ?? null, actorId, session);
-      return updated ?? m;
+    const ocr: ResolvedOcrChecks = this.receiptOcr
+      ? await this.receiptOcr.resolveChecks(dto.ocr_scan_id, photoUrls, [
+          { lineIndex: 0, label: code, quantity: dto.quantity, ocrLineIndex: dto.ocr_line_index, mismatchReason: dto.mismatch_reason },
+        ])
+      : { scanId: null, snapshot: null, checks: [], status: 'not_checked' };
+    const check = ocr.checks[0];
+    const supplier = dto.supplier?.trim() ?? '';
+    const updated = await this.runTx(async (session) => {
+      const doc = await this.materialModel.findOneAndUpdate({ code }, { $inc: { qty_new: dto.quantity } }, { returnDocument: 'after', session });
+      await this.movementModel.create([{
+        material_code: code, condition: 'new', type: 'purchase', delta: dto.quantity, saving_vnd: 0, ref_type: null, ref_id: null,
+        note: dto.note ?? null, actor_id: actorId, created_at: new Date(),
+        document_photo_urls: photoUrls, supplier: supplier.length > 0 ? supplier : (ocr.snapshot?.supplier ?? null),
+        ocr_status: ocr.status, ocr_scan_id: ocr.scanId, ocr_text: check?.ocr_text ?? null, ocr_quantity: check?.ocr_quantity ?? null,
+        mismatch_reason: check?.mismatch_reason ?? null,
+      }], { session });
+      return doc ?? m;
     });
+    if (ocr.status === 'mismatch' && check && this.receiptOcr) {
+      await this.receiptOcr.notifyMismatch({
+        title: `Mua vật liệu ${code} lệch số với phiếu NCC`,
+        message: `${code}: phiếu ghi ${String(check.ocr_quantity)}, nhập ${String(check.quantity)} (${check.mismatch_reason ?? ''}).`,
+        entityType: 'packaging_material',
+        entityId: code,
+      });
+    }
+    return updated;
   }
 
-  async listMovements(code?: string, limit = 100): Promise<PackagingMovementDocument[]> {
-    return this.movementModel.find(code ? { material_code: code } : {}).sort({ created_at: -1 }).limit(Math.min(500, Math.max(1, limit)));
+  async listMovements(code?: string, limit = 100, ocrStatus?: OcrStatus): Promise<PackagingMovementDocument[]> {
+    const filter = { ...(code ? { material_code: code } : {}), ...(ocrStatus ? { ocr_status: ocrStatus } : {}) };
+    return this.movementModel.find(filter).sort({ created_at: -1 }).limit(Math.min(500, Math.max(1, limit)));
   }
 
   /** Số liệu cho Dashboard: tiết kiệm, tỷ lệ dùng lại, tỷ lệ làm theo gợi ý đóng gói. */
