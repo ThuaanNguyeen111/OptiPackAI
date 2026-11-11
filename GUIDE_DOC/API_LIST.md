@@ -942,6 +942,24 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
 - So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
 
+## 33. 🆕 11/11/2026 — Phiếu nhà cung cấp: ảnh minh chứng + AI đọc phiếu đối chiếu số lượng
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🔄 POST | `/proof-photos?purpose=receipt` | như mục 30 | Tải 1–3 ảnh **phiếu nhập / phiếu giao hàng của NCC**, lưu thư mục riêng `optipack/receipts`. Không gửi `purpose` = ảnh bằng chứng như cũ. `purpose` khác `proof`/`receipt` → 400 `PROOF_PHOTO_INVALID_PURPOSE` |
+| 🆕 POST | `/receipt-ocr` | Admin, Warehouse Staff | Body `{ photo_urls: string[] }` (1–3 URL từ dòng trên, nhiều ảnh = nhiều trang 1 phiếu). AI (Groq vision, `AI_VISION_MODEL`) đọc phiếu → `{ scanId, model, supplier, documentDate, lines: [{ index, text, code, quantity, unit }] }`. **Không cộng tồn.** Kết quả giữ 7 ngày |
+| 🔄 POST | `/warehouse/warehouses/:warehouseId/receipts` | Admin, Warehouse Staff | Thêm **bắt buộc** `document_photo_urls` (1–3 URL ảnh phiếu). Tuỳ chọn `ocr_scan_id` + mỗi dòng `ocr_line_index` (dòng số mấy trên phiếu, = `lines[].index`) và `mismatch_reason` (≤ 300, **bắt buộc khi `quantity` khác số trên phiếu**) |
+| 🔄 GET | `/warehouse/warehouses/:warehouseId/receipts?ocr_status=` | Admin, Warehouse Staff, Store Owner | Lọc `matched` / `mismatch` / `not_checked`. Mỗi phiếu (danh sách + chi tiết) thêm `documentPhotoUrls`, `ocrStatus`, `ocr { model, readAt, supplier, documentDate, lines[] } \| null`, `ocrChecks[] { lineIndex, label, ocrLineIndex, ocrText, ocrQuantity, quantity, mismatchReason }` |
+| 🔄 POST | `/packaging/boxes/:id/stock-in`, `/packaging/materials/:id/stock-in`, `/packaging/bags/:id/stock-in`, `/packaging-materials/:code/purchase` | Admin, Warehouse Staff | Thêm **bắt buộc** `document_photo_urls`; tuỳ chọn `supplier`, `ocr_scan_id`, `ocr_line_index`, `mismatch_reason` (cùng luật như phiếu nhập, 1 lần nhập = 1 dòng phiếu) |
+| 🔄 GET | `/packaging/boxes/:id/movements`, `/packaging/materials/:id/movements`, `/packaging-materials/movements?ocr_status=` | như cũ | Mỗi dòng sổ thêm `documentPhotoUrls`, `supplier`, `ocrStatus` (`null` với dòng không phải nhập NCC), `ocrText`, `ocrQuantity`, `mismatchReason` |
+
+- **Luồng:** chụp/chọn ảnh → `POST /proof-photos?purpose=receipt` → `POST /receipt-ocr` → FE điền sẵn số theo phiếu, nhân viên đếm thật và sửa → lưu kèm `ocr_scan_id` + `ocr_line_index`. BE tự lấy số trên phiếu từ `ocr_scan_id` (client không tự khai số OCR) và kiểm ảnh đã đọc nằm trong `document_photo_urls`.
+- **Lệch không chặn** (NCC giao thiếu / hàng lỗi là chuyện thường): bắt `mismatch_reason`, tồn cộng **đúng số nhân viên nhập**, phiếu `ocrStatus = mismatch`, gửi thông báo in-app `stock_receipt_mismatch` (warning, không push) cho **Store Owner + Admin** (`related_entity_type`: `stock_receipt` → id phiếu, hoặc `packaging_material` → mã vật tư).
+- **AI lỗi / hết hạn mức / chưa có key:** `/receipt-ocr` trả lỗi, vẫn lưu được không kèm `ocr_scan_id` → `ocrStatus = not_checked` ("Chưa đối chiếu"). Không gắn dòng nào với phiếu cũng là `not_checked`.
+- **Không bắt ảnh:** nhập nhanh `POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock`, nhập lại hàng hoàn, kiểm kê, chuyển ô, script seed. Phiếu / dòng sổ cũ: `documentPhotoUrls: []`, `ocrStatus: not_checked` (phiếu kho) hoặc `null` (sổ vật tư).
+- **Mã lỗi mới:** `WH_RECEIPT_PHOTO_REQUIRED` (400 — phiếu nhập kho thiếu ảnh), `PKG_PURCHASE_PHOTO_REQUIRED` (400 — nhập vật tư thiếu ảnh), `WH_RECEIPT_OCR_UNAVAILABLE` (503 — chưa có `AI_API_KEY`), `WH_RECEIPT_OCR_FAILED` (502 — AI lỗi / trả sai), `WH_RECEIPT_OCR_SCAN_INVALID` (400 — `ocr_scan_id` sai/hết hạn hoặc ảnh đã đọc không thuộc phiếu), `WH_RECEIPT_OCR_LINE_INVALID` (400 — `ocr_line_index` ngoài phạm vi, 2 dòng trùng 1 dòng phiếu, hoặc thiếu `ocr_scan_id`; `details.kind`), `WH_RECEIPT_MISMATCH_REASON_REQUIRED` (400 — `details: { index, ocrQuantity, quantity }`), `PKG_INVALID_QUERY` (400 — `ocr_status` sai).
+- **Cấu hình:** `CLOUDINARY_*` (như mục 30 — thiếu thì **không nhập kho / nhập vật tư được** vì ảnh bắt buộc), `AI_API_KEY`, `AI_VISION_MODEL` (mặc định `qwen/qwen3.8-27b`).
+
 ## 32. 🆕 11/11/2026 — Đăng nhập Google trên app mobile
 
 | Method | Route | Role | Mô tả |

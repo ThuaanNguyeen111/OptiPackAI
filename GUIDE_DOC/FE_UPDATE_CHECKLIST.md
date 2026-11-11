@@ -31,6 +31,7 @@
 | 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
 | 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
 | 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ☐ Chưa làm |
+| 21 | 🆕 11/11 **Phiếu NCC có ảnh + AI đối chiếu số lượng** (góp ý hội đồng): nhập kho (Phiếu nhập / lô) và nhập thùng / túi / vật tư chèn / mua vật liệu bắt buộc ảnh phiếu, AI đọc phiếu, bảng Theo phiếu – Đã nhập – Lệch, lý do lệch, nhãn Lệch phiếu, lọc phiếu lệch | 18 | ~1 ngày | 🟡 11/11 — Claude đã làm web (`ReceiptEvidencePanel`); **còn** chụp bằng webcam (`getUserMedia`, dùng chung mục 14.1) và app mobile |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -495,6 +496,30 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 | 17.3 | Cài đặt đóng gói | Ghi chú dưới khung: "Không sửa được phần quy tắc bắt buộc và định dạng trả về. Hướng dẫn đã tạo không tự viết lại, bấm **Viết lại** ở kiện để áp dụng." |
 
 **Nghiệm thu:** sửa văn phong → viết lại hướng dẫn 1 kiện → `GET …/guide/trace` thấy đoạn mới trong `systemPrompt` → khôi phục mặc định → nhãn "Mặc định" hiện lại.
+
+---
+
+## 18. 🆕 11/11/2026 — Phiếu nhà cung cấp có ảnh + AI đối chiếu số lượng (dòng 21)
+
+**Vì sao:** hội đồng hỏi "phiếu ghi 50 mà nhân viên nhập 48 thì hệ thống có biết không?". BE + web đã làm (AOFP-277, AOFP-278). API: `API_LIST.md` mục 33.
+
+**Đã có trên web:**
+| # | Màn | Đã làm |
+|---|---|---|
+| 18.1 | Tồn kho → chọn ô → tab **Phiếu nhập / lô** | Khối "Ảnh phiếu nhà cung cấp (bắt buộc)": chọn/chụp 1–3 ảnh → tải `POST /proof-photos?purpose=receipt` → tự gọi `POST /receipt-ocr` → tự chọn dòng phiếu có mã trùng SKU sàn / SKU nội bộ (hoặc phiếu chỉ 1 dòng), điền sẵn số lượng + nhà cung cấp. Bảng **Theo phiếu – Đã nhập – Lệch**; lệch thì bắt **lý do**. AI lỗi → báo vàng "Vẫn lưu được — phiếu sẽ ghi Chưa đối chiếu" + nút Đọc lại. Nút lưu mờ khi chưa có ảnh / thiếu lý do |
+| 18.2 | Tồn kho → tab **Phiếu nhập** | Cột "Đối chiếu phiếu" (Khớp phiếu / Lệch phiếu / Chưa đối chiếu), ô tích **Chỉ phiếu lệch** (`?ocr_status=mismatch`); chi tiết phiếu: ảnh phiếu (bấm mở to), bảng Hàng – Theo phiếu – Đã nhập + lý do |
+| 18.3 | Vật liệu đóng gói → Nhập thùng / túi / vật liệu chống sốc / Nhập mới (túi niêm phong) | Cùng khối ảnh phiếu + đối chiếu (gửi `document_photo_urls`, `ocr_scan_id`, `ocr_line_index`, `mismatch_reason`) |
+| 18.4 | Vật liệu đóng gói → Lịch sử nhập/xuất | Cột **Phiếu NCC**: nhãn đối chiếu, số trên phiếu, lý do lệch, link ảnh |
+| 18.5 | Chuông thông báo | Loại `stock_receipt_mismatch` ("Nhập hàng lệch phiếu NCC") → mở `/app/inventory?view=receipts` hoặc trang vật liệu |
+
+**Còn lại (chưa làm):**
+1. Chụp bằng **webcam** trên máy tính: hiện dùng `<input type="file" accept="image/*">` (điện thoại mở được camera, máy tính chỉ chọn file). Làm chung hộp thoại chụp ảnh của mục 14.1 rồi thay nút "Chụp / chọn ảnh".
+2. **App mobile:** chưa có màn nhập kho có ảnh phiếu.
+3. Chi tiết phiếu chưa hiện tên người nhập (BE trả `createdBy` là id).
+
+**Nghiệm thu (theo handoff):** nhập không ảnh → nút mờ / BE 400 `WH_RECEIPT_PHOTO_REQUIRED`; chụp phiếu "50" → tự điền 50; sửa 48 → bắt lý do → lưu → nhãn Lệch phiếu, Store Owner nhận thông báo; mở lại chi tiết thấy ảnh, 50, 48, lý do; tắt key AI → vẫn lưu, "Chưa đối chiếu"; nhập BOX-M × 100 có ảnh → tương tự.
+
+**Cấu hình cần trước khi thử:** `CLOUDINARY_*` trong `be/.env` (thiếu thì tải ảnh lỗi 503 → **không nhập kho được**), `AI_API_KEY`, `AI_VISION_MODEL`.
 
 ---
 
