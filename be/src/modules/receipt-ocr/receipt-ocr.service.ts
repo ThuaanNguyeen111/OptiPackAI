@@ -10,15 +10,17 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { extractJsonContent } from '../orders/consolidation-rule-ai.service';
 import { RECEIPT_OCR_ERROR_CODES as E } from './receipt-ocr.errors';
-import { checkAgainstScan, parseOcrResult, type OcrCheckInput } from './receipt-ocr.util';
 import {
-  ReceiptOcrScan,
-  type OcrStatus,
-  type ReceiptOcrCheck,
-  type ReceiptOcrLine,
-  type ReceiptOcrScanDocument,
-  type ReceiptOcrSnapshot,
-} from './schemas/receipt-ocr-scan.schema';
+  checkAgainstScan,
+  materialIntakeFields,
+  parseOcrResult,
+  requireMaterialPhotos,
+  type MaterialIntakeFields,
+  type OcrCheckInput,
+  type ResolvedOcrChecks,
+} from './receipt-ocr.util';
+import type { SupplierReceiptEvidenceDto } from './dto/supplier-receipt-evidence.dto';
+import { ReceiptOcrScan, type ReceiptOcrCheck, type ReceiptOcrLine, type ReceiptOcrScanDocument } from './schemas/receipt-ocr-scan.schema';
 
 export interface ReceiptOcrScanView {
   scanId: string;
@@ -28,12 +30,7 @@ export interface ReceiptOcrScanView {
   lines: { index: number; text: string; code: string | null; quantity: number; unit: string | null }[];
 }
 
-export interface ResolvedOcrChecks {
-  scanId: Types.ObjectId | null;
-  snapshot: ReceiptOcrSnapshot | null;
-  checks: ReceiptOcrCheck[];
-  status: OcrStatus;
-}
+export type { ResolvedOcrChecks } from './receipt-ocr.util';
 
 const MIN_VISION_TIMEOUT_MS = 60_000;
 
@@ -161,6 +158,28 @@ export class ReceiptOcrService {
       checks: result.checks,
       status: result.status,
     };
+  }
+
+  /** Nhập vật tư từ NCC (1 mã = 1 dòng phiếu): bắt ảnh, đối chiếu, trả field ghi sổ + dòng lệch (nếu có). */
+  async prepareMaterialIntake(
+    code: string,
+    quantity: number,
+    ev: SupplierReceiptEvidenceDto,
+  ): Promise<{ fields: MaterialIntakeFields; mismatch: ReceiptOcrCheck | null }> {
+    const photos = requireMaterialPhotos(ev.document_photo_urls);
+    const ocr = await this.resolveChecks(ev.ocr_scan_id, photos, [
+      { lineIndex: 0, label: code, quantity, ocrLineIndex: ev.ocr_line_index, mismatchReason: ev.mismatch_reason },
+    ]);
+    return { fields: materialIntakeFields(photos, ev.supplier, ocr), mismatch: ocr.status === 'mismatch' ? (ocr.checks[0] ?? null) : null };
+  }
+
+  async notifyMaterialMismatch(code: string, check: ReceiptOcrCheck): Promise<void> {
+    await this.notifyMismatch({
+      title: `Nhập vật tư ${code} lệch số với phiếu NCC`,
+      message: `${code}: phiếu ghi ${String(check.ocr_quantity)}, nhập ${String(check.quantity)} (${check.mismatch_reason ?? ''}).`,
+      entityType: 'packaging_material',
+      entityId: code,
+    });
   }
 
   /** Gọi SAU khi ghi xong — lỗi thông báo chỉ log, không làm hỏng phiếu đã lưu. */

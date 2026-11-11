@@ -17,7 +17,7 @@ describe('PackagingMaterialsService.purchase — ảnh phiếu + OCR', () => {
     _id: scanId, photo_urls: [photo], ai_model: 'groq/vision', supplier: 'Bao Bì SG', document_date: null, created_at: new Date(),
     lines: [{ text: 'Thùng carton M', code: 'BOX-M', quantity: 100, unit: 'cái' }],
   };
-  const boxM = { code: 'BOX-M', is_active: true, qty_new: 10 };
+  const boxM = { _id: new Types.ObjectId(), code: 'BOX-M', is_active: true, qty_new: 10, qty_reused: 0 };
   let materialModel: { findOne: jest.Mock; findOneAndUpdate: jest.Mock };
   let movementModel: { create: jest.Mock };
   let notify: jest.Mock;
@@ -49,7 +49,7 @@ describe('PackagingMaterialsService.purchase — ảnh phiếu + OCR', () => {
       { quantity: 98, document_photo_urls: [photo], ocr_scan_id: scanId.toString(), ocr_line_index: 0, mismatch_reason: '2 thùng móp, trả NCC' },
       'u1',
     );
-    expect(materialModel.findOneAndUpdate).toHaveBeenCalledWith({ code: 'BOX-M' }, { $inc: { qty_new: 98 } }, expect.anything());
+    expect(materialModel.findOneAndUpdate).toHaveBeenCalledWith({ _id: boxM._id }, { $inc: { qty_new: 98 } }, expect.anything());
     const [[move]] = movementModel.create.mock.calls[0] as [[Record<string, unknown>]];
     expect(move).toMatchObject({
       type: 'purchase', delta: 98, document_photo_urls: [photo], supplier: 'Bao Bì SG', ocr_status: 'mismatch',

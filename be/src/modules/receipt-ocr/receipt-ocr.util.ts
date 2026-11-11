@@ -1,4 +1,8 @@
-import type { OcrStatus, ReceiptOcrCheck, ReceiptOcrLine } from './schemas/receipt-ocr-scan.schema';
+import { HttpStatus } from '@nestjs/common';
+import type { Types } from 'mongoose';
+import { AppException } from '../../common/exceptions/app-exception';
+import { RECEIPT_OCR_ERROR_CODES } from './receipt-ocr.errors';
+import type { OcrStatus, ReceiptOcrCheck, ReceiptOcrLine, ReceiptOcrSnapshot } from './schemas/receipt-ocr-scan.schema';
 
 export const MAX_OCR_LINES = 200;
 
@@ -82,4 +86,68 @@ export function checkAgainstScan(scanLines: ReceiptOcrLine[] | null, inputs: Ocr
   }
   const status: OcrStatus = checks.length === 0 ? 'not_checked' : checks.some((c) => c.ocr_quantity !== c.quantity) ? 'mismatch' : 'matched';
   return { ok: true, checks, status };
+}
+
+/** Kết quả đối chiếu dùng chung cho phiếu nhập kho và nhập vật tư. */
+export interface ResolvedOcrChecks {
+  scanId: Types.ObjectId | null;
+  snapshot: ReceiptOcrSnapshot | null;
+  checks: ReceiptOcrCheck[];
+  status: OcrStatus;
+}
+
+export const NOT_CHECKED: ResolvedOcrChecks = { scanId: null, snapshot: null, checks: [], status: 'not_checked' };
+
+/** Các field ghi vào 1 dòng sổ `packaging_movements` loại purchase. */
+export interface MaterialIntakeFields {
+  document_photo_urls: string[];
+  supplier: string | null;
+  ocr_status: OcrStatus;
+  ocr_scan_id: Types.ObjectId | null;
+  ocr_text: string | null;
+  ocr_quantity: number | null;
+  mismatch_reason: string | null;
+}
+
+/** Nhập vật tư từ NCC phải kèm ảnh phiếu (Q3). Trả mảng ảnh đã kiểm. */
+export function requireMaterialPhotos(urls: string[] | undefined): string[] {
+  if (!urls || urls.length === 0) {
+    throw new AppException(RECEIPT_OCR_ERROR_CODES.PURCHASE_PHOTO_REQUIRED, 'Tải ảnh phiếu giao hàng / hoá đơn của nhà cung cấp trước khi lưu.', HttpStatus.BAD_REQUEST);
+  }
+  return urls;
+}
+
+export function materialIntakeFields(photoUrls: string[], supplier: string | undefined, ocr: ResolvedOcrChecks): MaterialIntakeFields {
+  const check = ocr.checks[0];
+  const typed = supplier?.trim() ?? '';
+  return {
+    document_photo_urls: photoUrls,
+    supplier: typed.length > 0 ? typed : (ocr.snapshot?.supplier ?? null),
+    ocr_status: ocr.status,
+    ocr_scan_id: ocr.scanId,
+    ocr_text: check?.ocr_text ?? null,
+    ocr_quantity: check?.ocr_quantity ?? null,
+    mismatch_reason: check?.mismatch_reason ?? null,
+  };
+}
+
+/** Phần "phiếu NCC" của 1 dòng sổ vật tư trả cho FE (dòng cũ trước 11/11/2026 đọc `.lean()` có thể thiếu field). */
+export interface IntakeEvidenceResponse {
+  documentPhotoUrls: string[];
+  supplier: string | null;
+  ocrStatus: OcrStatus | null;
+  ocrText: string | null;
+  ocrQuantity: number | null;
+  mismatchReason: string | null;
+}
+
+export function toIntakeEvidenceResponse(m: { [K in keyof MaterialIntakeFields]?: MaterialIntakeFields[K] | null }): IntakeEvidenceResponse {
+  return {
+    documentPhotoUrls: m.document_photo_urls ?? [],
+    supplier: m.supplier ?? null,
+    ocrStatus: m.ocr_status ?? null,
+    ocrText: m.ocr_text ?? null,
+    ocrQuantity: m.ocr_quantity ?? null,
+    mismatchReason: m.mismatch_reason ?? null,
+  };
 }

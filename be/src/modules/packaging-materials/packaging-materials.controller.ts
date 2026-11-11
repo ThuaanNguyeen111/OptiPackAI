@@ -12,6 +12,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { toIntakeEvidenceResponse } from '../receipt-ocr/receipt-ocr.util';
 
 function toResponse(m: PackagingMaterialDocument): Record<string, unknown> {
   return {
@@ -69,8 +70,7 @@ export class PackagingMaterialsController {
     return (await this.service.listMovements(code, Number(limit) || 100, status)).map((m) => ({
       materialCode: m.material_code, condition: m.condition, type: m.type, delta: m.delta, savingVnd: m.saving_vnd, followedRecommendation: m.followed_recommendation,
       refType: m.ref_type, refId: m.ref_id, note: m.note, actorId: m.actor_id, createdAt: m.created_at,
-      documentPhotoUrls: m.document_photo_urls, supplier: m.supplier ?? null, ocrStatus: m.ocr_status ?? null,
-      ocrText: m.ocr_text ?? null, ocrQuantity: m.ocr_quantity ?? null, mismatchReason: m.mismatch_reason ?? null,
+      ...toIntakeEvidenceResponse(m),
     }));
   }
 

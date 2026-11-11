@@ -69,3 +69,14 @@ describe('PackagingBagService.consumeForParcels', () => {
     expect(out.consumed).toEqual([]);
   });
 });
+
+// 11/11/2026 — nhập túi zip từ NCC phải kèm ảnh phiếu.
+describe('PackagingBagService.stockIn — ảnh phiếu NCC', () => {
+  it('thiếu ảnh phiếu → PKG_PURCHASE_PHOTO_REQUIRED, không đụng tồn', async () => {
+    const { service, movements } = setup({ 'ZIP-M': 5 });
+    await expect(service.stockIn(new Types.ObjectId().toString(), { quantity: 10 }, 'u1')).rejects.toMatchObject({
+      errorCode: 'PKG_PURCHASE_PHOTO_REQUIRED',
+    });
+    expect(movements).toHaveLength(0);
+  });
+});

@@ -22,6 +22,8 @@ import { CreatePackagingBoxDto, UpdatePackagingBoxDto } from './dto/packaging-bo
 import { AppException } from '../../common/exceptions/app-exception';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
 import type { BoxSpec, MailerSpec } from './engine';
+import { requireMaterialPhotos } from '../receipt-ocr/receipt-ocr.util';
+import type { StockInPackagingBoxDto } from './dto/packaging-box.dto';
 
 /** Tồn một loại thùng: `available` = `onHand` − `reserved` (không âm). */
 export interface BoxAvailability {
@@ -169,6 +171,15 @@ export class PackagingBoxService {
   async stockIn(id: string, quantity: number, userId: string | null, note?: string): Promise<PackagingMaterialDocument> {
     const box = await this.findById(id);
     const updated = await this.materialsService.stockInById(box._id, quantity, userId, note);
+    if (!updated) throw this.notFound(id);
+    return updated;
+  }
+
+  /** 11/11/2026 — route stock-in: nhập từ NCC kèm ảnh phiếu + đối chiếu OCR. */
+  async stockInFromSupplier(id: string, dto: StockInPackagingBoxDto, userId: string): Promise<PackagingMaterialDocument> {
+    requireMaterialPhotos(dto.document_photo_urls);
+    const box = await this.findById(id);
+    const updated = await this.materialsService.receiveFromSupplier(box, dto, userId);
     if (!updated) throw this.notFound(id);
     return updated;
   }

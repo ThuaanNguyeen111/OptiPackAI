@@ -10,6 +10,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { SupplierReceiptEvidenceDto } from '../../receipt-ocr/dto/supplier-receipt-evidence.dto';
 
 export class BoxDimensionsMmDto {
   @ApiProperty({ example: 300 })
@@ -164,7 +165,8 @@ export class UpdatePackagingBoxDto {
  * MỚI (22/09/2026) — nhập thêm thùng. Tồn CHỈ đổi qua route này hoặc
  * lúc pack (mỗi lần 1 dòng sổ), PATCH không sửa trực tiếp.
  */
-export class StockInPackagingBoxDto {
+/** 11/11/2026 — kèm ảnh phiếu NCC (bắt buộc) + đối chiếu OCR, xem SupplierReceiptEvidenceDto. */
+export class StockInPackagingBoxDto extends SupplierReceiptEvidenceDto {
   @ApiProperty({ example: 50, description: 'Số thùng nhập thêm' })
   @IsInt({ message: 'quantity phải là số nguyên' })
   @Min(1, { message: 'quantity phải lớn hơn 0' })
