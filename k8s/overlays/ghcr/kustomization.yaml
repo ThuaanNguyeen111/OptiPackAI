@@ -1,4 +1,4 @@
-# Overlay deploy thật: dùng image do workflow .github/workflows/release.yml
+# Overlay deploy thật: dùng image do workflow .github/workflows/ci.yml (job Build image)
 # đẩy lên GitHub Container Registry.
 #
 #   kubectl apply -k k8s/overlays/ghcr

@@ -1,22 +1,44 @@
-name: CI
+name: CI & Deploy
+
+# Một lượt chạy, một sơ đồ: kiểm tra (be, fe, storefront, packer, k8s)
+#   → Build image (4 image, tuần tự) → Deploy lên server (chỉ main).
+# PR: kiểm tra + build thử image (không push). main: build, push ghcr, deploy.
+# Tag v*: build + push image có tag phiên bản, không deploy.
+#
+# GitHub → Settings → Secrets and variables → Actions, secret cho job deploy:
+#   DEPLOY_HOST         IP server, vd 162.4.176.64
+#   DEPLOY_PORT         cổng SSH của server, vd 24700 (bỏ trống = 22)
+#   DEPLOY_SSH_KEY      private key SSH (public key nằm trong ~/.ssh/authorized_keys của root trên server)
+#   DEPLOY_KNOWN_HOSTS  output của `ssh-keyscan -p <PORT> <IP>` (chống giả mạo server)
+# Bí mật backend KHÔNG nằm trên GitHub: đặt sẵn /root/optipackai/be.env (và
+# fcm-service-account.json) trên server; mỗi lần deploy nạp lại Secret k8s từ đó.
 
 on:
   # Nhánh khác main được kiểm tra qua pull_request; nếu push cũng chạy thì mỗi
   # lần push vào nhánh có PR sẽ chạy CI 2 lần (ref khác nhau nên không huỷ nhau).
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'URL backend mà trình duyệt gọi (nhúng vào bundle FE/storefront lúc build)'
+        required: true
+        default: 'https://optipack.io.vn/api'
 
-# Push liên tiếp lên cùng 1 nhánh: huỷ lượt chạy cũ, chỉ giữ lượt mới nhất.
+# Nhánh PR: push liên tiếp thì huỷ lượt cũ. main: KHÔNG huỷ (đang deploy dở mà huỷ là hỏng).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   # husky là devDependency phục vụ git hook ở máy dev, chạy trong CI vô nghĩa.
   HUSKY: 0
+  # ghcr bắt buộc chữ thường — hạ chữ bằng ${IMAGE_PREFIX,,} lúc dùng.
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/optipackai
+  API_URL: ${{ inputs.api_url || 'https://optipack.io.vn/api' }}
 
 jobs:
   be:
@@ -143,46 +165,164 @@ jobs:
       - name: Test
         run: pytest -q
 
-  docker:
-    # Tên tĩnh, matrix chỉ 1 giá trị → GitHub hiện gọn "Docker build thử (be)".
-    name: Docker build thử
+  image:
+    name: Build image
     runs-on: ubuntu-latest
-    # Chỉ build ở PR: trên main, release.yml đã build lại đủ image ngay sau CI,
-    # build ở đây nữa là trùng và làm deploy chậm thêm ~4 phút.
-    if: github.event_name == 'pull_request'
-    # Chỉ chạy khi code đã qua được test/build — tránh tốn công build image
-    # cho commit chắc chắn hỏng.
-    needs: [be, fe, storefront, packer]
-    # 4 image build song song thay vì nối tiếp (~4,5 phút → ~1,5 phút).
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [be, fe, storefront, packer]
+    # Chỉ build khi code đã qua kiểm tra — khỏi tốn công build commit chắc chắn hỏng.
+    needs: [be, fe, storefront, packer, k8s]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # PR chỉ build thử; main/tag/bấm tay thì push lên ghcr.
+      PUBLISH: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      # fe/storefront nhúng URL API vào bundle lúc build; ở PR chỉ cần build được.
-      - name: Chọn build arg
-        id: arg
+      - uses: docker/login-action@v3
+        if: env.PUBLISH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # src-<key> = băm nội dung các thư mục/file image dùng (+ build arg). Tag này
+      # đã có trên ghcr nghĩa là đúng mã nguồn đó đã build rồi → chỉ gắn tag mới, khỏi build.
+      - name: Tính tag, dùng lại image có sẵn
+        id: plan
         run: |
-          case "${{ matrix.app }}" in
-            fe) echo "value=VITE_API_URL=http://localhost:3000/api" ;;
-            storefront) echo "value=NEXT_PUBLIC_API_URL=http://localhost:3000/api" ;;
-            *) echo "value=" ;;
-          esac >> "$GITHUB_OUTPUT"
+          for APP in be fe storefront packer; do
+            case "$APP" in
+              packer) PATHS="packer"; ARG_NAME="" ;;
+              fe) PATHS="fe package.json package-lock.json"; ARG_NAME="VITE_API_URL" ;;
+              storefront) PATHS="storefront package.json package-lock.json"; ARG_NAME="NEXT_PUBLIC_API_URL" ;;
+              *) PATHS="$APP package.json package-lock.json"; ARG_NAME="" ;;
+            esac
+            IMG="${IMAGE_PREFIX,,}-$APP"
+            ARG=""; [ -n "$ARG_NAME" ] && ARG="$ARG_NAME=$API_URL"
+            KEY=$( { for p in $PATHS; do git rev-parse "HEAD:$p"; done; echo "$ARG"; } | sha256sum | cut -c1-16)
+            TAGS="$IMG:sha-${GITHUB_SHA::7}"
+            [ "$GITHUB_REF" = refs/heads/main ] && TAGS="$TAGS,$IMG:latest"
+            [ "$GITHUB_REF_TYPE" = tag ] && TAGS="$TAGS,$IMG:${GITHUB_REF_NAME#v}"
+            BUILD=true
+            if [ "$PUBLISH" = true ] && docker buildx imagetools inspect "$IMG:src-$KEY" >/dev/null 2>&1; then
+              docker buildx imagetools create $(printf -- '-t %s ' ${TAGS//,/ }) "$IMG:src-$KEY"
+              echo "::notice::$APP: mã nguồn không đổi, dùng lại $IMG:src-$KEY"
+              BUILD=false
+            fi
+            {
+              echo "${APP}_build=$BUILD"
+              echo "${APP}_tags=$IMG:src-$KEY,$TAGS"
+              echo "${APP}_arg=$ARG"
+            } >> "$GITHUB_OUTPUT"
+          done
 
       # Build context là THƯ MỤC GỐC cho mọi image (npm workspaces).
-      - name: Build image
+      - name: Build be
+        if: steps.plan.outputs.be_build == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.app }}/Dockerfile
-          push: false
-          build-args: ${{ steps.arg.outputs.value }}
-          cache-from: type=gha,scope=${{ matrix.app }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+          file: be/Dockerfile
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.plan.outputs.be_tags }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=be
+          cache-to: type=gha,mode=max,scope=be
+
+      - name: Build fe
+        if: steps.plan.outputs.fe_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: fe/Dockerfile
+          push: ${{ env.PUBLISH == 'true' }}
+          build-args: ${{ steps.plan.outputs.fe_arg }}
+          tags: ${{ steps.plan.outputs.fe_tags }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=fe
+          cache-to: type=gha,mode=max,scope=fe
+
+      - name: Build storefront
+        if: steps.plan.outputs.storefront_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: storefront/Dockerfile
+          push: ${{ env.PUBLISH == 'true' }}
+          build-args: ${{ steps.plan.outputs.storefront_arg }}
+          tags: ${{ steps.plan.outputs.storefront_tags }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=storefront
+          cache-to: type=gha,mode=max,scope=storefront
+
+      - name: Build packer
+        if: steps.plan.outputs.packer_build == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packer/Dockerfile
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.plan.outputs.packer_tags }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=packer
+          cache-to: type=gha,mode=max,scope=packer
+
+  deploy:
+    name: Deploy lên server
+    needs: image
+    # Chỉ main mới lên server; PR chỉ kiểm tra, tag v* chỉ phát hành image.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ghim tag image theo commit
+        run: |
+          sed -i "s/newTag: latest/newTag: sha-${GITHUB_SHA::7}/" k8s/overlays/ghcr/kustomization.yaml
+
+      - name: Chuẩn bị SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Apply lên k3s
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          # pipefail: không có thì lỗi ssh bị "| tee" che, bước vẫn báo xanh.
+          set -o pipefail
+          tar -czf - k8s scripts/k8s-create-secret.sh | ssh -i ~/.ssh/id_deploy -p "${PORT:-22}" "root@$HOST" '
+            set -euo pipefail
+            d=$(mktemp -d); trap "rm -rf $d" EXIT
+            tar -xzf - -C "$d" && cd "$d"
+            ENV_FILE=/root/optipackai/be.env bash scripts/k8s-create-secret.sh
+            kubectl apply -k k8s/overlays/ghcr
+            for x in redis packer be fe storefront aurelle; do
+              kubectl -n optipackai rollout status deploy/$x --timeout=300s
+            done
+            kubectl -n optipackai get pods' | tee pods.txt
+
+      # Trang Summary của lượt chạy: commit nào vừa lên và trạng thái pod.
+      - name: Tóm tắt
+        if: always()
+        run: |
+          {
+            echo "### Deploy \`${GITHUB_SHA::7}\` lên optipack.io.vn"
+            echo '```'
+            sed -n '/^NAME /,$p' pods.txt 2>/dev/null | grep . || echo "(không lấy được danh sách pod)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   k8s:
     name: Kubernetes manifests (kustomize + kubeconform)
