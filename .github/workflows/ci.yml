@@ -144,7 +144,8 @@ jobs:
         run: pytest -q
 
   docker:
-    name: Docker build ${{ matrix.name }} (không push)
+    # Tên tĩnh, matrix chỉ 1 giá trị → GitHub hiện gọn "Docker build thử (be)".
+    name: Docker build thử
     runs-on: ubuntu-latest
     # Chỉ build ở PR: trên main, release.yml đã build lại đủ image ngay sau CI,
     # build ở đây nữa là trùng và làm deploy chậm thêm ~4 phút.
@@ -156,34 +157,32 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: be
-            dockerfile: be/Dockerfile
-            build_args: ''
-          - name: packer
-            dockerfile: packer/Dockerfile
-            build_args: ''
-          - name: fe
-            dockerfile: fe/Dockerfile
-            build_args: VITE_API_URL=http://localhost:3000/api
-          - name: storefront
-            dockerfile: storefront/Dockerfile
-            build_args: NEXT_PUBLIC_API_URL=http://localhost:3000/api
+        app: [be, fe, storefront, packer]
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
+
+      # fe/storefront nhúng URL API vào bundle lúc build; ở PR chỉ cần build được.
+      - name: Chọn build arg
+        id: arg
+        run: |
+          case "${{ matrix.app }}" in
+            fe) echo "value=VITE_API_URL=http://localhost:3000/api" ;;
+            storefront) echo "value=NEXT_PUBLIC_API_URL=http://localhost:3000/api" ;;
+            *) echo "value=" ;;
+          esac >> "$GITHUB_OUTPUT"
 
       # Build context là THƯ MỤC GỐC cho mọi image (npm workspaces).
       - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: ${{ matrix.app }}/Dockerfile
           push: false
-          build-args: ${{ matrix.build_args }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          build-args: ${{ steps.arg.outputs.value }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   k8s:
     name: Kubernetes manifests (kustomize + kubeconform)
