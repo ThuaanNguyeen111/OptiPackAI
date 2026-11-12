@@ -22,6 +22,7 @@ import {
   TranslateConsolidationRuleDto,
 } from './dto/consolidation-rule.dto';
 import { ConsolidationRuleAiService, ConsolidationRuleTranslation } from './consolidation-rule-ai.service';
+import { Features } from '../role-permissions/feature-scope';
 
 export const RULE_FIELD_LABELS: Record<string, string> = {
   phone: 'Số điện thoại',
@@ -65,6 +66,7 @@ function toResponse(state: ConsolidationRulesState): ConsolidationRulesResponse 
  */
 @ApiTags('Orders')
 @ApiBearerAuth('JWT-auth')
+@Features('order_sync')
 @Controller('order-sync-settings/rules')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ConsolidationRulesController {

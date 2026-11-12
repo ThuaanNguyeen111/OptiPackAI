@@ -14,6 +14,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { toIntakeEvidenceResponse, type IntakeEvidenceResponse } from '../receipt-ocr/receipt-ocr.util';
+import { Features } from '../role-permissions/feature-scope';
 
 interface DimensionsMmResponse {
   lengthMm: number;
@@ -103,6 +104,7 @@ function toBoxResponse(doc: PackagingMaterialDocument, stock?: BoxAvailability):
 
 @ApiTags('Packaging Boxes')
 @ApiBearerAuth('JWT-auth')
+@Features('packaging_materials', 'packaging_rules', 'packing', 'picking', 'inventory')
 @Controller('packaging/boxes')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackagingBoxController {

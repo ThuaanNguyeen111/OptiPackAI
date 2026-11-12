@@ -46,6 +46,7 @@ import {
   UnscanItemDto,
   UpdatePackingSettingsDto,
 } from './dto/packing-session.dto';
+import { Features } from '../role-permissions/feature-scope';
 
 interface DimsResponse {
   lengthMm: number;
@@ -653,6 +654,7 @@ export function toPlanResponse(
  */
 @ApiTags('Packing plan')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'shipping', 'order_groups')
 @Controller('order-groups/:groupId/packing-plan')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingPlanController {

@@ -8,6 +8,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 interface StaffWithWorkload {
   staffId: string;
@@ -26,6 +27,7 @@ interface StaffWithWorkload {
  */
 @ApiTags('Staff Assignment')
 @ApiBearerAuth('JWT-auth')
+@Features('order_groups', 'picking', 'packing', 'shipping')
 @Controller('order-groups')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class StaffAssignmentController {

@@ -171,6 +171,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   { collection: 'packing_guide_examples', fields: ['plan_id', 'rated_by'] },
   { collection: 'packing_settings', fields: ['updated_by'] },
   { collection: 'order_sync_settings', fields: ['updated_by'] }, // 15/10/2026
+  { collection: 'role_permissions', fields: ['updated_by'] }, // 12/11/2026 — phân quyền trang
   { collection: 'shipping_settings', fields: ['updated_by'] },
   { collection: 'product_master', fields: ['profile_confirmed_by'] },
   { collection: 'storefront_categories', fields: ['parent_id'] },

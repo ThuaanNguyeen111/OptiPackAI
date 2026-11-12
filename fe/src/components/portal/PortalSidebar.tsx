@@ -181,21 +181,13 @@ export function PortalSidebar() {
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
-  const { logout, session } = useAuth()
+  const { logout, session, features } = useAuth()
   const [connectedPlatforms, setConnectedPlatforms] = useState<string[] | 'error' | null>(null)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [profileName, setProfileName] = useState<string | null>(null)
   const role = session?.role ?? UserRole.STORE_OWNER
-  const visibleNav = navItems
-    .map((item) =>
-      item.to === '/app/returns' && role === UserRole.ADMIN
-        ? { ...item, to: '/app/admin/returns' }
-        : item.to === '/app/history' && role === UserRole.ADMIN
-          ? { ...item, to: '/app/admin/history' }
-          : item,
-    )
-    .filter((item) => canSeeNavItem(role, item.to))
+  const visibleNav = navItems.filter((item) => canSeeNavItem(role, item.to, features))
   const roleLabel =
     locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
   const isStoreOwner = role === UserRole.STORE_OWNER
