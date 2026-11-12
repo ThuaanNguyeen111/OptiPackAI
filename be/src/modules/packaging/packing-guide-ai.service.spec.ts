@@ -1,6 +1,12 @@
 import axios from 'axios';
 import type { ConfigService } from '@nestjs/config';
-import { PackingGuideAiService, extractContent, parseGuide } from './packing-guide-ai.service';
+import {
+  DEFAULT_GUIDE_STYLE_PROMPT,
+  PackingGuideAiService,
+  buildGuideSystemPrompt,
+  extractContent,
+  parseGuide,
+} from './packing-guide-ai.service';
 import type { AiProviderConfig } from '../../config/ai.config';
 import type { BoxSpec, GuideStepFacts } from './engine';
 
@@ -122,6 +128,22 @@ describe('PackingGuideAiService.writeGuide', () => {
     expect(JSON.parse(result.trace.user_payload)).toMatchObject({ box: { code: 'BOX-M' }, steps: [{ sku: 'GIAY-42' }, { sku: 'AO-M' }] });
     expect(result.trace.raw_response).toContain('Dùng thùng BOX-M');
     expect(result.trace.examples_used).toBe(0);
+  });
+
+  it('09/11/2026 — văn phong tuỳ chỉnh nằm giữa phần lõi và khuôn JSON; không truyền thì dùng mặc định', async () => {
+    mockedAxios.post.mockResolvedValueOnce(reply(validAiGuide));
+    const custom = await makeService(groq).writeGuide({ ...input, style_prompt: '- Giọng thân thiện, xưng "bạn".' });
+    const prompt = custom.trace.system_prompt;
+    expect(prompt.indexOf('Mỗi câu hướng dẫn phải chứa nguyên văn mã SKU')).toBeGreaterThanOrEqual(0);
+    expect(prompt.indexOf('Giọng thân thiện')).toBeGreaterThan(prompt.indexOf('nguyên văn mã SKU'));
+    expect(prompt.endsWith('không kèm chữ nào khác.')).toBe(true);
+    expect(prompt).not.toContain(DEFAULT_GUIDE_STYLE_PROMPT);
+    const sent = (mockedAxios.post.mock.calls.at(-1)?.[1] as { messages: { role: string; content: string }[] }).messages;
+    expect(sent[0]?.content).toBe(prompt);
+
+    const fallback = await makeService(null).writeGuide(input);
+    expect(fallback.trace.system_prompt).toBe(buildGuideSystemPrompt());
+    expect(fallback.trace.system_prompt).toContain(DEFAULT_GUIDE_STYLE_PROMPT);
   });
 
   it('05/11/2026 — câu mẫu (không gọi AI) vẫn có truy vết với dữ liệu đầu vào, không có phản hồi thô', async () => {

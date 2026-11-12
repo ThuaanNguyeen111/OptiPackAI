@@ -28,6 +28,7 @@ export const NOTIFICATION_TYPES = [
   'packing_blocked',
   'consolidation_name_mismatch',
   'marketplace_confirm_required',
+  'stock_receipt_mismatch',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -106,6 +107,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<
     vi: 'Sắp hết hạn xác nhận đủ hàng (Tiki)',
     en: 'Stock confirmation due soon (Tiki)',
   },
+  stock_receipt_mismatch: { vi: 'Nhập hàng lệch phiếu NCC', en: 'Receipt differs from supplier slip' },
 }
 
 export function mapNotificationRaw(raw: NotificationApiRaw): AppNotification | null {

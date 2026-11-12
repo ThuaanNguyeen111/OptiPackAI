@@ -40,7 +40,10 @@ MongoDB ──(đọc trực tiếp mỗi lần tính)──► BỘ GIẢI TỐ
 Service CP-SAT (Python) nhận dữ liệu này trong **thân request HTTP**.
 
 **LLM: dữ liệu đi trong nội dung tin nhắn (Chat Completions)**, theo 3 lớp:
-1. **System prompt**: luật viết cố định (giữ đúng số bước, mỗi câu có SKU, không đổi vị trí…). Không chứa dữ liệu DB.
+1. **System prompt** gồm 3 đoạn, không chứa dữ liệu đơn hàng:
+   - **Phần lõi cố định trong code**: giữ đúng số bước và thứ tự, mỗi câu có SKU, không đổi vị trí. `parseGuide()` dựa vào các luật này để kiểm tra.
+   - **Phần văn phong** (từ 09/11): Store Owner/Admin sửa ở `PUT /packing/settings` (`guide_style_prompt`), lưu ở `packing_settings` có version và lịch sử. `null` = bản mặc định `DEFAULT_GUIDE_STYLE_PROMPT` (cách nói hàng dễ vỡ, túi zip, gập, đơn vị cm/kg, tip, summary, giọng văn).
+   - **Khuôn JSON trả về**: cố định, đặt cuối cùng.
 2. **Ví dụ mẫu (few-shot)**: tối đa 2 cặp *dữ kiện → hướng dẫn* đã được nhân viên chấm tốt (mục 3).
 3. **User message**: JSON dữ kiện của kiện cần viết, gồm `box` (mã, tên, lòng thùng), `fill_ratio`, `materials` (tên + số lượng vật tư), `steps[]` (SKU, loại sản phẩm, túi zip, gập, dễ vỡ, vị trí dạng chữ, cách xoay, món đỡ bên dưới, kích thước).
 

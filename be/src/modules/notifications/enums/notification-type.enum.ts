@@ -52,4 +52,6 @@ export enum NotificationType {
   CONSOLIDATION_NAME_MISMATCH = 'consolidation_name_mismatch',
   // 31/10/2026 — đơn Tiki sắp hết hạn "xác nhận đủ hàng" mà OptiPack chưa tự xác nhận được.
   MARKETPLACE_CONFIRM_REQUIRED = 'marketplace_confirm_required',
+  // 11/11/2026 — phiếu nhập kho / mua vật liệu có số nhập khác số trên phiếu NCC (OCR). Chỉ in-app.
+  STOCK_RECEIPT_MISMATCH = 'stock_receipt_mismatch',
 }

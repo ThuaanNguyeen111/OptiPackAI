@@ -1,4 +1,4 @@
-import { isOwnProofPhotoUrl, proofPhotoFormat, readCloudinaryConfig, signCloudinaryParams } from './proof-photo.util';
+import { isOwnProofPhotoUrl, proofPhotoFormat, RECEIPT_PHOTO_FOLDER, readCloudinaryConfig, signCloudinaryParams } from './proof-photo.util';
 
 describe('proof-photo.util', () => {
   it('nhận diện định dạng theo byte đầu file', () => {
@@ -27,6 +27,15 @@ describe('proof-photo.util', () => {
     expect(isOwnProofPhotoUrl('https://res.cloudinary.com/bfaxotyp/image/upload/v1/khac/a.jpg', 'bfaxotyp')).toBe(false);
     expect(isOwnProofPhotoUrl('https://evil.com/bfaxotyp/image/upload/v1/optipack/proof/a.jpg', 'bfaxotyp')).toBe(false);
     expect(isOwnProofPhotoUrl('https://res.cloudinary.com/bfaxotyp/image/upload/v1/optipack/proof/../a.jpg', 'bfaxotyp')).toBe(false);
+  });
+
+  it('ảnh phiếu nhập nằm thư mục riêng, không dùng lẫn với ảnh bằng chứng', () => {
+    const receipt = 'https://res.cloudinary.com/bfaxotyp/image/upload/v1731200000/optipack/receipts/pn_1.jpg';
+    const proof = 'https://res.cloudinary.com/bfaxotyp/image/upload/v1/optipack/proof/a.jpg';
+    expect(isOwnProofPhotoUrl(receipt, 'bfaxotyp', RECEIPT_PHOTO_FOLDER)).toBe(true);
+    expect(isOwnProofPhotoUrl(receipt, 'bfaxotyp')).toBe(false);
+    expect(isOwnProofPhotoUrl(proof, 'bfaxotyp', RECEIPT_PHOTO_FOLDER)).toBe(false);
+    expect(isOwnProofPhotoUrl('https://res.cloudinary.com/bfaxotyp/image/upload/v1/optipack/receiptsX/a.jpg', 'bfaxotyp', RECEIPT_PHOTO_FOLDER)).toBe(false);
   });
 
   it('thiếu biến môi trường → chưa cấu hình', () => {

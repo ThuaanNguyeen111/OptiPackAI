@@ -51,7 +51,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   {
     collection: 'stock_receipts',
-    fields: ['warehouse_id'],
+    fields: ['warehouse_id', 'ocr_scan_id'], // 11/11/2026 — ocr_scan_id: luôn ghi ObjectId
     arrayPath: { array: 'lines', fields: ['assignment_id', 'bin_location_id', 'lot_id'] },
   },
   {
@@ -122,7 +122,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   // 10/10/2026 — các collection của thi_dev (đóng gói 3D, cài đặt, storefront) khai `Types.ObjectId`
   // (bị hiểu là Mixed) cho tới lúc gộp main; nay đã đổi sang SchemaTypes.ObjectId.
   { collection: 'packaging_material_rules', fields: ['updated_by'] },
-  { collection: 'packaging_movements', fields: ['packing_plan_id'] },
+  { collection: 'packaging_movements', fields: ['packing_plan_id', 'ocr_scan_id'] }, // 11/11/2026 — ocr_scan_id
   {
     collection: 'packing_plans',
     fields: [

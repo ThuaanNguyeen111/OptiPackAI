@@ -11,12 +11,14 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { GUIDE_STYLE_PROMPT_MAX_LENGTH } from '../schemas/packing-settings.schema';
 import { IsProofPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 import {
   ADJUSTMENT_REASONS,
@@ -349,4 +351,20 @@ export class UpdatePackingSettingsDto {
   @Min(0, { message: 'est_fee_per_extra_step_vnd tối thiểu 0' })
   @Max(1000000, { message: 'est_fee_per_extra_step_vnd tối đa 1000000' })
   est_fee_per_extra_step_vnd?: number;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    maxLength: GUIDE_STYLE_PROMPT_MAX_LENGTH,
+    description:
+      '(09/11/2026) Phần văn phong của system prompt AI viết hướng dẫn đóng gói. null = khôi phục mặc định. Phần lõi (số bước, SKU, khuôn JSON) cố định trong code.',
+  })
+  @IsOptional()
+  @ValidateIf((o: UpdatePackingSettingsDto) => o.guide_style_prompt !== null)
+  @IsString({ message: 'guide_style_prompt phải là chuỗi' })
+  @Matches(/\S/, { message: 'guide_style_prompt không được để trống — gửi null để khôi phục mặc định' })
+  @MaxLength(GUIDE_STYLE_PROMPT_MAX_LENGTH, {
+    message: `guide_style_prompt tối đa ${String(GUIDE_STYLE_PROMPT_MAX_LENGTH)} ký tự`,
+  })
+  guide_style_prompt?: string | null;
 }

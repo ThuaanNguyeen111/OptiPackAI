@@ -18,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { toIntakeEvidenceResponse, type IntakeEvidenceResponse } from '../receipt-ocr/receipt-ocr.util';
 
 export interface PackagingMaterialResponse {
   id: string;
@@ -39,7 +40,7 @@ export interface PackagingMaterialResponse {
   quantityReused: number;
 }
 
-export interface MaterialMovementResponse {
+export interface MaterialMovementResponse extends IntakeEvidenceResponse {
   delta: number;
   reason: string;
   balanceAfter: number;
@@ -100,6 +101,7 @@ function toMovementResponse(m: PackagingMovement): MaterialMovementResponse {
     orderGroupId: m.ref_type === 'order_group' ? m.ref_id : null,
     note: m.note,
     createdAt: m.created_at,
+    ...toIntakeEvidenceResponse(m),
   };
 }
 
@@ -165,13 +167,13 @@ export class PackagingMaterialController {
 
   @Post(':id/stock-in')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: 'Nhập thêm vật tư vào kho (ghi 1 dòng sổ). Tồn chỉ đổi qua route này hoặc lúc pack.' })
+  @ApiOperation({ summary: 'Nhập thêm vật tư vào kho (ghi 1 dòng sổ). Tồn chỉ đổi qua route này hoặc lúc pack. 11/11/2026: bắt buộc `document_photo_urls` + đối chiếu OCR như stock-in thùng.' })
   async stockIn(
     @Param('id') id: string,
     @Body() dto: StockInPackagingMaterialDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<PackagingMaterialResponse> {
-    return toMaterialResponse(await this.materialService.stockIn(id, dto.quantity, user.userId, dto.note));
+    return toMaterialResponse(await this.materialService.stockInFromSupplier(id, dto, user.userId));
   }
 
   @Get(':id/movements')

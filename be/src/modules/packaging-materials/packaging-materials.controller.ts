@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { AppException } from '../../common/exceptions/app-exception';
+import { OCR_STATUSES } from '../receipt-ocr/schemas/receipt-ocr-scan.schema';
+import { PACKAGING_MATERIAL_ERROR_CODES } from './packaging-materials.errors';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PackagingMaterialsService } from './packaging-materials.service';
 import { PackagingMaterialDocument, usableStock } from './schemas/packaging-material.schema';
@@ -9,6 +12,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { toIntakeEvidenceResponse } from '../receipt-ocr/receipt-ocr.util';
 
 function toResponse(m: PackagingMaterialDocument): Record<string, unknown> {
   return {
@@ -53,11 +57,20 @@ export class PackagingMaterialsController {
 
   @Get('movements')
   @Roles(...READERS)
-  @ApiOperation({ summary: 'Sổ cái vật liệu (mới -> cũ). ?material_code=BOX-M&limit=100' })
-  async movements(@Query('material_code') code?: string, @Query('limit') limit?: string): Promise<Record<string, unknown>[]> {
-    return (await this.service.listMovements(code, Number(limit) || 100)).map((m) => ({
+  @ApiOperation({ summary: 'Sổ cái vật liệu (mới -> cũ). ?material_code=BOX-M&limit=100. 11/11/2026: ?ocr_status=mismatch = chỉ lần mua lệch số với phiếu NCC.' })
+  async movements(
+    @Query('material_code') code?: string,
+    @Query('limit') limit?: string,
+    @Query('ocr_status') ocrStatus?: string,
+  ): Promise<Record<string, unknown>[]> {
+    const status = OCR_STATUSES.find((s) => s === ocrStatus);
+    if (ocrStatus !== undefined && !status) {
+      throw new AppException(PACKAGING_MATERIAL_ERROR_CODES.INVALID_QUERY, `ocr_status chỉ nhận ${OCR_STATUSES.join(' | ')}.`, HttpStatus.BAD_REQUEST);
+    }
+    return (await this.service.listMovements(code, Number(limit) || 100, status)).map((m) => ({
       materialCode: m.material_code, condition: m.condition, type: m.type, delta: m.delta, savingVnd: m.saving_vnd, followedRecommendation: m.followed_recommendation,
       refType: m.ref_type, refId: m.ref_id, note: m.note, actorId: m.actor_id, createdAt: m.created_at,
+      ...toIntakeEvidenceResponse(m),
     }));
   }
 

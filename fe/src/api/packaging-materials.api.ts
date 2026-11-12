@@ -1,4 +1,5 @@
 import { apiRequest } from '../lib/api'
+import { mapIntakeEvidence, type IntakeEvidence, type ReceiptEvidencePayload } from './receipt-evidence.api'
 import type { StockStatus } from './packaging-catalog.api'
 
 export type PackagingMaterialsSavings = {
@@ -63,7 +64,7 @@ export type PackagingMaterialMovement = {
   refId: string | null
   note: string | null
   createdAt: string | null
-}
+} & IntakeEvidence
 
 export type CreatePackagingMaterialInput = {
   code: string
@@ -181,6 +182,7 @@ export async function listPackagingMaterialMovements(
         refId: pickString(row.refId ?? row.ref_id),
         note: pickString(row.note),
         createdAt: pickString(row.createdAt ?? row.created_at),
+        ...mapIntakeEvidence(row),
       },
     ]
   })
@@ -267,14 +269,15 @@ export async function reactivatePackagingMaterial(
 export async function purchasePackagingMaterial(
   code: string,
   quantity: number,
-  note?: string,
+  note: string | undefined,
+  evidence: ReceiptEvidencePayload,
 ): Promise<PackagingMaterialStock> {
   const res = await apiRequest<unknown>(
     `/packaging-materials/${encodeURIComponent(code)}/purchase`,
     {
       method: 'POST',
       auth: true,
-      body: { quantity, note: note?.trim() || undefined },
+      body: { ...evidence, quantity, note: note?.trim() || undefined },
     },
   )
   const item = mapMaterial(res)

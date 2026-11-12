@@ -22,6 +22,11 @@ spec:
             # trùng tên trong Secret (vd REDIS_HOST=localhost trong be/.env).
             - secretRef: { name: optipackai-be-env }
             - configMapRef: { name: optipackai-be-config }
+          volumeMounts:
+            # File service account Firebase cho push (FCM_SERVICE_ACCOUNT_FILE trong ConfigMap).
+            - name: fcm
+              mountPath: /etc/fcm
+              readOnly: true
           readinessProbe:
             httpGet: { path: /api, port: 3000 }
             initialDelaySeconds: 10
@@ -33,8 +38,14 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
-            limits: { cpu: '1', memory: 768Mi }
+            requests: { cpu: 100m, memory: 384Mi }
+            limits: { cpu: '1', memory: 1Gi }
+      volumes:
+        - name: fcm
+          secret:
+            secretName: optipackai-fcm
+            # Chưa tạo Secret thì pod vẫn chạy, chỉ không gửi được push.
+            optional: true
 ---
 apiVersion: v1
 kind: Service

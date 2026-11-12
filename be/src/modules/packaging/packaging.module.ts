@@ -23,6 +23,7 @@ import {
 } from './schemas/packaging-material-rules.schema';
 import { PackagingMaterialService } from './packaging-material.service';
 import { PackagingMaterialController } from './packaging-material.controller';
+import { ReceiptOcrModule } from '../receipt-ocr/receipt-ocr.module';
 
 /**
  * Danh mục thùng / túi zip / vật tư chèn + tồn kho + hướng dẫn AI.
@@ -41,6 +42,7 @@ import { PackagingMaterialController } from './packaging-material.controller';
       { name: PackagingMaterialRules.name, schema: PackagingMaterialRulesSchema },
     ]),
     PackagingMaterialsModule, // trừ tồn/nhập hàng dùng chung (consumeForParcels, stockInById)
+    ReceiptOcrModule, // 11/11/2026 — ảnh phiếu NCC + OCR khi nhập túi zip
   ],
   controllers: [
     PackagingBoxController,

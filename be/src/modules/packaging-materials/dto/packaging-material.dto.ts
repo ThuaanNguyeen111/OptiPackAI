@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { PACKAGING_MATERIAL_KINDS, type PackagingMaterialKind } from '../schemas/packaging-material.schema';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, ValidateNested, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { SupplierReceiptEvidenceDto } from '../../receipt-ocr/dto/supplier-receipt-evidence.dto';
 
 export class CreatePackagingMaterialDto {
   @ApiProperty({ example: 'BOX-M' }) @Matches(/^[A-Z0-9-]{2,20}$/, { message: 'code 2-20 ký tự CHỮ HOA/số/gạch ngang' }) code!: string;
@@ -31,7 +32,7 @@ export class UpdatePackagingMaterialDto {
   @ApiPropertyOptional({ example: 50 }) @IsOptional() @IsInt() @Min(0) @Max(1_000_000) reorder_level?: number;
 }
 
-export class PurchasePackagingDto {
+export class PurchasePackagingDto extends SupplierReceiptEvidenceDto {
   @ApiProperty({ example: 100 }) @IsInt() @Min(1) @Max(1_000_000) quantity!: number;
   @ApiPropertyOptional({ example: 'Nhập từ NCC Bao Bì Sài Gòn' }) @IsOptional() @IsString() @MaxLength(500) note?: string;
 }

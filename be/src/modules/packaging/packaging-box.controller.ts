@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { toIntakeEvidenceResponse, type IntakeEvidenceResponse } from '../receipt-ocr/receipt-ocr.util';
 
 interface DimensionsMmResponse {
   lengthMm: number;
@@ -40,7 +41,7 @@ export interface PackagingBoxResponse {
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
 }
 
-export interface StockMovementResponse {
+export interface StockMovementResponse extends IntakeEvidenceResponse {
   delta: number;
   reason: string;
   balanceAfter: number;
@@ -64,6 +65,7 @@ function toMovementResponse(m: PackagingMovement): StockMovementResponse {
     orderGroupId: m.ref_type === 'order_group' ? m.ref_id : null,
     note: m.note,
     createdAt: m.created_at,
+    ...toIntakeEvidenceResponse(m),
   };
 }
 
@@ -130,13 +132,13 @@ export class PackagingBoxController {
 
   @Post(':id/stock-in')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: 'Nhập thêm thùng vào kho (ghi 1 dòng sổ xuất/nhập). Tồn chỉ đổi qua route này hoặc lúc pack.' })
+  @ApiOperation({ summary: 'Nhập thêm thùng vào kho (ghi 1 dòng sổ xuất/nhập). Tồn chỉ đổi qua route này hoặc lúc pack. 11/11/2026: bắt buộc `document_photo_urls` (ảnh phiếu NCC); gửi `ocr_scan_id` + `ocr_line_index` để đối chiếu, lệch phải có `mismatch_reason`.' })
   async stockIn(
     @Param('id') id: string,
     @Body() dto: StockInPackagingBoxDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<PackagingBoxResponse> {
-    const doc = await this.boxService.stockIn(id, dto.quantity, user.userId, dto.note);
+    const doc = await this.boxService.stockInFromSupplier(id, dto, user.userId);
     const availability = await this.boxService.listAvailability();
     return toBoxResponse(doc, availability.get(doc.code));
   }

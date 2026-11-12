@@ -10,6 +10,8 @@ import { PackagingBag, PackagingBagDocument } from './schemas/packaging-bag.sche
 import { CreatePackagingBagDto, StockInBagDto, UpdatePackagingBagDto } from './dto/packaging-bag.dto';
 import { AppException } from '../../common/exceptions/app-exception';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
+import { ReceiptOcrService } from '../receipt-ocr/receipt-ocr.service';
+import { materialIntakeFields, NOT_CHECKED, requireMaterialPhotos } from '../receipt-ocr/receipt-ocr.util';
 
 /**
  * CRUD danh mục túi zip (21/09/2026). Ngừng dùng = xóa mềm (Rule #8);
@@ -24,6 +26,8 @@ export class PackagingBagService {
     private readonly movementModel: Model<PackagingMovementDocument>,
     // 08/11/2026 — cảnh báo tồn túi khi sửa ngưỡng. Tham số cuối + @Optional để spec cũ không vỡ.
     @Optional() private readonly stockAlerts?: PackagingStockAlertService,
+    // 11/11/2026 — ảnh phiếu NCC + OCR đối chiếu khi nhập túi. @Optional để spec cũ không vỡ.
+    @Optional() private readonly receiptOcr?: ReceiptOcrService,
   ) {}
 
   async list(activeOnly: boolean): Promise<PackagingBagDocument[]> {
@@ -129,6 +133,14 @@ export class PackagingBagService {
         { id },
       );
     }
+    const photos = requireMaterialPhotos(dto.document_photo_urls);
+    const current = await this.bagModel.findById(new Types.ObjectId(id)).select({ code: 1 }).lean();
+    if (!current) {
+      throw new AppException(PACKAGING_ERROR_CODES.BAG_NOT_FOUND, `Không tìm thấy túi "${id}".`, HttpStatus.NOT_FOUND, { id });
+    }
+    const intake = this.receiptOcr
+      ? await this.receiptOcr.prepareMaterialIntake(current.code, dto.quantity, dto)
+      : { fields: materialIntakeFields(photos, dto.supplier, NOT_CHECKED), mismatch: null };
     const session = await this.bagModel.db.startSession();
     try {
       let updated = null as PackagingBagDocument | null;
@@ -153,6 +165,7 @@ export class PackagingBagService {
               actor_id: userId,
               balance_after: updated.quantity_on_hand,
               created_at: new Date(),
+              ...intake.fields,
             },
           ],
           { session },
@@ -166,6 +179,7 @@ export class PackagingBagService {
           { id },
         );
       }
+      if (intake.mismatch && this.receiptOcr) await this.receiptOcr.notifyMaterialMismatch(current.code, intake.mismatch);
       return updated;
     } finally {
       await session.endSession();

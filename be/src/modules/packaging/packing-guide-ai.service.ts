@@ -50,6 +50,8 @@ export interface PackingGuideInput {
   materials: GuideMaterial[];
   /** (05/11/2026) Ví dụ mẫu đã được chấm tốt; bỏ qua = không có. */
   examples?: GuideExample[];
+  /** (09/11/2026) Phần văn phong của system prompt (từ packing_settings); bỏ qua = mặc định. */
+  style_prompt?: string;
 }
 
 /** Trần số ví dụ gửi kèm — giữ prompt ngắn (tốc độ + hạn token bậc miễn phí). */
@@ -57,13 +59,21 @@ export const MAX_GUIDE_EXAMPLES = 2;
 
 const MAX_INSTRUCTION_LENGTH = 400;
 
-const SYSTEM_PROMPT = [
+/** Phần lõi CỐ ĐỊNH — parseGuide() dựa vào các luật này (số bước, thứ tự, SKU). */
+const CORE_HEAD = [
   'Bạn viết hướng dẫn đóng gói cho nhân viên kho một shop thời trang (giày dép, quần áo) tại Việt Nam.',
   'Thuật toán đã quyết định sẵn thùng, thứ tự, vị trí và cách xoay từng món. Nhiệm vụ của bạn CHỈ là diễn đạt lại thành câu tiếng Việt ngắn, rõ, dễ làm theo.',
   'Quy tắc bắt buộc:',
   '- Giữ đúng số bước và đúng thứ tự được cho; bước i trong kết quả ứng với bước i trong dữ liệu.',
   '- Mỗi câu hướng dẫn phải chứa nguyên văn mã SKU của món ở bước đó.',
   '- Không đổi vị trí, cách xoay hay món đặt bên dưới; không thêm món, không thêm bước.',
+].join('\n');
+
+/**
+ * (09/11/2026) Phần văn phong mặc định — Admin/Store Owner thay được qua
+ * `packing_settings.guide_style_prompt` (null = dùng bản này).
+ */
+export const DEFAULT_GUIDE_STYLE_PROMPT = [
   '- Mỗi câu phải nói đủ: đặt ở đâu ("position"), xoay thế nào ("orientation_hint"), và đặt "sát đáy thùng" nếu "rests_on" rỗng, ngược lại "đặt lên trên" các món trong "rests_on".',
   '- Món có "is_fragile": true thì câu phải bắt đầu bằng việc bọc xốp hơi trước khi đặt; món có "no_stack_on_top": true thì "tip" phải nhắc không đặt món khác đè lên.',
   '- Món có "zip_bag" khác null thì câu phải bắt đầu bằng việc cho món đó vào túi zip (nêu tên túi), và nếu "zip_bag.folded": true thì nói gập đôi túi, rồi mới đặt vào thùng.',
@@ -74,8 +84,16 @@ const SYSTEM_PROMPT = [
   '- "tip" là một lưu ý ngắn khi thật sự cần (hàng dễ vỡ, không được đè lên, cách gấp quần áo gọn); không cần thì để chuỗi rỗng "".',
   '- "summary" là 1–2 câu tổng quan: dùng thùng nào, bao nhiêu món, lưu ý chung trước khi dán thùng.',
   '- Nếu "materials" không rỗng thì "summary" phải liệt kê đúng tên và số lượng từng vật tư chèn cần chuẩn bị (góc xốp, tấm ngăn, gối hơi, tem...) theo dữ liệu; không tự thêm vật tư khác.',
-  'Chỉ trả về JSON dạng {"summary": string, "steps": [{"step": number, "instruction": string, "tip": string}]}, không kèm chữ nào khác.',
 ].join('\n');
+
+/** Đặt CUỐI để khuôn JSON luôn thắng phần văn phong do người dùng viết. */
+const CORE_TAIL =
+  'Chỉ trả về JSON dạng {"summary": string, "steps": [{"step": number, "instruction": string, "tip": string}]}, không kèm chữ nào khác.';
+
+/** System prompt gửi model = lõi + văn phong + khuôn JSON. */
+export function buildGuideSystemPrompt(style: string = DEFAULT_GUIDE_STYLE_PROMPT): string {
+  return [CORE_HEAD, style, CORE_TAIL].join('\n');
+}
 
 // Không dùng kiểu hợp (string|null) để tương thích nhiều model;
 // tip rỗng được chuẩn hoá về null ở parseGuide().
@@ -137,6 +155,7 @@ export class PackingGuideAiService {
   async writeGuide(input: PackingGuideInput): Promise<PackingGuideResult> {
     const started = Date.now();
     const examples = (input.examples ?? []).slice(0, MAX_GUIDE_EXAMPLES);
+    const systemPrompt = buildGuideSystemPrompt(input.style_prompt);
     const userPayload = payloadOf(
       { code: input.box.code, name: input.box.name, inner_mm: input.box.inner },
       input.fill_ratio,
@@ -144,7 +163,7 @@ export class PackingGuideAiService {
       input.facts,
     );
     const trace = (raw: string | null, used: number): GuideTrace => ({
-      system_prompt: SYSTEM_PROMPT,
+      system_prompt: systemPrompt,
       user_payload: userPayload,
       raw_response: raw,
       examples_used: used,
@@ -159,7 +178,7 @@ export class PackingGuideAiService {
       return { ...template, source: 'template', model: null, fallback_reason: 'no_api_key', trace: trace(null, 0) };
     }
 
-    const attempt = await this.tryProvider(provider, input, userPayload, examples);
+    const attempt = await this.tryProvider(provider, input, systemPrompt, userPayload, examples);
     if (attempt.ok) {
       return {
         ...attempt.guide,
@@ -176,12 +195,13 @@ export class PackingGuideAiService {
   private async tryProvider(
     provider: AiProviderConfig,
     input: PackingGuideInput,
+    systemPrompt: string,
     userPayload: string,
     examples: GuideExample[],
   ): Promise<Attempt> {
     let raw: string;
     try {
-      raw = await this.callProvider(provider, userPayload, examples);
+      raw = await this.callProvider(provider, systemPrompt, userPayload, examples);
     } catch (error: unknown) {
       this.logger.warn(`AI "${provider.name}" lỗi khi viết hướng dẫn đóng gói: ${describeError(error)}`);
       return { ok: false, reason: 'ai_error', raw: null };
@@ -201,7 +221,12 @@ export class PackingGuideAiService {
   }
 
   /** Gọi model, trả NỘI DUNG THÔ (chuỗi) để vừa kiểm tra vừa lưu truy vết. */
-  private async callProvider(provider: AiProviderConfig, userPayload: string, examples: GuideExample[]): Promise<string> {
+  private async callProvider(
+    provider: AiProviderConfig,
+    systemPrompt: string,
+    userPayload: string,
+    examples: GuideExample[],
+  ): Promise<string> {
     // Few-shot: mỗi ví dụ = 1 cặp (dữ kiện → hướng dẫn đã được chấm tốt), đặt TRƯỚC kiện thật.
     const shots = examples.flatMap((e) => [
       { role: 'user', content: e.user_payload },
@@ -210,7 +235,7 @@ export class PackingGuideAiService {
     const body = {
       model: provider.model,
       temperature: 0.3,
-      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...shots, { role: 'user', content: userPayload }],
+      messages: [{ role: 'system', content: systemPrompt }, ...shots, { role: 'user', content: userPayload }],
     };
     const post = async (responseFormat: object): Promise<string> => {
       const response = await axios.post<unknown>(

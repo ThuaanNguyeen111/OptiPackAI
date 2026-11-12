@@ -4,6 +4,7 @@ import { PackingSettingsService, DEFAULT_PACKING_SETTINGS } from './packing-sett
 import { PackerAssignmentService } from './packer-assignment.service';
 import { PackingReportService } from './packing-report.service';
 import { PACKING_ERROR_CODES } from './packing.errors';
+import { DEFAULT_GUIDE_STYLE_PROMPT } from '../packaging/packing-guide-ai.service';
 
 /** (05/10/2026) Luật đóng gói có phiên bản, giao người đóng, báo cáo hiệu suất. */
 describe('PackingSettingsService', () => {
@@ -55,6 +56,46 @@ describe('PackingSettingsService', () => {
     const service = new PackingSettingsService(model(null) as never, connection as never);
     await expect(service.update({ expected_version: 4 }, userId)).rejects.toMatchObject({
       errorCode: PACKING_ERROR_CODES.SETTINGS_CONFLICT,
+    });
+  });
+
+  describe('guide_style_prompt (09/11/2026)', () => {
+    const saved = { version: 2, abnormal_weight_threshold: 0.2, fragile_cushion_mm: 5, default_prefer: 'fewest_parcels' };
+
+    it('bản lưu cũ thiếu trường → văn phong mặc định', async () => {
+      const s = await new PackingSettingsService(model(saved) as never, connection as never).get();
+      expect(s.guideStylePrompt).toBe(DEFAULT_GUIDE_STYLE_PROMPT);
+      expect(s.guideStylePromptIsDefault).toBe(true);
+    });
+
+    it('đã lưu văn bản riêng → trả văn bản đó, isDefault false', async () => {
+      const m = model({ ...saved, guide_style_prompt: '- Giọng thân thiện.' });
+      const s = await new PackingSettingsService(m as never, connection as never).get();
+      expect(s.guideStylePrompt).toBe('- Giọng thân thiện.');
+      expect(s.guideStylePromptIsDefault).toBe(false);
+    });
+
+    it('lưu: chuỗi được trim; không gửi thì giữ bản riêng; null thì về mặc định', async () => {
+      const fresh = model(null);
+      await new PackingSettingsService(fresh as never, connection as never).update(
+        { guide_style_prompt: '  - Giọng thân thiện.  ' },
+        userId,
+      );
+      expect((fresh.create.mock.calls[0] as [[Record<string, unknown>]])[0][0].guide_style_prompt).toBe('- Giọng thân thiện.');
+
+      const custom = model({ ...saved, guide_style_prompt: '- Riêng.' });
+      const service = new PackingSettingsService(custom as never, connection as never);
+      await service.update({ require_scan: true }, userId);
+      await service.update({ guide_style_prompt: null }, userId);
+      const calls = custom.create.mock.calls as [[Record<string, unknown>]][];
+      expect(calls[0]?.[0][0].guide_style_prompt).toBe('- Riêng.');
+      expect(calls[1]?.[0][0].guide_style_prompt).toBeNull();
+    });
+
+    it('chưa ai lưu, sửa trường khác → vẫn lưu null (không chép mặc định vào DB)', async () => {
+      const m = model(null);
+      await new PackingSettingsService(m as never, connection as never).update({ require_scan: true }, userId);
+      expect((m.create.mock.calls[0] as [[Record<string, unknown>]])[0][0].guide_style_prompt).toBeNull();
     });
   });
 });

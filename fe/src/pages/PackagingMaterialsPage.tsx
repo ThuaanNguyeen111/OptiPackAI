@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { Loader2, Plus, RefreshCw } from 'lucide-react'
+import { ReceiptEvidencePanel } from '../components/warehouse/ReceiptEvidencePanel'
+import {
+  EMPTY_RECEIPT_EVIDENCE,
+  receiptEvidencePayload,
+  receiptEvidenceProblem,
+  type ReceiptEvidenceState,
+} from '../components/warehouse/receipt-evidence'
+import { OcrStatusBadge } from '../components/warehouse/OcrStatusBadge'
+import type { ReceiptEvidencePayload } from '../api/receipt-evidence.api'
 import {
   createPackagingMaterial,
   deactivatePackagingMaterial,
@@ -972,6 +981,7 @@ function MovementTable({
           <th className="py-1">{tx(vi, 'Lượng', 'Qty')}</th>
           {g4 ? <th className="py-1">{tx(vi, 'Tiết kiệm', 'Saved')}</th> : null}
           <th className="py-1">{tx(vi, 'Ghi chú', 'Note')}</th>
+          <th className="py-1">{tx(vi, 'Phiếu NCC', 'Supplier slip')}</th>
         </tr>
       </thead>
       <tbody>
@@ -990,6 +1000,21 @@ function MovementTable({
                 <td className="py-1">{isG4 ? formatCurrency(row.savingVnd) : '—'}</td>
               ) : null}
               <td className="py-1">{row.note ?? '—'}</td>
+              <td className="space-y-0.5 py-1">
+                <OcrStatusBadge status={row.ocrStatus} vi={vi} />
+                {row.ocrQuantity !== null ? (
+                  <span className="block text-ink-muted">
+                    {tx(vi, 'Phiếu ghi', 'Slip')} {row.ocrQuantity}
+                  </span>
+                ) : null}
+                {row.mismatchReason ? <span className="block text-red-600">{row.mismatchReason}</span> : null}
+                {row.documentPhotoUrls.map((url, i) => (
+                  <a key={url} href={url} target="_blank" rel="noreferrer" className="mr-1 text-primary underline">
+                    {tx(vi, 'Ảnh', 'Photo')} {i + 1}
+                  </a>
+                ))}
+                {row.ocrStatus === null && row.documentPhotoUrls.length === 0 ? '—' : null}
+              </td>
             </tr>
           )
         })}
@@ -1175,11 +1200,14 @@ function StockActionDialog({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const internal = mode === 'internal'
+  const [qtyText, setQtyText] = useState('')
+  const [evidence, setEvidence] = useState<ReceiptEvidenceState>(EMPTY_RECEIPT_EVIDENCE)
+  const evidenceProblem = internal ? null : receiptEvidenceProblem(evidence, positiveInt(qtyText) ?? 0, vi)
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const quantity = positiveInt(String(data.get('quantity') ?? ''))
+    const quantity = positiveInt(qtyText)
     const note = String(data.get('note') ?? '').trim()
     if (quantity === null) {
       setError(tx(vi, 'Số lượng phải là số nguyên dương.', 'Quantity must be a positive integer.'))
@@ -1189,10 +1217,14 @@ function StockActionDialog({
       setError(tx(vi, 'Mục đích xuất nội bộ cần ít nhất 3 ký tự.', 'Internal-use purpose needs at least 3 characters.'))
       return
     }
+    if (evidenceProblem) {
+      setError(evidenceProblem)
+      return
+    }
     setBusy(true)
     const action = internal
       ? internalUsePackagingMaterial(item.code, quantity, note)
-      : purchasePackagingMaterial(item.code, quantity, note)
+      : purchasePackagingMaterial(item.code, quantity, note, receiptEvidencePayload(evidence))
     void action
       .then(() =>
         onDone(
@@ -1222,12 +1254,29 @@ function StockActionDialog({
             : tx(vi, `Tồn mới đang là ${item.qtyNew}.`, `New stock is ${item.qtyNew}.`)}
         </p>
         <Field label={tx(vi, 'Số lượng', 'Quantity')}>
-          <Input name="quantity" className={fieldClass} inputMode="numeric" required />
+          <Input
+            name="quantity"
+            className={fieldClass}
+            inputMode="numeric"
+            required
+            value={qtyText}
+            onChange={(e) => setQtyText(e.target.value)}
+          />
         </Field>
+        {internal ? null : (
+          <ReceiptEvidencePanel
+            vi={vi}
+            itemCodes={[item.code]}
+            quantity={positiveInt(qtyText) ?? 0}
+            value={evidence}
+            onChange={setEvidence}
+            onQuantityFromSlip={(q) => setQtyText(String(q))}
+          />
+        )}
         <Field label={internal ? tx(vi, 'Mục đích', 'Purpose') : tx(vi, 'Ghi chú', 'Note')}>
           <Input name="note" className={fieldClass} />
         </Field>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy || evidenceProblem !== null}>
           {tx(vi, 'Xác nhận', 'Confirm')}
         </Button>
       </form>
@@ -1386,8 +1435,9 @@ function BoxesPanel({
         <QuantityDialog
           vi={vi}
           title={`${tx(vi, 'Nhập thùng', 'Receive boxes')} ${dialog.item.code}`}
+          itemCode={dialog.item.code}
           onClose={() => setDialog(null)}
-          onSubmit={(quantity, note) => stockInPackagingBox(dialog.item.id, quantity, note)}
+          onSubmit={(quantity, note, evidence) => stockInPackagingBox(dialog.item.id, quantity, note, evidence)}
           onDone={(message) => {
             setNotice(message)
             setDialog(null)
@@ -1553,8 +1603,9 @@ function BagsPanel({
         <QuantityDialog
           vi={vi}
           title={`${tx(vi, 'Nhập túi', 'Receive bags')} ${dialog.item.code}`}
+          itemCode={dialog.item.code}
           onClose={() => setDialog(null)}
-          onSubmit={(quantity, note) => stockInPackagingBag(dialog.item.id, quantity, note)}
+          onSubmit={(quantity, note, evidence) => stockInPackagingBag(dialog.item.id, quantity, note, evidence)}
           onDone={(message) => {
             setNotice(message)
             setDialog(null)
@@ -1735,8 +1786,9 @@ function CushionsPanel({
         <QuantityDialog
           vi={vi}
           title={`${tx(vi, 'Nhập vật liệu chống sốc', 'Receive')} ${dialog.item.code}`}
+          itemCode={dialog.item.code}
           onClose={() => setDialog(null)}
-          onSubmit={(quantity, note) => stockInCushionMaterial(dialog.item.id, quantity, note)}
+          onSubmit={(quantity, note, evidence) => stockInCushionMaterial(dialog.item.id, quantity, note, evidence)}
           onDone={(message) => {
             setNotice(message)
             setDialog(null)
@@ -1901,29 +1953,39 @@ function RowActions({
 function QuantityDialog({
   vi,
   title,
+  itemCode,
   onClose,
   onSubmit,
   onDone,
 }: {
   vi: boolean
   title: string
+  /** Mã vật tư — để tự chọn dòng trên phiếu NCC. */
+  itemCode: string
   onClose: () => void
-  onSubmit: (quantity: number, note?: string) => Promise<unknown>
+  onSubmit: (quantity: number, note: string | undefined, evidence: ReceiptEvidencePayload) => Promise<unknown>
   onDone: (message: string) => void
 }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [qtyText, setQtyText] = useState('')
+  const [evidence, setEvidence] = useState<ReceiptEvidenceState>(EMPTY_RECEIPT_EVIDENCE)
+  const evidenceProblem = receiptEvidenceProblem(evidence, positiveInt(qtyText) ?? 0, vi)
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const quantity = positiveInt(String(data.get('quantity') ?? ''))
+    const quantity = positiveInt(qtyText)
     if (quantity === null) {
       setError(tx(vi, 'Số lượng phải là số nguyên dương.', 'Quantity must be a positive integer.'))
       return
     }
+    if (evidenceProblem) {
+      setError(evidenceProblem)
+      return
+    }
     setBusy(true)
-    void onSubmit(quantity, String(data.get('note') ?? ''))
+    void onSubmit(quantity, String(data.get('note') ?? ''), receiptEvidencePayload(evidence))
       .then(() => onDone(tx(vi, 'Đã nhập kho.', 'Stock received.')))
       .catch((err: unknown) => setError(formatApiError(err)))
       .finally(() => setBusy(false))
@@ -1934,12 +1996,27 @@ function QuantityDialog({
       <form className="space-y-3" onSubmit={submit}>
         <Banner error={error} notice="" />
         <Field label={tx(vi, 'Số lượng', 'Quantity')}>
-          <Input name="quantity" className={fieldClass} inputMode="numeric" required />
+          <Input
+            name="quantity"
+            className={fieldClass}
+            inputMode="numeric"
+            required
+            value={qtyText}
+            onChange={(e) => setQtyText(e.target.value)}
+          />
         </Field>
+        <ReceiptEvidencePanel
+          vi={vi}
+          itemCodes={[itemCode]}
+          quantity={positiveInt(qtyText) ?? 0}
+          value={evidence}
+          onChange={setEvidence}
+          onQuantityFromSlip={(q) => setQtyText(String(q))}
+        />
         <Field label={tx(vi, 'Ghi chú', 'Note')}>
           <Input name="note" className={fieldClass} />
         </Field>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy || evidenceProblem !== null}>
           {tx(vi, 'Xác nhận', 'Confirm')}
         </Button>
       </form>
