@@ -39,6 +39,8 @@ env:
 
 jobs:
   build-push:
+    # Tên tĩnh, matrix chỉ 1 giá trị → GitHub hiện gọn "Build image (be)".
+    name: Build image
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -47,23 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: be
-            dockerfile: be/Dockerfile
-            paths: be package.json package-lock.json
-            build_arg: ''
-          - name: fe
-            dockerfile: fe/Dockerfile
-            paths: fe package.json package-lock.json
-            build_arg: VITE_API_URL
-          - name: storefront
-            dockerfile: storefront/Dockerfile
-            paths: storefront package.json package-lock.json
-            build_arg: NEXT_PUBLIC_API_URL
-          - name: packer
-            dockerfile: packer/Dockerfile
-            paths: packer
-            build_arg: ''
+        app: [be, fe, storefront, packer]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,11 +68,17 @@ jobs:
       - name: Tính tag và kiểm tra image đã có chưa
         id: plan
         env:
-          PATHS: ${{ matrix.paths }}
-          ARG_NAME: ${{ matrix.build_arg }}
+          APP: ${{ matrix.app }}
         run: |
+          # Thư mục/file mà image dùng (để băm) và build arg nhúng URL API.
+          case "$APP" in
+            packer) PATHS="packer"; ARG_NAME="" ;;
+            fe) PATHS="fe package.json package-lock.json"; ARG_NAME="VITE_API_URL" ;;
+            storefront) PATHS="storefront package.json package-lock.json"; ARG_NAME="NEXT_PUBLIC_API_URL" ;;
+            *) PATHS="$APP package.json package-lock.json"; ARG_NAME="" ;;
+          esac
           # Owner repo có chữ hoa (ThuaanNguyeen111) mà ghcr bắt buộc chữ thường.
-          IMG="${IMAGE_PREFIX,,}-${{ matrix.name }}"
+          IMG="${IMAGE_PREFIX,,}-$APP"
           ARG=""; [ -n "$ARG_NAME" ] && ARG="$ARG_NAME=$API_URL"
           KEY=$( { for p in $PATHS; do git rev-parse "HEAD:$p"; done; echo "$ARG"; } | sha256sum | cut -c1-16)
           TAGS="$IMG:sha-${SHA::7}"
@@ -99,7 +91,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           if docker buildx imagetools inspect "$IMG:src-$KEY" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::${{ matrix.name }}: mã nguồn không đổi, dùng lại $IMG:src-$KEY"
+            echo "::notice::$APP: mã nguồn không đổi, dùng lại $IMG:src-$KEY"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
@@ -116,15 +108,16 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: ${{ matrix.app }}/Dockerfile
           push: true
           build-args: ${{ steps.plan.outputs.arg }}
           tags: ${{ steps.plan.outputs.src }},${{ steps.plan.outputs.tags }}
           labels: org.opencontainers.image.revision=${{ env.SHA }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   deploy:
+    name: Deploy lên server
     needs: build-push
     # Chỉ main mới lên server; tag v* chỉ phát hành image.
     if: github.ref == 'refs/heads/main'
@@ -155,6 +148,8 @@ jobs:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT }}
         run: |
+          # pipefail: không có thì lỗi ssh bị "| tee" che, bước vẫn báo xanh.
+          set -o pipefail
           tar -czf - k8s scripts/k8s-create-secret.sh | ssh -i ~/.ssh/id_deploy -p "${PORT:-22}" "root@$HOST" '
             set -euo pipefail
             d=$(mktemp -d); trap "rm -rf $d" EXIT
@@ -164,4 +159,15 @@ jobs:
             for x in redis packer be fe storefront aurelle; do
               kubectl -n optipackai rollout status deploy/$x --timeout=300s
             done
-            kubectl -n optipackai get pods'
+            kubectl -n optipackai get pods' | tee pods.txt
+
+      # Trang Summary của lượt chạy: commit nào vừa lên và trạng thái pod.
+      - name: Tóm tắt
+        if: always()
+        run: |
+          {
+            echo "### Deploy \`${SHA::7}\` lên optipack.io.vn"
+            echo '```'
+            sed -n '/^NAME /,$p' pods.txt 2>/dev/null | grep . || echo "(không lấy được danh sách pod)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
