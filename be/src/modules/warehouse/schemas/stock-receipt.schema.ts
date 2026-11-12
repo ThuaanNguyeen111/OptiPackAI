@@ -1,5 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
+import {
+  OCR_STATUSES,
+  ReceiptOcrCheckSchema,
+  ReceiptOcrSnapshotSchema,
+  type OcrStatus,
+  type ReceiptOcrCheck,
+  type ReceiptOcrSnapshot,
+} from '../../receipt-ocr/schemas/receipt-ocr-scan.schema';
 
 @Schema({ _id: false })
 export class StockReceiptLine {
@@ -33,6 +41,12 @@ export class StockReceipt {
   @Prop({ type: [StockReceiptLineSchema], default: [] }) lines!: StockReceiptLine[];
   @Prop({ type: Number, required: true, min: 1 }) total_quantity!: number;
   @Prop({ type: String, required: true }) created_by!: string;
+  // 11/11/2026 — ảnh phiếu NCC (minh chứng) + đối chiếu OCR. Phiếu cũ / nhập nhanh: [] + not_checked.
+  @Prop({ type: [String], default: [] }) document_photo_urls!: string[];
+  @Prop({ type: String, enum: OCR_STATUSES, default: 'not_checked' }) ocr_status!: OcrStatus;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) ocr_scan_id!: Types.ObjectId | null;
+  @Prop({ type: ReceiptOcrSnapshotSchema, default: null }) ocr!: ReceiptOcrSnapshot | null;
+  @Prop({ type: [ReceiptOcrCheckSchema], default: [] }) ocr_checks!: ReceiptOcrCheck[];
   created_at?: Date;
 }
 
@@ -40,3 +54,5 @@ export type StockReceiptDocument = HydratedDocument<StockReceipt>;
 export const StockReceiptSchema = SchemaFactory.createForClass(StockReceipt);
 // GET .../receipts — danh sách phiếu của kho, mới nhất trước.
 StockReceiptSchema.index({ warehouse_id: 1, received_at: -1 });
+// 11/11/2026 — GET .../receipts?ocr_status=mismatch (danh sách phiếu lệch).
+StockReceiptSchema.index({ warehouse_id: 1, ocr_status: 1, received_at: -1 });

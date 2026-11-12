@@ -17,6 +17,7 @@ import {
 } from './order-sync-policy';
 import { OrderSyncSettingsHistoryItem, OrderSyncSettingsService } from './order-sync-settings.service';
 import { UpdateOrderSyncSettingsDto } from './dto/order-sync-settings.dto';
+import { Features } from '../role-permissions/feature-scope';
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
   [OrderStatus.UNPAID]: 'Chưa thanh toán',
@@ -116,6 +117,7 @@ function toResponse(p: OrderSyncPolicy): OrderSyncSettingsResponse {
  */
 @ApiTags('Orders')
 @ApiBearerAuth('JWT-auth')
+@Features('order_sync')
 @Controller('order-sync-settings')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrderSyncSettingsController {

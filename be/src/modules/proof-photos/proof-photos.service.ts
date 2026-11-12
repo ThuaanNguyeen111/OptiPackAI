@@ -7,6 +7,7 @@ import {
   MAX_PROOF_PHOTOS,
   PROOF_PHOTO_FOLDER,
   PROOF_PHOTO_TRANSFORMATION,
+  type PhotoFolder,
   proofPhotoFormat,
   readCloudinaryConfig,
   signCloudinaryParams,
@@ -40,7 +41,7 @@ const UPLOAD_TIMEOUT_MS = 30_000;
 export class ProofPhotosService {
   private readonly logger = new Logger(ProofPhotosService.name);
 
-  async upload(files: ProofPhotoFile[]): Promise<UploadedProofPhoto[]> {
+  async upload(files: ProofPhotoFile[], folder: PhotoFolder = PROOF_PHOTO_FOLDER): Promise<UploadedProofPhoto[]> {
     const config = readCloudinaryConfig(process.env);
     if (!config) {
       throw new AppException(
@@ -67,7 +68,7 @@ export class ProofPhotosService {
     return Promise.all(
       prepared.map(async ({ file, format }) => {
         const params: Record<string, string> = {
-          folder: PROOF_PHOTO_FOLDER,
+          folder,
           format: 'jpg',
           timestamp: String(Math.floor(Date.now() / 1000)),
           transformation: PROOF_PHOTO_TRANSFORMATION,

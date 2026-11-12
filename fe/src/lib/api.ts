@@ -157,9 +157,9 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const { method = 'GET', body, auth = false, skipRefresh = false, timeoutMs } = options
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
+  // FormData (tải ảnh): để trình duyệt tự đặt Content-Type kèm boundary.
+  const isForm = body instanceof FormData
+  const headers: Record<string, string> = isForm ? {} : { 'Content-Type': 'application/json' }
 
   if (auth) {
     const token = getAccessToken()
@@ -171,7 +171,7 @@ export async function apiRequest<T>(
     {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     },
     timeoutMs,
   )

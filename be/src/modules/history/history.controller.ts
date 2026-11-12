@@ -8,6 +8,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import { HistoryQueryDto } from './dto/history-query.dto';
 import { HistoryService } from './history.service';
+import { Features } from '../role-permissions/feature-scope';
 
 const ALL_ROLES = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR];
 
@@ -19,6 +20,7 @@ const ALL_ROLES = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAF
  */
 @ApiTags('History')
 @ApiBearerAuth('JWT-auth')
+@Features('history')
 @Controller('history')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class HistoryController {

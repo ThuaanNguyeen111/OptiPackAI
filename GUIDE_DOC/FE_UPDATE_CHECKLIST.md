@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8). 10/11: **ảnh bằng chứng** (dòng 17, mục 14 — chặn nút Giao thành công của vận đơn shop tự giao). 10/11 tối: thông báo `picking_assigned` (dòng 18, mục 15).
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8). 10/11: **ảnh bằng chứng** (dòng 17, mục 14 — chặn nút Giao thành công của vận đơn shop tự giao). 10/11 tối: thông báo `picking_assigned` (dòng 18, mục 15). 09/11: văn phong prompt AI hướng dẫn đóng gói (dòng 20, mục 17).
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -30,7 +30,9 @@
 | 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
 | 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
 | 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
-| 20 | 🆕 11/11 ⚠ **App mobile gọi sai đường sau khi BE thêm tiền tố `/api`** (⚠ **chặn** — mọi màn app báo 404): sửa địa chỉ mặc định trong `mobile/lib/core/config/env.dart` thành `http://10.0.2.2:3000/api`, mọi lệnh `--dart-define=API_BASE_URL=` thêm `/api` | 17 | Nhỏ | ☐ Chưa làm |
+| 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ☐ Chưa làm |
+| 21 | 🆕 11/11 **Phiếu NCC có ảnh + AI đối chiếu số lượng** (góp ý hội đồng): nhập kho (Phiếu nhập / lô) và nhập thùng / túi / vật tư chèn / mua vật liệu bắt buộc ảnh phiếu, AI đọc phiếu, bảng Theo phiếu – Đã nhập – Lệch, lý do lệch, nhãn Lệch phiếu, lọc phiếu lệch | 18 | ~1 ngày | 🟡 11/11 — Claude đã làm web (`ReceiptEvidencePanel`); **còn** chụp bằng webcam (`getUserMedia`, dùng chung mục 14.1) và app mobile |
+| 22 | 🆕 11/11 ⚠ **App mobile gọi sai đường sau khi BE thêm tiền tố `/api`** (⚠ **chặn** — mọi màn app báo 404): sửa địa chỉ mặc định trong `mobile/lib/core/config/env.dart` thành `http://10.0.2.2:3000/api`, mọi lệnh `--dart-define=API_BASE_URL=` thêm `/api` | 19 | Nhỏ | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -466,7 +468,7 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 **Việc trong app (`mobile/`):**
 1. `pubspec.yaml`: thêm `google_sign_in: ^7.2.0` → `flutter pub get`.
 2. Khởi tạo 1 lần (VD trong `main.dart` hoặc lúc mở màn đăng nhập): `await GoogleSignIn.instance.initialize(serverClientId: const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'));` — chạy app với `--dart-define=GOOGLE_SERVER_CLIENT_ID=<client id Web>`.
-0. Làm **dòng 20 / mục 17 trước** (app phải gọi qua `/api`, nếu không mọi route kể cả Google đều 404).
+0. Làm **dòng 22 / mục 19 trước** (app phải gọi qua `/api`, nếu không mọi route kể cả Google đều 404).
 3. `mobile/lib/features/auth/login_screen.dart` (khoảng dòng 331–337): bỏ chữ "(chờ BE)", mở khoá nút. Bấm nút → `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → gọi `POST /auth/google/mobile` body `{ "id_token": idToken }`.
 4. Response **giống hệt `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`) → đi tiếp đúng đường của đăng nhập mật khẩu trong `AuthController` (lưu token, bắt đổi mật khẩu nếu `must_change_password`, bật push).
 5. Bắt lỗi:
@@ -485,7 +487,45 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 | 4 | Đăng nhập, đăng xuất, Admin giao việc cho user đó | Điện thoại **không** nhận push nữa |
 | 5 | Đăng xuất xong bấm Google lại | Hiện danh sách chọn tài khoản (không tự vào tài khoản cũ) |
 
-## 17. 🆕 11/11/2026 — App mobile phải gọi qua tiền tố `/api` (dòng 20) ⚠ chặn
+## 17. 🆕 09/11/2026 — Cấu hình văn phong prompt AI hướng dẫn đóng gói (dòng 20)
+
+**BE xong.** System prompt gửi AI = **phần lõi cố định** (số bước, mỗi câu có SKU, không đổi vị trí, khuôn JSON) + **phần văn phong** Store Owner/Admin sửa được. Lưu chung bản cài đặt đóng gói (có version, lịch sử).
+
+| # | Màn | Việc FE |
+|---|---|---|
+| 17.1 | Cài đặt đóng gói | Thêm khung soạn nhiều dòng **"Văn phong hướng dẫn AI"**, hiện `settings.guideStylePrompt` (đã có sẵn văn bản mặc định). Lưu bằng `PUT /packing/settings { guide_style_prompt, expected_version }`. Tối đa 4000 ký tự; gửi chuỗi trống → 400 |
+| 17.2 | Cài đặt đóng gói | Nút **"Khôi phục mặc định"** gửi `guide_style_prompt: null`. Khi `guideStylePromptIsDefault: true` thì hiện nhãn "Mặc định" và khoá nút |
+| 17.3 | Cài đặt đóng gói | Ghi chú dưới khung: "Không sửa được phần quy tắc bắt buộc và định dạng trả về. Hướng dẫn đã tạo không tự viết lại, bấm **Viết lại** ở kiện để áp dụng." |
+
+**Nghiệm thu:** sửa văn phong → viết lại hướng dẫn 1 kiện → `GET …/guide/trace` thấy đoạn mới trong `systemPrompt` → khôi phục mặc định → nhãn "Mặc định" hiện lại.
+
+---
+
+## 18. 🆕 11/11/2026 — Phiếu nhà cung cấp có ảnh + AI đối chiếu số lượng (dòng 21)
+
+**Vì sao:** hội đồng hỏi "phiếu ghi 50 mà nhân viên nhập 48 thì hệ thống có biết không?". BE + web đã làm (AOFP-277, AOFP-278). API: `API_LIST.md` mục 33.
+
+**Đã có trên web:**
+| # | Màn | Đã làm |
+|---|---|---|
+| 18.1 | Tồn kho → chọn ô → tab **Phiếu nhập / lô** | Khối "Ảnh phiếu nhà cung cấp (bắt buộc)": chọn/chụp 1–3 ảnh → tải `POST /proof-photos?purpose=receipt` → tự gọi `POST /receipt-ocr` → tự chọn dòng phiếu có mã trùng SKU sàn / SKU nội bộ (hoặc phiếu chỉ 1 dòng), điền sẵn số lượng + nhà cung cấp. Bảng **Theo phiếu – Đã nhập – Lệch**; lệch thì bắt **lý do**. AI lỗi → báo vàng "Vẫn lưu được — phiếu sẽ ghi Chưa đối chiếu" + nút Đọc lại. Nút lưu mờ khi chưa có ảnh / thiếu lý do |
+| 18.2 | Tồn kho → tab **Phiếu nhập** | Cột "Đối chiếu phiếu" (Khớp phiếu / Lệch phiếu / Chưa đối chiếu), ô tích **Chỉ phiếu lệch** (`?ocr_status=mismatch`); chi tiết phiếu: ảnh phiếu (bấm mở to), bảng Hàng – Theo phiếu – Đã nhập + lý do |
+| 18.3 | Vật liệu đóng gói → Nhập thùng / túi / vật liệu chống sốc / Nhập mới (túi niêm phong) | Cùng khối ảnh phiếu + đối chiếu (gửi `document_photo_urls`, `ocr_scan_id`, `ocr_line_index`, `mismatch_reason`) |
+| 18.4 | Vật liệu đóng gói → Lịch sử nhập/xuất | Cột **Phiếu NCC**: nhãn đối chiếu, số trên phiếu, lý do lệch, link ảnh |
+| 18.5 | Chuông thông báo | Loại `stock_receipt_mismatch` ("Nhập hàng lệch phiếu NCC") → mở `/app/inventory?view=receipts` hoặc trang vật liệu |
+
+**Còn lại (chưa làm):**
+1. Chụp bằng **webcam** trên máy tính: hiện dùng `<input type="file" accept="image/*">` (điện thoại mở được camera, máy tính chỉ chọn file). Làm chung hộp thoại chụp ảnh của mục 14.1 rồi thay nút "Chụp / chọn ảnh".
+2. **App mobile:** chưa có màn nhập kho có ảnh phiếu.
+3. Chi tiết phiếu chưa hiện tên người nhập (BE trả `createdBy` là id).
+
+**Nghiệm thu (theo handoff):** nhập không ảnh → nút mờ / BE 400 `WH_RECEIPT_PHOTO_REQUIRED`; chụp phiếu "50" → tự điền 50; sửa 48 → bắt lý do → lưu → nhãn Lệch phiếu, Store Owner nhận thông báo; mở lại chi tiết thấy ảnh, 50, 48, lý do; tắt key AI → vẫn lưu, "Chưa đối chiếu"; nhập BOX-M × 100 có ảnh → tương tự.
+
+**Cấu hình cần trước khi thử:** `CLOUDINARY_*` trong `be/.env` (thiếu thì tải ảnh lỗi 503 → **không nhập kho được**), `AI_API_KEY`, `AI_VISION_MODEL`.
+
+---
+
+## 19. 🆕 11/11/2026 — App mobile phải gọi qua tiền tố `/api` (dòng 22) ⚠ chặn
 
 **Vấn đề:** `main` đã bật `app.setGlobalPrefix('api')` trong `be/src/main.ts` → mọi route BE giờ là `/api/...` (VD `/api/auth/login`, `/api/health`). App mobile vẫn gọi `http://10.0.2.2:3000` + `/auth/login` → **404 ở mọi màn** (đăng nhập, push, lấy hàng…). Web đã được sửa trong `main`; app chưa.
 

@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { RETURN_ERROR_CODES } from './returns.errors';
+import { Features } from '../role-permissions/feature-scope';
 
 function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
   return {
@@ -65,6 +66,7 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
 @ApiTags('Returns')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('returns', 'shipping', 'picking', 'inventory')
 @Controller('returns')
 export class ReturnsController {
   constructor(private readonly returnsService: ReturnsService) {}

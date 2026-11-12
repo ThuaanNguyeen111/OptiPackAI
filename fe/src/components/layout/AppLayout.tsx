@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
 import { usesTealAppChrome } from '../../lib/app-chrome'
 import { UserRole } from '../../types/auth'
+import { AdminSidebar } from '../../modules/admin/components/AdminSidebar'
 import { PortalSidebar } from '../portal/PortalSidebar'
 
 export function AppLayout() {
@@ -30,7 +31,8 @@ export function AppLayout() {
         tealChrome ? 'owner-shell' : 'flex h-svh overflow-hidden bg-canvas'
       }
     >
-      <PortalSidebar />
+      {/* Admin dùng cùng 1 menu đầy đủ ở mọi trang (kể cả trang vận hành ngoài /app/admin). */}
+      {session?.role === UserRole.ADMIN ? <AdminSidebar /> : <PortalSidebar />}
       <div
         className={
           tealChrome

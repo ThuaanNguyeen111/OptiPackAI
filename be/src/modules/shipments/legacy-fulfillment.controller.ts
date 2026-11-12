@@ -13,6 +13,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 /**
  * G1 (27/09/2026) — 3 route CŨ giữ NGUYÊN đường dẫn, body, response, quyền —
@@ -25,6 +26,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 @ApiTags('Order Groups (legacy fulfillment)')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('order_groups', 'picking', 'packing', 'shipping')
 @Controller('order-groups')
 export class LegacyFulfillmentController {
   constructor(

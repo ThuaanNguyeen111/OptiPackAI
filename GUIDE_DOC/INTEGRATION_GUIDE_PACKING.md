@@ -742,8 +742,11 @@ PUT /packing/settings     Role: Store Owner, Admin      (field không gửi ⇒ 
   "default_prefer": "fewest_parcels",     // | cheapest
   "max_parcels_per_order": 3,             // null = bỏ giới hạn
   "allow_reused_box_for_fragile": false,
-  "require_scan": true }
+  "require_scan": true,
+  "guide_style_prompt": "- Giọng thân thiện..." } // 09/11: văn phong prompt AI hướng dẫn; null = khôi phục mặc định; ≤ 4000 ký tự
 ```
+
+`guide_style_prompt` chỉ thay **phần văn phong**. Phần lõi (giữ số bước, mỗi câu có SKU, không đổi vị trí, khuôn JSON) cố định trong code, nên sửa sai cũng không làm hỏng màn đóng gói (`parseGuide()` vẫn kiểm tra, sai thì dùng câu mẫu). GET trả `guideStylePrompt` (đã bù mặc định) và `guideStylePromptIsDefault`. Hướng dẫn đã lưu không tự viết lại, phải gọi viết lại hướng dẫn của kiện.
 
 Hai người lưu cùng lúc → người sau `409 PACKING_SETTINGS_CONFLICT` (tải lại). `version: null` = đang dùng mặc định trong code.
 

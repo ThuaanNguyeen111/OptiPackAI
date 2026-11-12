@@ -19,6 +19,7 @@ import {
   MATERIAL_RULE_BASES,
   MATERIAL_RULE_SCOPES,
 } from '../schemas/packaging-material-rules.schema';
+import { SupplierReceiptEvidenceDto } from '../../receipt-ocr/dto/supplier-receipt-evidence.dto';
 
 export class CreatePackagingMaterialDto {
   @ApiProperty({ example: 'FOAM-CORNER' })
@@ -128,7 +129,8 @@ export class UpdatePackagingMaterialDto {
 }
 
 /** Nhập thêm vật tư — tồn CHỈ đổi qua route này hoặc lúc pack. */
-export class StockInPackagingMaterialDto {
+/** 11/11/2026 — kèm ảnh phiếu NCC (bắt buộc) + đối chiếu OCR, xem SupplierReceiptEvidenceDto. */
+export class StockInPackagingMaterialDto extends SupplierReceiptEvidenceDto {
   @ApiProperty({ example: 200, description: 'Số đơn vị nhập thêm' })
   @IsInt({ message: 'quantity phải là số nguyên' })
   @Min(1, { message: 'quantity phải lớn hơn 0' })

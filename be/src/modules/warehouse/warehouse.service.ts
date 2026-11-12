@@ -45,6 +45,9 @@ import { LotAllocation, StockLot, StockLotDocument } from './schemas/stock-lot.s
 import { StockReceipt, StockReceiptDocument, StockReceiptLine } from './schemas/stock-receipt.schema';
 import { OldestLotInfo, StockLotLedger, fifoDateOf, generateLotCode, trimOrNull } from './stock-lot.ledger';
 import { CreateStockReceiptDto, ListStockLotsQueryDto } from './dto/stock-receipt.dto';
+import { ReceiptOcrService, type ResolvedOcrChecks } from '../receipt-ocr/receipt-ocr.service';
+import { RECEIPT_OCR_ERROR_CODES } from '../receipt-ocr/receipt-ocr.errors';
+import type { OcrStatus } from '../receipt-ocr/schemas/receipt-ocr-scan.schema';
 import { sellerSkuEqualsIgnoreCase, sellerSkuMatch } from '../master-skus/stock-key.util';
 
 /** Ngày nhập được phép lệch lên tương lai tối đa (đồng hồ máy khách lệch). */
@@ -134,6 +137,8 @@ export class WarehouseService {
     // 22/10/2026 — gán kệ: SKU sàn trùng ĐÚNG mã 1 SKU nội bộ đang dùng → gộp tồn theo SKU nội bộ đó.
     @Optional() @InjectModel(MasterSku.name)
     private readonly masterSkuModel?: Model<MasterSkuDocument>,
+    // 11/11/2026 — ảnh phiếu NCC + OCR đối chiếu số lượng. @Optional để spec cũ không vỡ.
+    @Optional() private readonly receiptOcr?: ReceiptOcrService,
   ) {
     this.lots = new StockLotLedger(lotModel);
   }
@@ -1856,6 +1861,8 @@ export class WarehouseService {
       note: string | null;
       lines: StockReceiptLine[];
       actorId: string;
+      documentPhotoUrls?: string[];
+      ocr?: ResolvedOcrChecks;
     },
     session: ClientSession,
   ): Promise<StockReceiptDocument | null> {
@@ -1873,6 +1880,11 @@ export class WarehouseService {
           lines: r.lines,
           total_quantity: r.lines.reduce((sum, l) => sum + l.quantity, 0),
           created_by: r.actorId,
+          document_photo_urls: r.documentPhotoUrls ?? [],
+          ocr_status: r.ocr?.status ?? 'not_checked',
+          ocr_scan_id: r.ocr?.scanId ?? null,
+          ocr: r.ocr?.snapshot ?? null,
+          ocr_checks: r.ocr?.checks ?? [],
         },
       ],
       { session },
@@ -1892,13 +1904,20 @@ export class WarehouseService {
    */
   async createReceipt(warehouseId: string, dto: CreateStockReceiptDto, actorId: string): Promise<StockReceiptDocument> {
     if (!this.receiptModel) throw new Error('StockReceipt model chưa được đăng ký');
+    // 11/11/2026 — phiếu nhập từ NCC phải kèm ảnh phiếu làm minh chứng.
+    const photoUrls = dto.document_photo_urls ?? [];
+    if (photoUrls.length === 0) {
+      throw new AppException(RECEIPT_OCR_ERROR_CODES.PHOTO_REQUIRED, 'Tải ảnh phiếu nhập / phiếu giao hàng của nhà cung cấp trước khi lưu.', HttpStatus.BAD_REQUEST);
+    }
     const warehouse = await this.assertWarehouseActive(warehouseId);
     const receivedAt = this.parseReceivedAt(dto.received_at);
 
     // 1. Tìm dòng tồn cho từng dòng phiếu; gộp các dòng trùng.
     const perAssignment = new Map<string, { doc: SkuBinAssignmentDocument; quantity: number }>();
+    const labels: string[] = [];
     for (const [index, line] of dto.lines.entries()) {
       const doc = await this.resolveReceiptLine(warehouse._id, line, index);
+      labels.push(doc.master_sku ?? doc.seller_sku);
       const key = doc._id.toString();
       const cur = perAssignment.get(key) ?? { doc, quantity: 0 };
       cur.quantity += line.quantity;
@@ -1921,6 +1940,15 @@ export class WarehouseService {
       }
     }
 
+    // 2b. 11/11/2026 — đối chiếu với số AI đọc trên phiếu (lệch không chặn, bắt lý do).
+    const ocr: ResolvedOcrChecks = this.receiptOcr
+      ? await this.receiptOcr.resolveChecks(
+          dto.ocr_scan_id,
+          photoUrls,
+          dto.lines.map((l, i) => ({ lineIndex: i, label: labels[i] ?? '', quantity: l.quantity, ocrLineIndex: l.ocr_line_index, mismatchReason: l.mismatch_reason })),
+        )
+      : { scanId: null, snapshot: null, checks: [], status: 'not_checked' };
+
     // 3. Ghi.
     const receiptId = new Types.ObjectId();
     const receiptCode = generateLotCode('PN');
@@ -1939,11 +1967,24 @@ export class WarehouseService {
         lines.push(await this.receiveIntoLot(updated, quantity, { receivedAt, lotCode, receiptId }, actorId, session));
       }
       return this.saveReceipt(
-        { _id: receiptId, receiptCode, warehouseId: warehouse._id, lotCode, receivedAt, supplier: trimOrNull(dto.supplier), note: trimOrNull(dto.note), lines, actorId },
+        {
+          _id: receiptId, receiptCode, warehouseId: warehouse._id, lotCode, receivedAt,
+          supplier: trimOrNull(dto.supplier) ?? ocr.snapshot?.supplier ?? null, note: trimOrNull(dto.note), lines, actorId,
+          documentPhotoUrls: photoUrls, ocr,
+        },
         session,
       );
     });
     if (!receipt) throw new Error('Tạo phiếu nhập không trả về document');
+    if (ocr.status === 'mismatch' && this.receiptOcr) {
+      const diffs = ocr.checks.filter((c) => c.ocr_quantity !== c.quantity);
+      await this.receiptOcr.notifyMismatch({
+        title: `Phiếu nhập ${receiptCode} lệch số với phiếu NCC`,
+        message: `${diffs.map((c) => `${c.label}: phiếu ghi ${String(c.ocr_quantity)}, nhập ${String(c.quantity)} (${c.mismatch_reason ?? ''})`).join('; ')}.`,
+        entityType: 'stock_receipt',
+        entityId: receiptId.toString(),
+      });
+    }
     return receipt;
   }
 
@@ -1985,11 +2026,11 @@ export class WarehouseService {
     return doc;
   }
 
-  async listReceipts(warehouseId: string, limit = 50): Promise<StockReceiptDocument[]> {
+  async listReceipts(warehouseId: string, limit = 50, ocrStatus?: OcrStatus): Promise<StockReceiptDocument[]> {
     if (!this.receiptModel) return [];
     const warehouse = await this.getWarehouse(warehouseId);
     return this.receiptModel
-      .find({ warehouse_id: warehouse._id })
+      .find({ warehouse_id: warehouse._id, ...(ocrStatus ? { ocr_status: ocrStatus } : {}) })
       .sort({ received_at: -1, _id: -1 })
       .limit(Math.min(200, Math.max(1, limit)));
   }

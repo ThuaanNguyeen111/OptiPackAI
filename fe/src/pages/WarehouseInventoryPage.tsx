@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Loader2, MapPin, PackageSearch, RefreshCw, Search, X } from 'lucide-react'
 import {
   adjustStockAssignment,
@@ -20,6 +21,14 @@ import {
   writeStoredWarehouseId,
 } from '../api/warehouse.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { ReceiptEvidencePanel } from '../components/warehouse/ReceiptEvidencePanel'
+import {
+  EMPTY_RECEIPT_EVIDENCE,
+  receiptEvidencePayload,
+  receiptEvidenceProblem,
+  type ReceiptEvidenceState,
+} from '../components/warehouse/receipt-evidence'
+import { OcrStatusBadge } from '../components/warehouse/OcrStatusBadge'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/input'
@@ -98,7 +107,11 @@ export function WarehouseInventoryPage() {
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
   const [stockFilter, setStockFilter] = useState<StockFilter>('all')
-  const [stockView, setStockView] = useState<'bins' | 'lots' | 'receipts'>('bins')
+  const [params] = useSearchParams()
+  // 11/11/2026 — thông báo "lệch phiếu" mở thẳng tab Phiếu nhập (?view=receipts).
+  const [stockView, setStockView] = useState<'bins' | 'lots' | 'receipts'>(
+    params.get('view') === 'receipts' ? 'receipts' : 'bins',
+  )
   const [selectedId, setSelectedId] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -518,6 +531,8 @@ function ActionPanel({
   const [lotCode, setLotCode] = useState('')
   const [supplier, setSupplier] = useState('')
   const [receiptQty, setReceiptQty] = useState(1)
+  const [evidence, setEvidence] = useState<ReceiptEvidenceState>(EMPTY_RECEIPT_EVIDENCE)
+  const evidenceProblem = receiptEvidenceProblem(evidence, receiptQty, vi)
 
   function eventIdFor(kind: 'receive' | 'count' | 'move'): string {
     const current = eventIds.current[kind] ?? newClientEventId(kind)
@@ -616,36 +631,40 @@ function ActionPanel({
   }
 
   function saveReceipt() {
+    if (evidenceProblem) {
+      setError(evidenceProblem)
+      return
+    }
+    const { ocr_line_index, mismatch_reason, ...header } = receiptEvidencePayload(evidence)
+    const base = {
+      ...header,
+      received_at: toReceivedAtIso(receivedAt),
+      lot_code: lotCode.trim() || undefined,
+      supplier: supplier.trim() || undefined,
+      note: note.trim() || undefined,
+      lines: [{ assignment_id: row.id, quantity: receiptQty, ocr_line_index, mismatch_reason }],
+    }
     void run(async () => {
       const code = lotCode.trim()
       let receipt: Awaited<ReturnType<typeof createStockReceipt>>
       try {
-        receipt = await createStockReceipt(warehouseId, {
-          received_at: toReceivedAtIso(receivedAt),
-          lot_code: code || undefined,
-          supplier: supplier.trim() || undefined,
-          note: note.trim() || undefined,
-          lines: [{ assignment_id: row.id, quantity: receiptQty }],
-        })
+        receipt = await createStockReceipt(warehouseId, base)
       } catch (err: unknown) {
         if (!confirmOverCapacity(err, vi ? 'Vẫn nhập phiếu?' : 'Save the receipt anyway?')) {
           throw err
         }
-        receipt = await createStockReceipt(warehouseId, {
-          received_at: toReceivedAtIso(receivedAt),
-          lot_code: code || undefined,
-          supplier: supplier.trim() || undefined,
-          note: note.trim() || undefined,
-          force: true,
-          lines: [{ assignment_id: row.id, quantity: receiptQty }],
-        })
+        receipt = await createStockReceipt(warehouseId, { ...base, force: true })
       }
       await openWarehouseDocument(stockReceiptDocumentPath(warehouseId, receipt.id)).catch(() => {
         // Phiếu đã lưu. In lại được ở tab Phiếu nhập.
       })
+      const flag =
+        receipt.ocrStatus === 'mismatch'
+          ? vi ? ' · đã ghi LỆCH PHIẾU và báo chủ shop' : ' · flagged as MISMATCH'
+          : ''
       return vi
-        ? `Đã lập phiếu nhập ${receipt.receiptCode} · ${receiptQty} cái ${row.sellerSku}${code ? ` · lô ${code}` : ''}.`
-        : `Receipt ${receipt.receiptCode} saved for ${receiptQty} × ${row.sellerSku}${code ? ` · lot ${code}` : ''}.`
+        ? `Đã lập phiếu nhập ${receipt.receiptCode} · ${receiptQty} cái ${row.sellerSku}${code ? ` · lô ${code}` : ''}${flag}.`
+        : `Receipt ${receipt.receiptCode} saved for ${receiptQty} × ${row.sellerSku}${code ? ` · lot ${code}` : ''}${flag}.`
     })
   }
 
@@ -759,6 +778,17 @@ function ActionPanel({
                 onChange={(e) => setReceiptQty(Math.max(1, Number(e.target.value) || 1))}
               />
             </Field>
+            <ReceiptEvidencePanel
+              vi={vi}
+              itemCodes={[row.sellerSku, row.masterSku ?? '']}
+              quantity={receiptQty}
+              value={evidence}
+              onChange={(next) => {
+                setEvidence(next)
+                if (next.scan?.supplier && !supplier.trim()) setSupplier(next.scan.supplier)
+              }}
+              onQuantityFromSlip={setReceiptQty}
+            />
             <Field label={vi ? 'Nhà cung cấp' : 'Supplier'}>
               <Input
                 className={fieldClass}
@@ -907,7 +937,8 @@ function ActionPanel({
               disabled={
                 busy ||
                 (action === 'move' && (!targetBin || moveQty > row.quantityOnHand)) ||
-                (action === 'count' && counted === row.quantityOnHand)
+                (action === 'count' && counted === row.quantityOnHand) ||
+                (action === 'lots' && evidenceProblem !== null)
               }
               onClick={() => {
                 if (action === 'receive') receive()
@@ -1109,10 +1140,11 @@ function ReceiptCatalog({
   const [rows, setRows] = useState<StockReceiptRecord[] | null>(null)
   const [detail, setDetail] = useState<StockReceiptRecord | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [onlyMismatch, setOnlyMismatch] = useState(false)
 
   useEffect(() => {
     let alive = true
-    listStockReceipts(warehouseId, 50)
+    listStockReceipts(warehouseId, 50, onlyMismatch ? 'mismatch' : undefined)
       .then((next) => {
         if (alive) setRows(next)
       })
@@ -1124,7 +1156,7 @@ function ReceiptCatalog({
     return () => {
       alive = false
     }
-  }, [warehouseId])
+  }, [warehouseId, onlyMismatch])
 
   async function open(receiptId: string) {
     setError(null)
@@ -1139,6 +1171,17 @@ function ReceiptCatalog({
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
       <section className="rounded-xl border border-hairline bg-surface-1">
         {error ? <ErrorBox message={error} /> : null}
+        <label className="flex items-center gap-2 border-b border-hairline px-4 py-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={onlyMismatch}
+            onChange={(e) => {
+              setRows(null)
+              setOnlyMismatch(e.target.checked)
+            }}
+          />
+          {vi ? 'Chỉ phiếu lệch số với phiếu nhà cung cấp' : 'Only receipts that differ from the supplier slip'}
+        </label>
         {rows === null ? (
           <div className="flex items-center gap-2 p-6 text-xs text-ink-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1152,6 +1195,7 @@ function ReceiptCatalog({
                   <TableHead>{vi ? 'Phiếu' : 'Receipt'}</TableHead>
                   <TableHead>{vi ? 'Ngày nhập' : 'Received'}</TableHead>
                   <TableHead>{vi ? 'Nhà cung cấp' : 'Supplier'}</TableHead>
+                  <TableHead>{vi ? 'Đối chiếu phiếu' : 'Slip check'}</TableHead>
                   <TableHead className="text-right">{vi ? 'Số lượng' : 'Qty'}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1167,6 +1211,9 @@ function ReceiptCatalog({
                       {receipt.receivedAt ? formatDateTime(receipt.receivedAt) : '—'}
                     </TableCell>
                     <TableCell className="text-xs">{receipt.supplier || '—'}</TableCell>
+                    <TableCell>
+                      <OcrStatusBadge status={receipt.ocrStatus} vi={vi} />
+                    </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {receipt.totalQuantity}
                     </TableCell>
@@ -1192,7 +1239,60 @@ function ReceiptCatalog({
                 {detail.receivedAt ? ` · ${formatDateTime(detail.receivedAt)}` : ''}
               </p>
               {detail.note ? <p className="mt-1 text-xs text-ink">{detail.note}</p> : null}
+              <div className="mt-1">
+                <OcrStatusBadge status={detail.ocrStatus} vi={vi} />
+              </div>
             </div>
+            {detail.documentPhotoUrls.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {detail.documentPhotoUrls.map((url) => (
+                  <a key={url} href={url} target="_blank" rel="noreferrer">
+                    <img
+                      src={url}
+                      alt={vi ? 'Ảnh phiếu nhà cung cấp' : 'Supplier slip'}
+                      className="h-20 w-20 rounded border border-hairline object-cover"
+                    />
+                  </a>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-ink-muted">{vi ? 'Không có ảnh phiếu (phiếu cũ / nhập nhanh).' : 'No slip photo.'}</p>
+            )}
+            {detail.ocrChecks.length > 0 ? (
+              <table className="w-full text-xs">
+                <thead className="text-ink-muted">
+                  <tr>
+                    <th className="text-left font-normal">{vi ? 'Hàng' : 'Item'}</th>
+                    <th className="text-right font-normal">{vi ? 'Theo phiếu' : 'Slip'}</th>
+                    <th className="text-right font-normal">{vi ? 'Đã nhập' : 'Entered'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.ocrChecks.map((c) => (
+                    <tr key={c.lineIndex} className="border-t border-hairline align-top">
+                      <td className="py-1">
+                        <span className="font-medium text-ink">{c.label}</span>
+                        <span className="block text-ink-muted">{c.ocrText}</span>
+                        {c.mismatchReason ? (
+                          <span className="block text-red-600">
+                            {vi ? 'Lý do' : 'Reason'}: {c.mismatchReason}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="py-1 text-right tabular-nums">{c.ocrQuantity}</td>
+                      <td
+                        className={cn(
+                          'py-1 text-right tabular-nums',
+                          c.quantity !== c.ocrQuantity && 'font-semibold text-red-600',
+                        )}
+                      >
+                        {c.quantity}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
             <button
               type="button"
               className="inline-flex h-8 items-center rounded-md border border-hairline bg-surface px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken"
@@ -1220,7 +1320,7 @@ function ReceiptCatalog({
           </div>
         ) : (
           <p className="text-xs text-ink-muted">
-            {vi ? 'Chọn một phiếu để xem từng dòng.' : 'Select a receipt to see its lines.'}
+            {vi ? 'Chọn một phiếu để xem từng dòng, ảnh phiếu và đối chiếu.' : 'Select a receipt to see its lines, slip photo and check.'}
           </p>
         )}
       </aside>
