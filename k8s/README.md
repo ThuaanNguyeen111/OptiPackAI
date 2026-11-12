@@ -98,6 +98,11 @@ Kiểm tra nhanh (chỉ in TÊN biến, không in giá trị):
 kubectl -n optipackai get secret optipackai-be-env -o jsonpath='{.data}' | tr ',' '\n' | cut -d'"' -f2
 ```
 
+Script cũng tạo Secret `optipackai-fcm` (file JSON service account Firebase cho push), mount vào
+`/etc/fcm/service-account.json`. Nó tìm file theo thứ tự: biến `FCM_FILE` → `fcm-service-account.json`
+nằm cạnh `ENV_FILE` (trên server: `/root/optipackai/fcm-service-account.json`) → `mobile/keys/*firebase-adminsdk*.json`.
+Không thấy file thì chỉ cảnh báo, backend vẫn chạy nhưng không gửi push.
+
 Khi sửa `.env` thì tạo lại rồi restart backend:
 
 ```bash

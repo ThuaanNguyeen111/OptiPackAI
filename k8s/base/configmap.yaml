@@ -19,3 +19,5 @@ data:
   # Service CP-SAT nội bộ (k8s/base/packer.yaml).
   PACKER_URL: 'http://packer:8000'
   CORS_ORIGIN: 'http://app.optipackai.local,http://shop.optipackai.local'
+  # Ghi đè đường dẫn máy dev trong be/.env: file mount từ Secret optipackai-fcm (be.yaml).
+  FCM_SERVICE_ACCOUNT_FILE: '/etc/fcm/service-account.json'
