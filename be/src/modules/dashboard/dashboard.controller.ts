@@ -5,10 +5,12 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { DashboardService, type DashboardSummary } from './dashboard.service';
+import { Features } from '../role-permissions/feature-scope';
 
 /** 28/10/2026 — Số liệu Bảng điều khiển (chỉ đọc). FE tự chọn cách hiển thị. */
 @ApiTags('Dashboard')
 @ApiBearerAuth('JWT-auth')
+@Features('dashboard')
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DashboardController {

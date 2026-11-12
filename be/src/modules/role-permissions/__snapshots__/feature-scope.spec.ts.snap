@@ -1,0 +1,7 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Feature gate trên controller thật các endpoint còn theo @Roles cứng (không bật/tắt được) là có chủ đích 1`] = `
+[
+  "HistoryController.export [STORE_OWNER]",
+]
+`;

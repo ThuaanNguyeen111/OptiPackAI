@@ -1,22 +1,30 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import {
+  BarChart3,
   Box,
   Boxes,
+  ClipboardList,
   Clock,
+  Database,
+  LayoutDashboard,
   LogOut,
   Moon,
   Package,
   PackageX,
   PanelLeftClose,
   PanelLeftOpen,
+  ScanLine,
   Shield,
   SlidersHorizontal,
   Sparkles,
   Store,
   Sun,
+  Truck,
   Users,
+  Warehouse,
   X,
+  type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../../../context/use-auth'
 import { fetchMyProfile } from '../../../api/users.api'
@@ -26,96 +34,53 @@ import { useTheme } from '../../../hooks/useTheme'
 import { stageOfPath } from '../../../lib/stage-colors'
 import { BrandMark } from '../../../components/brand/BrandMark'
 
-type NavSection = 'directory' | 'marketplace' | 'warehouse' | 'ai'
+type NavSection = 'overview' | 'directory' | 'marketplace' | 'warehouse' | 'ai' | 'reports'
 
-const navItems = [
-  {
-    to: '/app/admin',
-    end: true,
-    labelVi: 'Người dùng',
-    labelEn: 'Users',
-    icon: Users,
-    section: 'directory' as NavSection,
-  },
-  {
-    to: '/app/admin/roles',
-    end: false,
-    labelVi: 'Phân quyền',
-    labelEn: 'Role access',
-    icon: Shield,
-    section: 'directory' as NavSection,
-  },
-  {
-    to: '/app/admin/marketplace',
-    end: false,
-    labelVi: 'Kết nối sàn',
-    labelEn: 'Marketplace',
-    icon: Store,
-    section: 'marketplace' as NavSection,
-  },
-  {
-    to: '/app/admin/orders',
-    end: false,
-    labelVi: 'Đơn hàng',
-    labelEn: 'Orders',
-    icon: Package,
-    section: 'marketplace' as NavSection,
-  },
-  {
-    to: '/app/admin/order-sync',
-    end: false,
-    labelVi: 'Đồng bộ đơn',
-    labelEn: 'Order sync',
-    icon: SlidersHorizontal,
-    section: 'marketplace' as NavSection,
-  },
-  {
-    to: '/app/admin/returns',
-    end: false,
-    labelVi: 'Trả hàng',
-    labelEn: 'Returns',
-    icon: PackageX,
-    section: 'marketplace' as NavSection,
-  },
-  {
-    to: '/app/admin/history',
-    end: false,
-    labelVi: 'Lịch sử thao tác',
-    labelEn: 'Activity history',
-    icon: Clock,
-    section: 'marketplace' as NavSection,
-  },
-  {
-    to: '/app/admin/packaging-materials',
-    end: false,
-    labelVi: 'Vật liệu đóng gói',
-    labelEn: 'Packaging materials',
-    icon: Box,
-    section: 'warehouse' as NavSection,
-  },
-  {
-    to: '/app/admin/warehouse',
-    end: false,
-    labelVi: 'Cấu hình kho',
-    labelEn: 'Warehouse',
-    icon: Boxes,
-    section: 'warehouse' as NavSection,
-  },
-  {
-    to: '/app/admin/packing-plans',
-    end: false,
-    labelVi: 'Chốt kế hoạch đóng gói',
-    labelEn: 'Confirm packing plan',
-    icon: Sparkles,
-    section: 'ai' as NavSection,
-  },
+type NavItem = {
+  to: string
+  end: boolean
+  labelVi: string
+  labelEn: string
+  icon: LucideIcon
+  section: NavSection
+}
+
+/** Admin toàn quyền: đủ mọi trang vận hành + trang quản trị, giữ nguyên ở mọi route. */
+const navItems: NavItem[] = [
+  { to: '/app', end: true, labelVi: 'Tổng quan', labelEn: 'Dashboard', icon: LayoutDashboard, section: 'overview' },
+  { to: '/app/admin', end: true, labelVi: 'Người dùng', labelEn: 'Users', icon: Users, section: 'directory' },
+  { to: '/app/admin/roles', end: false, labelVi: 'Phân quyền', labelEn: 'Role access', icon: Shield, section: 'directory' },
+  { to: '/app/admin/marketplace', end: false, labelVi: 'Kết nối sàn', labelEn: 'Marketplace', icon: Store, section: 'marketplace' },
+  { to: '/app/admin/orders', end: false, labelVi: 'Đơn hàng', labelEn: 'Orders', icon: Package, section: 'marketplace' },
+  { to: '/app/order-groups', end: false, labelVi: 'Nhóm đơn & Hỏa tốc', labelEn: 'Groups & Express', icon: ClipboardList, section: 'marketplace' },
+  { to: '/app/admin/order-sync', end: false, labelVi: 'Đồng bộ đơn', labelEn: 'Order sync', icon: SlidersHorizontal, section: 'marketplace' },
+  { to: '/app/admin/returns', end: false, labelVi: 'Trả hàng', labelEn: 'Returns', icon: PackageX, section: 'marketplace' },
+  { to: '/app/admin/warehouse', end: false, labelVi: 'Cấu hình kho', labelEn: 'Warehouse setup', icon: Warehouse, section: 'warehouse' },
+  { to: '/app/warehouse', end: false, labelVi: 'Lấy hàng trong kho', labelEn: 'Warehouse picking', icon: ScanLine, section: 'warehouse' },
+  { to: '/app/inventory', end: false, labelVi: 'Tình trạng kho', labelEn: 'Inventory', icon: Database, section: 'warehouse' },
+  { to: '/app/admin/packaging-materials', end: false, labelVi: 'Vật liệu đóng gói', labelEn: 'Packaging materials', icon: Box, section: 'warehouse' },
+  { to: '/app/packing', end: false, labelVi: 'Đóng gói', labelEn: 'Packing station', icon: Boxes, section: 'warehouse' },
+  { to: '/app/shipping', end: false, labelVi: 'Vận chuyển', labelEn: 'Shipping', icon: Truck, section: 'warehouse' },
+  { to: '/app/admin/packing-plans', end: false, labelVi: 'Chốt kế hoạch đóng gói', labelEn: 'Confirm packing plan', icon: Sparkles, section: 'ai' },
+  { to: '/app/packaging-rules', end: false, labelVi: 'Quy tắc bao bì', labelEn: 'Packaging rules', icon: Box, section: 'ai' },
+  { to: '/app/analytics', end: false, labelVi: 'Báo cáo', labelEn: 'Analytics', icon: BarChart3, section: 'reports' },
+  { to: '/app/admin/history', end: false, labelVi: 'Lịch sử thao tác', labelEn: 'Activity history', icon: Clock, section: 'reports' },
 ]
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
+  overview: null,
   directory: { vi: 'Quản trị', en: 'Administration' },
   marketplace: { vi: 'Sàn & đơn hàng', en: 'Marketplace & orders' },
-  warehouse: { vi: 'Kho', en: 'Warehouse' },
+  warehouse: { vi: 'Vận hành kho', en: 'Warehouse operations' },
   ai: { vi: 'AI & đóng gói', en: 'AI & packing' },
+  reports: { vi: 'Báo cáo', en: 'Reports' },
+}
+
+function profileInitials(name: string | null): string {
+  const parts = (name ?? '').trim().split(/s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase()
 }
 
 export function AdminSidebar() {
@@ -310,10 +275,10 @@ export function AdminSidebar() {
         ) : (
           <>
             <div
-              title="Admin"
+              title={profileName ?? 'Admin'}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/15 text-[10px] font-bold text-primary-hover"
             >
-              AN
+              {profileInitials(profileName)}
             </div>
 
             <button

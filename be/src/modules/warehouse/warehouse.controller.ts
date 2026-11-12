@@ -40,6 +40,7 @@ import { CreateStockReceiptDto, ListStockLotsQueryDto, ListStockReceiptsQueryDto
 import type { OcrStatus } from '../receipt-ocr/schemas/receipt-ocr-scan.schema';
 import { StockLotDocument } from './schemas/stock-lot.schema';
 import { StockReceiptDocument } from './schemas/stock-receipt.schema';
+import { Features } from '../role-permissions/feature-scope';
 
 // 15/10/2026 — lô hàng + phiếu nhập (FIFO theo ngày nhập kho).
 interface StockLotResponse {
@@ -288,6 +289,7 @@ interface BinByCodeResponse {
  */
 @ApiTags('Warehouse')
 @ApiBearerAuth('JWT-auth')
+@Features('picking', 'inventory', 'order_groups')
 @Controller('warehouse')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class WarehouseController {

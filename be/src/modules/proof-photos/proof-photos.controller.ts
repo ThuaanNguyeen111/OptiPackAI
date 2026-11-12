@@ -9,10 +9,12 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { MAX_PROOF_PHOTO_BYTES, MAX_PROOF_PHOTOS, PROOF_PHOTO_FOLDER, RECEIPT_PHOTO_FOLDER } from './proof-photo.util';
 import { PROOF_PHOTO_ERROR_CODES } from './proof-photos.errors';
 import { ProofPhotosService, type ProofPhotoFile, type UploadedProofPhoto } from './proof-photos.service';
+import { Features } from '../role-permissions/feature-scope';
 
 /** 10/11/2026 — Ảnh bằng chứng (BE_MOBILE_CHECKLIST mục 4). */
 @ApiTags('Proof Photos')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'shipping', 'order_groups', 'returns')
 @Controller('proof-photos')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProofPhotosController {

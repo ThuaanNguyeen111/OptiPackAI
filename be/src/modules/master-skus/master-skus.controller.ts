@@ -13,6 +13,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 const READERS = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF];
 
@@ -31,6 +32,7 @@ const mapRes = (m: MarketplaceSkuMappingDocument): Record<string, unknown> => ({
 @ApiTags('Colors')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('inventory', 'picking', 'packing', 'orders', 'order_groups', 'packaging_rules')
 @Controller('colors')
 export class ColorsController {
   constructor(private readonly service: MasterSkusService) {}

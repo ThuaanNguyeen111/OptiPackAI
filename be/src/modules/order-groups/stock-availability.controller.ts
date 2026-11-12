@@ -7,11 +7,13 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 /** K5 (27/09/2026) — tồn khả dụng + giữ chỗ của nhóm đơn. */
 @ApiTags('Stock Availability (K5)')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('order_groups', 'picking', 'inventory', 'orders')
 @Controller()
 export class StockAvailabilityController {
   constructor(

@@ -13,6 +13,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { toIntakeEvidenceResponse } from '../receipt-ocr/receipt-ocr.util';
+import { Features } from '../role-permissions/feature-scope';
 
 function toResponse(m: PackagingMaterialDocument): Record<string, unknown> {
   return {
@@ -37,6 +38,7 @@ const READERS = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF,
 @ApiTags('Packaging Materials')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('packaging_materials', 'packaging_rules', 'packing', 'picking', 'inventory')
 @Controller('packaging-materials')
 export class PackagingMaterialsController {
   constructor(private readonly service: PackagingMaterialsService) {}

@@ -24,6 +24,7 @@ import { SetLeaveDto } from './dto/set-leave.dto';
 import { isOnLeave } from './utils/on-leave.util';
 import { UsersService } from './services/users.service';
 import { UserDocument } from './schemas/user.schema';
+import { Features } from '../role-permissions/feature-scope';
 
 
 interface PublicUserProfile {
@@ -123,6 +124,7 @@ function toAdminListItem(user: UserDocument): AdminUserListItem {
 @ApiTags('Users')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard, ForcePasswordChangeGuard)
+@Features('staff')
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

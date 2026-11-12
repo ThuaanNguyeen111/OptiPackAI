@@ -8,10 +8,12 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import { ScanReceiptDto } from './dto/scan-receipt.dto';
 import { ReceiptOcrService, type ReceiptOcrScanView } from './receipt-ocr.service';
+import { Features } from '../role-permissions/feature-scope';
 
 /** 11/11/2026 — đọc phiếu NCC bằng AI để đối chiếu số lượng khi nhập kho / mua vật liệu. */
 @ApiTags('Receipt OCR')
 @ApiBearerAuth('JWT-auth')
+@Features('inventory', 'picking', 'packaging_materials')
 @Controller('receipt-ocr')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ReceiptOcrController {
