@@ -43,6 +43,20 @@ export interface HistoryItem {
   details: Record<string, Detail>;
 }
 
+export interface HistoryListResult {
+  items: HistoryItem[];
+  page: number;
+  limit: number;
+  /** Tổng số dòng khớp bộ lọc (mọi nguồn cộng lại). */
+  total: number;
+  /** Giữ cho client cũ dùng con trỏ `before`. */
+  nextBefore: string | null;
+  categories: { code: ActivityCategory; label: string }[];
+}
+
+/** 1 nguồn lịch sử: lấy dòng + đếm tổng với CÙNG bộ lọc. */
+interface Source { name: string; fetch: () => Promise<RawItem[]>; count: () => Promise<number> }
+
 /** Dòng thô từ 1 nguồn, chưa tra tên người làm. */
 interface RawItem extends Omit<HistoryItem, 'actor' | 'categoryLabel'> { actorId: string | null }
 
@@ -64,6 +78,8 @@ const DAY_MS = 86_400_000;
 const DEFAULT_WINDOW_DAYS = 30;
 const TIMELINE_CAP = 2000;
 const EXPORT_CAP = 5000;
+/** Trang sâu nhất: mỗi nguồn phải lấy page × limit dòng để trộn đúng. */
+const PAGE_DEPTH_CAP = 5000;
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const idStr = (v: unknown): string | null => (v === null || v === undefined ? null : (v as { toString(): string }).toString());
@@ -84,8 +100,11 @@ const labelOf = (c: string): string => (CATEGORY_LABELS as Record<string, string
  *   - phiếu trả hàng (tạo phiếu, xử lý hàng cách ly) + sổ hoạt động (từng bước duyệt/nhận/kiểm/hủy)
  *   - vật liệu đóng gói (`packaging_movements`), nhật ký đăng nhập (`login_audit_logs`)
  *   - sổ hoạt động (`activity_logs`): đổi trạng thái nhóm đơn, người bán hủy đơn, giao thiếu
- * Phân trang bằng con trỏ thời gian `before`: mỗi nguồn lấy tối đa `limit` dòng mới nhất
- * trước `before` trong cửa sổ [from, before) → trộn → cắt `limit` (k-way merge, không sót).
+ * Phân trang theo số trang (13/11/2026): mỗi nguồn lấy tối đa `page × limit` dòng mới nhất
+ * trong cửa sổ [from, before) → trộn → cắt đoạn của trang (k-way merge, không sót).
+ * `total` = tổng đếm từng nguồn với cùng bộ lọc (countDocuments; nguồn sinh nhiều dòng/1 document
+ * như kế hoạch đóng gói, hàng cách ly thì đếm bằng aggregate $unwind).
+ * Con trỏ cũ `before`/`nextBefore` vẫn chạy.
  * ===================================================================
  */
 @Injectable()
@@ -112,12 +131,19 @@ export class HistoryService {
     return [...ROLE_HISTORY_CATEGORIES[role]];
   }
 
-  async list(user: AuthenticatedUser, query: HistoryQueryDto): Promise<{ items: HistoryItem[]; nextBefore: string | null; categories: { code: ActivityCategory; label: string }[] }> {
+  async list(user: AuthenticatedUser, query: HistoryQueryDto): Promise<HistoryListResult> {
     const limit = query.limit ?? 50;
-    const ctx = await this.buildCtx(user, query, limit);
-    const items = await this.collect(ctx);
+    const page = query.page ?? 1;
+    if (page * limit > PAGE_DEPTH_CAP) {
+      throw new BadRequestException(`Chỉ xem được ${PAGE_DEPTH_CAP.toLocaleString('vi-VN')} dòng mới nhất — hãy thu hẹp bộ lọc (ngày, loại, SKU…)`);
+    }
+    const ctx = await this.buildCtx(user, query, page * limit);
+    const [items, total] = await Promise.all([this.collect(ctx, (page - 1) * limit), this.count(ctx)]);
     return {
       items,
+      page,
+      limit,
+      total,
       nextBefore: items.length === limit ? (items.at(-1)?.occurredAt.toISOString() ?? null) : null,
       categories: this.allowedCategories(user.role).map((code) => ({ code, label: CATEGORY_LABELS[code] })),
     };
@@ -201,51 +227,217 @@ export class HistoryService {
     };
   }
 
-  private async collect(ctx: Ctx): Promise<HistoryItem[]> {
+  /** Các nguồn vai trò/bộ lọc này cần đọc — dùng chung cho lấy dòng và đếm tổng. */
+  private sources(ctx: Ctx): Source[] {
     const has = (c: ActivityCategory): boolean => ctx.categories.has(c);
-    // Mỗi nguồn chạy độc lập: 1 nguồn có dữ liệu lỗi chỉ thiếu phần của nó, không làm hỏng cả trang.
-    const safe = async (name: string, run: () => Promise<RawItem[]>): Promise<RawItem[]> => {
-      try {
-        return await run();
-      } catch (err: unknown) {
-        this.logger.error(`Lịch sử: nguồn "${name}" lỗi — bỏ qua`, err instanceof Error ? err.stack : String(err));
-        return [];
-      }
-    };
-    const none = (): Promise<RawItem[]> => Promise.resolve([]);
-    const batches = await Promise.all([
-      safe('activity_logs', () => this.fromActivity(ctx)),
-      safe('inventory_movements', has('warehouse') || has('picking') || has('packing') || has('returns') ? () => this.fromMovements(ctx) : none),
-      safe('stock_receipts', has('warehouse') ? () => this.fromReceipts(ctx) : none),
-      safe('shipment_events', has('shipping') ? () => this.fromShipments(ctx) : none),
-      safe('packing_plans', has('packing') ? () => this.fromPackingPlans(ctx) : none),
-      safe('return_requests', has('returns') ? () => this.fromReturns(ctx) : none),
-      safe('packaging_movements', has('packaging_materials') ? () => this.fromPackaging(ctx) : none),
-      safe('login_audit_logs', has('auth') ? () => this.fromLogins(ctx) : none),
-    ]);
+    const all: (Source & { on: boolean })[] = [
+      { name: 'activity_logs', on: true, fetch: () => this.fromActivity(ctx), count: () => this.countOf(this.activityModel, this.activityFilter(ctx)) },
+      {
+        name: 'inventory_movements', on: has('warehouse') || has('picking') || has('packing') || has('returns'),
+        fetch: () => this.fromMovements(ctx), count: () => this.countOf(this.movementModel, this.movementFilter(ctx)),
+      },
+      { name: 'stock_receipts', on: has('warehouse'), fetch: () => this.fromReceipts(ctx), count: () => this.countOf(this.receiptModel, this.receiptFilter(ctx)) },
+      { name: 'shipment_events', on: has('shipping'), fetch: () => this.fromShipments(ctx), count: () => this.countOf(this.shipmentEventModel, this.shipmentFilter(ctx)) },
+      { name: 'packing_plans', on: has('packing'), fetch: () => this.fromPackingPlans(ctx), count: () => this.countPlanEvents(ctx) },
+      { name: 'return_requests', on: has('returns'), fetch: () => this.fromReturns(ctx), count: () => this.countReturnEvents(ctx) },
+      { name: 'packaging_movements', on: has('packaging_materials'), fetch: () => this.fromPackaging(ctx), count: () => this.countOf(this.packagingModel, this.packagingFilter(ctx)) },
+      { name: 'login_audit_logs', on: has('auth'), fetch: () => this.fromLogins(ctx), count: () => this.countOf(this.loginModel, this.loginFilter(ctx)) },
+    ];
+    return all.filter((s) => s.on);
+  }
+
+  /** Mỗi nguồn chạy độc lập: 1 nguồn có dữ liệu lỗi chỉ thiếu phần của nó, không làm hỏng cả trang. */
+  private async safe<T>(name: string, run: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await run();
+    } catch (err: unknown) {
+      this.logger.error(`Lịch sử: nguồn "${name}" lỗi — bỏ qua`, err instanceof Error ? err.stack : String(err));
+      return fallback;
+    }
+  }
+
+  /** Trộn mọi nguồn, mới → cũ, trả đoạn [skip, ctx.limit). */
+  private async collect(ctx: Ctx, skip = 0): Promise<HistoryItem[]> {
+    const batches = await Promise.all(this.sources(ctx).map((s) => this.safe<RawItem[]>(s.name, s.fetch, [])));
     const merged = batches
       .flat()
       .map((i) => ({ ...i, actorId: idStr(i.actorId), occurredAt: new Date(i.occurredAt) }))
       .filter((i) => !Number.isNaN(i.occurredAt.getTime()))
       .filter((i) => i.occurredAt >= ctx.from && i.occurredAt < ctx.before)
       .filter((i) => !ctx.actorId || i.actorId === ctx.actorId)
-      .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
-      .slice(0, ctx.limit);
+      // Cùng thời điểm thì xếp theo id để ranh giới trang ổn định giữa các lần gọi.
+      .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime() || a.id.localeCompare(b.id))
+      .slice(skip, ctx.limit);
     return this.resolveActors(merged);
+  }
+
+  /** Tổng số dòng khớp bộ lọc, cộng từ mọi nguồn. */
+  private async count(ctx: Ctx): Promise<number> {
+    const counts = await Promise.all(this.sources(ctx).map((s) => this.safe(s.name, s.count, 0)));
+    return counts.reduce((sum, n) => sum + n, 0);
+  }
+
+  private countOf(
+    model: { countDocuments(filter: Record<string, unknown>): { exec(): Promise<number> } },
+    filter: Record<string, unknown> | null,
+  ): Promise<number> {
+    return filter ? model.countDocuments(filter).exec() : Promise.resolve(0);
   }
 
   private timeFilter(ctx: Ctx): { $gte: Date; $lt: Date } {
     return { $gte: ctx.from, $lt: ctx.before };
   }
 
-  // ------------------------------------------------------------ các nguồn
+  // ------------------------------------------------------------ bộ lọc từng nguồn (null = nguồn không áp dụng)
 
-  private async fromActivity(ctx: Ctx): Promise<RawItem[]> {
+  private activityFilter(ctx: Ctx): Record<string, unknown> {
     const filter: Record<string, unknown> = { occurred_at: this.timeFilter(ctx), category: { $in: [...ctx.categories] } };
     if (ctx.actorId) filter.actor_id = ctx.actorId;
     if (ctx.groupIds) filter.order_group_id = { $in: ctx.groupIds };
     if (ctx.sku) filter.skus = ctx.sku;
-    const rows = await this.activityModel.find(filter).sort({ occurred_at: -1 }).limit(ctx.limit).lean();
+    return filter;
+  }
+
+  private movementFilter(ctx: Ctx): Record<string, unknown> | null {
+    const types = Object.entries(MOVEMENT_CATEGORY).filter(([, c]) => ctx.categories.has(c)).map(([t]) => t);
+    if (types.length === 0) return null;
+    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx), type: { $in: types } };
+    if (!ctx.timeline) filter.ref_type = { $ne: 'stock_receipt' }; // phiếu nhập đã có dòng tổng hợp riêng
+    if (ctx.actorId) filter.actor_id = ctx.actorId;
+    if (ctx.sku) filter.$or = [{ seller_sku: ctx.sku }, { master_sku: ctx.sku }];
+    if (ctx.groupIds) {
+      const groupOr = [
+        { ref_type: 'order_group', ref_id: { $in: ctx.groupIds.map(String) } },
+        { ref_type: 'return_request', ref_id: { $in: ctx.returnIds.map(String) } },
+      ];
+      if (filter.$or) filter.$and = [{ $or: filter.$or }, { $or: groupOr }];
+      else filter.$or = groupOr;
+      if (filter.$and) delete filter.$or;
+    }
+    return filter;
+  }
+
+  private receiptFilter(ctx: Ctx): Record<string, unknown> | null {
+    if (ctx.groupIds) return null; // phiếu nhập không thuộc đơn nào
+    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx) };
+    if (ctx.actorId) filter.created_by = ctx.actorId;
+    if (ctx.sku) filter.$or = [{ 'lines.seller_sku': ctx.sku }, { 'lines.master_sku': ctx.sku }];
+    return filter;
+  }
+
+  private shipmentFilter(ctx: Ctx): Record<string, unknown> | null {
+    if (ctx.sku) return null; // mốc vận đơn không gắn SKU
+    const filter: Record<string, unknown> = { occurred_at: this.timeFilter(ctx) };
+    if (ctx.actorId) filter.actor_id = ctx.actorId;
+    if (ctx.groupIds) filter.order_group_id = { $in: ctx.groupIds };
+    return filter;
+  }
+
+  private planFilter(ctx: Ctx): Record<string, unknown> {
+    const filter: Record<string, unknown> = { updated_at: { $gte: ctx.from }, created_at: { $lt: ctx.before } };
+    if (ctx.groupIds) filter.order_group_id = { $in: ctx.groupIds };
+    if (ctx.sku) filter['item_profiles.sku'] = ctx.sku;
+    return filter;
+  }
+
+  private returnBaseFilter(ctx: Ctx): Record<string, unknown> {
+    const base: Record<string, unknown> = {};
+    if (ctx.groupIds) base.order_group_id = { $in: ctx.groupIds };
+    if (ctx.sku) base['items.seller_sku'] = ctx.sku;
+    return base;
+  }
+
+  private returnCreatedFilter(ctx: Ctx): Record<string, unknown> {
+    return { ...this.returnBaseFilter(ctx), created_at: this.timeFilter(ctx), ...(ctx.actorId ? { created_by: ctx.actorId } : {}) };
+  }
+
+  private packagingFilter(ctx: Ctx): Record<string, unknown> | null {
+    if (ctx.sku) return null;
+    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx) };
+    if (ctx.actorId) filter.actor_id = ctx.actorId;
+    if (ctx.groupIds) {
+      filter.$or = [
+        { ref_type: 'order_group', ref_id: { $in: ctx.groupIds.map(String) } },
+        { ref_type: 'return_request', ref_id: { $in: ctx.returnIds.map(String) } },
+      ];
+    }
+    return filter;
+  }
+
+  private loginFilter(ctx: Ctx): Record<string, unknown> | null {
+    if (ctx.sku || ctx.groupIds) return null;
+    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx) };
+    if (ctx.actorId) filter.user_id = new Types.ObjectId(ctx.actorId);
+    return filter;
+  }
+
+  // ------------------------------------------------------------ đếm nguồn sinh nhiều dòng / document
+
+  /** Đếm mốc kế hoạch đóng gói — khớp đúng các mốc `fromPackingPlans` sinh ra (lọc cửa sổ + người làm). */
+  private async countPlanEvents(ctx: Ctx): Promise<number> {
+    const ev = (at: string, by: unknown): Record<string, unknown> => ({ at, by: { $toString: by } });
+    const rows = await this.planModel
+      .aggregate<{ n: number }>([
+        { $match: this.planFilter(ctx) },
+        {
+          $project: {
+            ev: {
+              $concatArrays: [
+                [
+                  ev('$created_at', { $cond: [{ $eq: ['$source', 'manual'] }, null, 'system'] }),
+                  ev('$approved_at', '$approved_by'),
+                  ev('$rejected_at', '$rejected_by'),
+                  ev('$assigned_packer_at', null),
+                  ev('$packing_started_at', '$packing_started_by'),
+                  ev('$packed_at', '$packed_by'),
+                ],
+                { $map: { input: { $ifNull: ['$parcels', []] }, as: 'p', in: ev('$$p.sealed_at', '$$p.sealed_by') } },
+                {
+                  $map: {
+                    input: { $filter: { input: { $ifNull: ['$activity', []] }, as: 'a', cond: { $not: [{ $in: ['$$a.kind', ['start', 'finish']] }] } } },
+                    as: 'a',
+                    in: ev('$$a.at', '$$a.by'),
+                  },
+                },
+              ],
+            },
+          },
+        },
+        { $unwind: '$ev' },
+        { $match: { 'ev.at': this.timeFilter(ctx), ...(ctx.actorId ? { 'ev.by': ctx.actorId } : {}) } },
+        { $count: 'n' },
+      ])
+      .exec();
+    return rows[0]?.n ?? 0;
+  }
+
+  /** Đếm phiếu trả tạo mới + từng dòng hàng cách ly đã xử lý (khớp `fromReturns`). */
+  private async countReturnEvents(ctx: Ctx): Promise<number> {
+    const window = this.timeFilter(ctx);
+    const [created, disposed] = await Promise.all([
+      this.returnModel.countDocuments(this.returnCreatedFilter(ctx)).exec(),
+      this.returnModel
+        .aggregate<{ n: number }>([
+          { $match: { ...this.returnBaseFilter(ctx), 'inspection.disposed_at': window } },
+          { $unwind: '$inspection' },
+          {
+            $match: {
+              'inspection.disposed_at': window,
+              'inspection.disposition': { $in: ['restocked', 'discarded'] },
+              ...(ctx.actorId ? { 'inspection.disposed_by': ctx.actorId } : {}),
+            },
+          },
+          { $count: 'n' },
+        ])
+        .exec(),
+    ]);
+    return created + (disposed[0]?.n ?? 0);
+  }
+
+  // ------------------------------------------------------------ các nguồn
+
+  private async fromActivity(ctx: Ctx): Promise<RawItem[]> {
+    const rows = await this.activityModel.find(this.activityFilter(ctx)).sort({ occurred_at: -1 }).limit(ctx.limit).lean();
     return rows.map((r) => ({
       id: `act:${String(r._id)}`,
       occurredAt: r.occurred_at,
@@ -264,21 +456,8 @@ export class HistoryService {
   }
 
   private async fromMovements(ctx: Ctx): Promise<RawItem[]> {
-    const types = Object.entries(MOVEMENT_CATEGORY).filter(([, c]) => ctx.categories.has(c)).map(([t]) => t);
-    if (types.length === 0) return [];
-    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx), type: { $in: types } };
-    if (!ctx.timeline) filter.ref_type = { $ne: 'stock_receipt' }; // phiếu nhập đã có dòng tổng hợp riêng
-    if (ctx.actorId) filter.actor_id = ctx.actorId;
-    if (ctx.sku) filter.$or = [{ seller_sku: ctx.sku }, { master_sku: ctx.sku }];
-    if (ctx.groupIds) {
-      const groupOr = [
-        { ref_type: 'order_group', ref_id: { $in: ctx.groupIds.map(String) } },
-        { ref_type: 'return_request', ref_id: { $in: ctx.returnIds.map(String) } },
-      ];
-      if (filter.$or) filter.$and = [{ $or: filter.$or }, { $or: groupOr }];
-      else filter.$or = groupOr;
-      if (filter.$and) delete filter.$or;
-    }
+    const filter = this.movementFilter(ctx);
+    if (!filter) return [];
     const rows = await this.movementModel.find(filter).sort({ created_at: -1 }).limit(ctx.limit).lean();
     const bins = await this.binCodes(rows.map((r) => r.bin_location_id));
     return rows.map((r) => {
@@ -320,10 +499,8 @@ export class HistoryService {
   }
 
   private async fromReceipts(ctx: Ctx): Promise<RawItem[]> {
-    if (ctx.groupIds) return []; // phiếu nhập không thuộc đơn nào
-    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx) };
-    if (ctx.actorId) filter.created_by = ctx.actorId;
-    if (ctx.sku) filter.$or = [{ 'lines.seller_sku': ctx.sku }, { 'lines.master_sku': ctx.sku }];
+    const filter = this.receiptFilter(ctx);
+    if (!filter) return [];
     const rows = await this.receiptModel.find(filter).sort({ created_at: -1 }).limit(ctx.limit).lean();
     return rows.map((r) => {
       const lines = arr(r.lines);
@@ -353,10 +530,8 @@ export class HistoryService {
   }
 
   private async fromShipments(ctx: Ctx): Promise<RawItem[]> {
-    if (ctx.sku) return []; // mốc vận đơn không gắn SKU
-    const filter: Record<string, unknown> = { occurred_at: this.timeFilter(ctx) };
-    if (ctx.actorId) filter.actor_id = ctx.actorId;
-    if (ctx.groupIds) filter.order_group_id = { $in: ctx.groupIds };
+    const filter = this.shipmentFilter(ctx);
+    if (!filter) return [];
     const events = await this.shipmentEventModel.find(filter).sort({ occurred_at: -1 }).limit(ctx.limit).lean();
     if (events.length === 0) return [];
     const shipments = await this.shipmentModel
@@ -417,14 +592,12 @@ export class HistoryService {
   }
 
   private async fromPackingPlans(ctx: Ctx): Promise<RawItem[]> {
-    const filter: Record<string, unknown> = { updated_at: { $gte: ctx.from }, created_at: { $lt: ctx.before } };
-    if (ctx.groupIds) filter.order_group_id = { $in: ctx.groupIds };
-    if (ctx.sku) filter['item_profiles.sku'] = ctx.sku;
     const plans = await this.planModel
-      .find(filter)
+      .find(this.planFilter(ctx))
       .select('order_group_id revision status source parcels.parcel_no parcels.platform_order_id parcels.box parcels.sealed_by parcels.sealed_at parcels.actual_weight_kg parcels.estimated_weight_g approved_by approved_at approve_override_reason rejected_by rejected_at rejection_reason assigned_packer_id assigned_packer_at assigned_packer_name packing_started_by packing_started_at pack_mode packed_by packed_at activity created_at item_profiles.sku')
       .sort({ updated_at: -1 })
-      .limit(Math.min(ctx.limit, 300))
+      // Mỗi kế hoạch sinh ≥1 mốc: lấy page × limit kế hoạch mới cập nhật nhất là đủ cho trang sâu.
+      .limit(ctx.limit)
       .lean();
     const out: RawItem[] = [];
     for (const p of plans) {
@@ -471,13 +644,9 @@ export class HistoryService {
   }
 
   private async fromReturns(ctx: Ctx): Promise<RawItem[]> {
-    const base: Record<string, unknown> = {};
-    if (ctx.groupIds) base.order_group_id = { $in: ctx.groupIds };
-    if (ctx.sku) base['items.seller_sku'] = ctx.sku;
     const [created, disposed] = await Promise.all([
-      this.returnModel.find({ ...base, created_at: this.timeFilter(ctx), ...(ctx.actorId ? { created_by: ctx.actorId } : {}) })
-        .sort({ created_at: -1 }).limit(ctx.limit).lean(),
-      this.returnModel.find({ ...base, 'inspection.disposed_at': this.timeFilter(ctx) }).limit(ctx.limit).lean(),
+      this.returnModel.find(this.returnCreatedFilter(ctx)).sort({ created_at: -1 }).limit(ctx.limit).lean(),
+      this.returnModel.find({ ...this.returnBaseFilter(ctx), 'inspection.disposed_at': this.timeFilter(ctx) }).limit(ctx.limit).lean(),
     ]);
     const out: RawItem[] = created.map((r) => {
       const items = arr(r.items);
@@ -521,15 +690,8 @@ export class HistoryService {
   }
 
   private async fromPackaging(ctx: Ctx): Promise<RawItem[]> {
-    if (ctx.sku) return [];
-    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx) };
-    if (ctx.actorId) filter.actor_id = ctx.actorId;
-    if (ctx.groupIds) {
-      filter.$or = [
-        { ref_type: 'order_group', ref_id: { $in: ctx.groupIds.map(String) } },
-        { ref_type: 'return_request', ref_id: { $in: ctx.returnIds.map(String) } },
-      ];
-    }
+    const filter = this.packagingFilter(ctx);
+    if (!filter) return [];
     const rows = await this.packagingModel.find(filter).sort({ created_at: -1 }).limit(ctx.limit).lean();
     return rows.map((r) => ({
       id: `pk:${String(r._id)}`,
@@ -549,9 +711,8 @@ export class HistoryService {
   }
 
   private async fromLogins(ctx: Ctx): Promise<RawItem[]> {
-    if (ctx.sku || ctx.groupIds) return [];
-    const filter: Record<string, unknown> = { created_at: this.timeFilter(ctx) };
-    if (ctx.actorId) filter.user_id = new Types.ObjectId(ctx.actorId);
+    const filter = this.loginFilter(ctx);
+    if (!filter) return [];
     const rows = await this.loginModel.find(filter).sort({ created_at: -1 }).limit(ctx.limit).lean();
     return rows.map((r) => {
       const at = (r as { created_at?: Date }).created_at ?? new Date(0);

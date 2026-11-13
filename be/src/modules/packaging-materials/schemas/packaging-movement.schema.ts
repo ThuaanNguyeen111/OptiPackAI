@@ -40,3 +40,5 @@ PackagingMovementSchema.index({ ref_type: 1, ref_id: 1, type: 1 });
 PackagingMovementSchema.index({ material_code: 1, created_at: -1 });
 // 11/11/2026 — GET /packaging-materials/movements?ocr_status=mismatch
 PackagingMovementSchema.index({ ocr_status: 1, created_at: -1 });
+// 13/11/2026 — GET /history: cửa sổ created_at, sắp mới → cũ + đếm tổng.
+PackagingMovementSchema.index({ created_at: -1 });

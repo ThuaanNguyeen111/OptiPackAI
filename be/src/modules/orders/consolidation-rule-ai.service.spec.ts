@@ -88,7 +88,7 @@ describe('ConsolidationRuleAiService.translate', () => {
   const provider = { name: 'groq', apiKey: 'k', baseUrl: 'https://ai.test', model: 'm', timeoutMs: 1000 };
   const reply = (content: unknown): { data: unknown } => ({ data: { choices: [{ message: { content: JSON.stringify(content) } }] } });
   const make = (p: typeof provider | null): ConsolidationRuleAiService =>
-    new ConsolidationRuleAiService({ get: () => p } as never);
+    new ConsolidationRuleAiService({ getProvider: () => Promise.resolve(p) } as never);
 
   async function failure(promise: Promise<unknown>): Promise<{ code: string; reason: unknown; suggestions: unknown }> {
     try {

@@ -12,6 +12,8 @@ import {
 import { SkipThrottle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService, GroupOrderCounts, type GroupOrderView } from './order-groups.service';
+import { OrderGroupRegroupService } from './order-group-regroup.service';
+import { OrderGroupPickingService } from './order-group-picking.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
 import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
 import { PickItemDto } from './dto/pick-item.dto';
@@ -252,6 +254,8 @@ export async function buildOrderGroupResponses(
 export class OrderGroupsController {
   constructor(
     private readonly orderGroupsService: OrderGroupsService,
+    private readonly regroupService: OrderGroupRegroupService,
+    private readonly pickingService: OrderGroupPickingService,
   ) {}
 
   @Get()
@@ -302,7 +306,7 @@ export class OrderGroupsController {
   ): Promise<OrderGroupResponse & { linkedGroupCount: number; orders: GroupOrderView[] }> {
     const group = await this.orderGroupsService.findOrderGroupById(id);
     const [linked, orders] = await Promise.all([
-      this.orderGroupsService.findLinkedGroups(id),
+      this.regroupService.findLinkedGroups(id),
       this.orderGroupsService.listOrdersInGroup(id),
     ]);
     return {
@@ -325,7 +329,7 @@ export class OrderGroupsController {
       'MỚI (Mục 9.5) — Các nhóm đơn KHÁC (có thể khác sàn) cùng người nhận với nhóm này, chưa giao xong. Dùng để hiển thị "Đi cùng: N kiện" và chuẩn bị giao chung chuyến.',
   })
   async linked(@Param('id') id: string): Promise<{ linkedGroups: OrderGroupResponse[] }> {
-    const groups = await this.orderGroupsService.findLinkedGroups(id);
+    const groups = await this.regroupService.findLinkedGroups(id);
     return { linkedGroups: await buildOrderGroupResponses(this.orderGroupsService, groups) };
   }
 
@@ -340,7 +344,7 @@ export class OrderGroupsController {
     @Body() dto: LinkOrderGroupDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ linkedGroups: OrderGroupResponse[] }> {
-    const groups = await this.orderGroupsService.linkGroupsManually(id, dto.target_group_id, dto.note, user.userId);
+    const groups = await this.regroupService.linkGroupsManually(id, dto.target_group_id, dto.note, user.userId);
     return { linkedGroups: await buildOrderGroupResponses(this.orderGroupsService, groups) };
   }
 
@@ -351,7 +355,7 @@ export class OrderGroupsController {
       '🆕 13/10/2026 — Bỏ liên kết tay của nhóm này (nhóm phải chưa giao). Liên kết tự động theo cùng người nhận (recipient_key) không bị ảnh hưởng.',
   })
   async unlinkManually(@Param('id') id: string): Promise<{ message: string }> {
-    await this.orderGroupsService.unlinkGroupManually(id);
+    await this.regroupService.unlinkGroupManually(id);
     return { message: 'Đã bỏ liên kết tay.' };
   }
 
@@ -367,7 +371,7 @@ export class OrderGroupsController {
     @Body() dto: SplitOrderFromGroupDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ sourceGroup: OrderGroupResponse; newGroup: OrderGroupResponse }> {
-    const { sourceGroup, newGroup } = await this.orderGroupsService.splitOrderFromGroup(
+    const { sourceGroup, newGroup } = await this.regroupService.splitOrderFromGroup(
       id,
       orderId,
       dto.expected_version,
@@ -392,7 +396,7 @@ export class OrderGroupsController {
     @Body() dto: MergeOrderGroupsDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.mergeGroups(
+    const group = await this.regroupService.mergeGroups(
       id,
       dto.source_group_id,
       dto.expected_version,
@@ -422,7 +426,7 @@ export class OrderGroupsController {
     @Param('id') id: string,
     @Param('sku') sku: string,
   ): Promise<PickableItem> {
-    return this.orderGroupsService.getPickableItemDetail(id, sku);
+    return this.pickingService.getPickableItemDetail(id, sku);
   }
 
   @Post(':id/fulfillment/pick-item')
@@ -437,7 +441,7 @@ export class OrderGroupsController {
     @Body() body: PickItemDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
-    return this.orderGroupsService.pickItem(
+    return this.pickingService.pickItem(
       id,
       body.warehouse_id,
       body.sku,
@@ -460,7 +464,7 @@ export class OrderGroupsController {
     @Body() body: ReportMissingDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.reportMissing(
+    const group = await this.pickingService.reportMissing(
       id,
       user.userId,
       body.sku,
@@ -482,7 +486,7 @@ export class OrderGroupsController {
     @Body() body: DecidePartialDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.decidePartial(
+    const group = await this.pickingService.decidePartial(
       id,
       body.approve,
       body.expected_version,
@@ -515,7 +519,7 @@ export class OrderGroupsController {
     @Param('id') id: string,
     @Body() body: TransitionOrderGroupDto,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.confirmPicked(id, body.expected_version);
+    const group = await this.pickingService.confirmPicked(id, body.expected_version);
     return buildOrderGroupResponse(this.orderGroupsService, group);
   }
 

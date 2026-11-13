@@ -1,5 +1,4 @@
 import axios from 'axios';
-import type { ConfigService } from '@nestjs/config';
 import {
   DEFAULT_GUIDE_STYLE_PROMPT,
   PackingGuideAiService,
@@ -52,8 +51,7 @@ const groq: AiProviderConfig = {
 };
 
 function makeService(provider: AiProviderConfig | null): PackingGuideAiService {
-  const config = { get: (key: string): unknown => (key === 'ai.provider' ? provider : undefined) };
-  return new PackingGuideAiService(config as unknown as ConfigService);
+  return new PackingGuideAiService({ getProvider: () => Promise.resolve(provider) } as never);
 }
 
 function reply(content: unknown): { data: unknown } {

@@ -1,6 +1,6 @@
 # Domain thật (thay ingress *.optipackai.local của base):
 #   https://optipack.io.vn         → fe
-#   https://optipack.io.vn/api/... → be (backend tự có global prefix /api)
+#   https://api.optipack.io.vn     → be (route đặt ở gốc, không có /api)
 #   https://shop.optipack.io.vn    → storefront
 #   https://aurelle.optipack.io.vn → sàn giả lập AURELLE (trang cấp quyền + Developer Console)
 # packer KHÔNG ra Internet: chỉ be gọi nội bộ http://packer:8000.
@@ -48,13 +48,13 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-    - hosts: [optipack.io.vn]
+    - hosts: [api.optipack.io.vn]
       secretName: optipack-tls
   rules:
-    - host: optipack.io.vn
+    - host: api.optipack.io.vn
       http:
         paths:
-          - path: /api
+          - path: /
             pathType: Prefix
             backend:
               service: { name: be, port: { number: 3000 } }

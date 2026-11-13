@@ -29,7 +29,7 @@ describe('PackagingMaterialsService.purchase — ảnh phiếu + OCR', () => {
     notify = jest.fn().mockResolvedValue({});
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     const receiptOcr = new ReceiptOcrService(
-      { get: jest.fn() } as never,
+      { getProvider: jest.fn() } as never,
       { findById: jest.fn(() => ({ lean: () => Promise.resolve(scan) })) } as never,
       { notify } as never,
     );

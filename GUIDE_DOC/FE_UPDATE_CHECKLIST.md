@@ -32,7 +32,6 @@
 | 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
 | 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ☐ Chưa làm |
 | 21 | 🆕 11/11 **Phiếu NCC có ảnh + AI đối chiếu số lượng** (góp ý hội đồng): nhập kho (Phiếu nhập / lô) và nhập thùng / túi / vật tư chèn / mua vật liệu bắt buộc ảnh phiếu, AI đọc phiếu, bảng Theo phiếu – Đã nhập – Lệch, lý do lệch, nhãn Lệch phiếu, lọc phiếu lệch | 18 | ~1 ngày | 🟡 11/11 — Claude đã làm web (`ReceiptEvidencePanel`); **còn** chụp bằng webcam (`getUserMedia`, dùng chung mục 14.1) và app mobile |
-| 22 | 🆕 11/11 ⚠ **App mobile gọi sai đường sau khi BE thêm tiền tố `/api`** (⚠ **chặn** — mọi màn app báo 404): sửa địa chỉ mặc định trong `mobile/lib/core/config/env.dart` thành `http://10.0.2.2:3000/api`, mọi lệnh `--dart-define=API_BASE_URL=` thêm `/api` | 19 | Nhỏ | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -468,7 +467,6 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 **Việc trong app (`mobile/`):**
 1. `pubspec.yaml`: thêm `google_sign_in: ^7.2.0` → `flutter pub get`.
 2. Khởi tạo 1 lần (VD trong `main.dart` hoặc lúc mở màn đăng nhập): `await GoogleSignIn.instance.initialize(serverClientId: const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'));` — chạy app với `--dart-define=GOOGLE_SERVER_CLIENT_ID=<client id Web>`.
-0. Làm **dòng 22 / mục 19 trước** (app phải gọi qua `/api`, nếu không mọi route kể cả Google đều 404).
 3. `mobile/lib/features/auth/login_screen.dart` (khoảng dòng 331–337): bỏ chữ "(chờ BE)", mở khoá nút. Bấm nút → `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → gọi `POST /auth/google/mobile` body `{ "id_token": idToken }`.
 4. Response **giống hệt `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`) → đi tiếp đúng đường của đăng nhập mật khẩu trong `AuthController` (lưu token, bắt đổi mật khẩu nếu `must_change_password`, bật push).
 5. Bắt lỗi:
@@ -524,17 +522,6 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 **Cấu hình cần trước khi thử:** `CLOUDINARY_*` trong `be/.env` (thiếu thì tải ảnh lỗi 503 → **không nhập kho được**), `AI_API_KEY`, `AI_VISION_MODEL`.
 
 ---
-
-## 19. 🆕 11/11/2026 — App mobile phải gọi qua tiền tố `/api` (dòng 22) ⚠ chặn
-
-**Vấn đề:** `main` đã bật `app.setGlobalPrefix('api')` trong `be/src/main.ts` → mọi route BE giờ là `/api/...` (VD `/api/auth/login`, `/api/health`). App mobile vẫn gọi `http://10.0.2.2:3000` + `/auth/login` → **404 ở mọi màn** (đăng nhập, push, lấy hàng…). Web đã được sửa trong `main`; app chưa.
-
-**Cần làm (nhóm mobile, 1 dòng):**
-1. `mobile/lib/core/config/env.dart`: `defaultValue: 'http://10.0.2.2:3000'` → `defaultValue: 'http://10.0.2.2:3000/api'` (sửa luôn câu chú thích đầu file: VD `--dart-define=API_BASE_URL=http://192.168.1.10:3000/api`).
-2. **Không** sửa các đường trong code (`'/auth/login'`, `'/auth/logout'`, `'/notifications/devices'`…): dio tự ghép `baseUrl` + đường → `http://10.0.2.2:3000/api/auth/login`.
-3. Chạy trên điện thoại thật: `flutter run --dart-define=API_BASE_URL=http://<IP máy BE>:3000/api` (có `/api` ở cuối, không có dấu `/` sau `api`).
-
-**Thử:** trình duyệt trên điện thoại mở `http://<IP máy BE>:3000/api/health` → `"status":"ok"`; app đăng nhập được, vào "Việc của tôi" có dữ liệu; terminal BE không còn log `Cannot POST /auth/...`.
 
 ## Phụ lục ✅ — đã hoàn thành
 
@@ -789,15 +776,15 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
   | Nhân viên đóng gói | `orders, picking, packing, packaging_materials` |
   | Điều phối vận chuyển | `orders, shipping, returns` |
 
-  Query (đều tuỳ chọn): `category` (nhiều loại cách nhau dấu phẩy), `from`, `to` (ISO 8601; mặc định 30 ngày gần nhất), `before` (con trỏ trang sau), `limit` (1–100, mặc định 50), `actor_id`, `mine=true` (chỉ việc của tôi), `sku`, `order_group_id`, `order_code` (mã đơn sàn). Lọc loại không được phép → `403`.
-  Trả `{ items: HistoryItem[], nextBefore: string | null, categories: [{ code, label }] }`.
+  Query (đều tuỳ chọn): `category` (nhiều loại cách nhau dấu phẩy), `from`, `to` (ISO 8601; mặc định 30 ngày gần nhất), `page` (từ 1, mặc định 1), `limit` (số dòng/trang 1–100, mặc định 50), `before` (con trỏ cũ, vẫn chạy), `actor_id`, `mine=true` (chỉ việc của tôi), `sku`, `order_group_id`, `order_code` (mã đơn sàn). Lọc loại không được phép → `403`; `page × limit` > 5.000 → `400` (thu hẹp bộ lọc).
+  Trả `{ items: HistoryItem[], page, limit, total, nextBefore: string | null, categories: [{ code, label }] }` — `total` = tổng dòng khớp bộ lọc (13/11/2026).
 - `HistoryItem`: `{ id, occurredAt, category, categoryLabel, action, summary, actor: { id, name, role } | null, orderGroupId, entity: { type, id, code } | null, skus, quantity, fromStatus, toStatus, details }`. **`summary` là câu tiếng Việt hiển thị thẳng**, VD *"Bắt đầu giao SHP-1 qua GHN · Hàng nhẹ → Nguyễn Văn A (12 Lê Lợi, …) — mã GHN123"*, *"Niêm phong kiện 1: thùng BOX-S, 0.4 kg — đơn 720000001"*, *"Nhập lô LOT-… (phiếu PN-…): 30 sản phẩm, 2 mã"*. `details` là các field phụ (vận chuyển: `carrier, service, trackingCode, recipientName, recipientPhone, recipientAddress, costVnd, attempt, reason`; kho: `bin, quantityBefore, quantityAfter, reason, note`; phiếu nhập: `lotCode, receivedAt, supplier, lines`…).
 - `GET /history/categories` — mảng loại vai trò hiện tại được xem.
 - `GET /history/order-groups/:id/timeline` — dòng thời gian **cũ → mới** của 1 nhóm đơn: đơn về → đổi trạng thái → từng lần lấy hàng (ô, số lượng, ai lấy) → tính/duyệt/phân công/bắt đầu/niêm phong từng kiện/xong → vận chuyển (hãng, mã, người nhận, giao thất bại/lại/hoàn) → trả hàng (từng bước) → nhập lại kệ. Mọi vai trò. `{ orderGroupId, items }`.
 - `GET /history/export` — CSV mở bằng Excel, cùng bộ lọc, tối đa 5.000 dòng (Admin, Store Owner).
 
 **Bước 1 — API** (tạo `fe/src/api/history.api.ts`):
-1. Kiểu `HistoryItem`, `HistoryPage = { items, nextBefore, categories }`.
+1. Kiểu `HistoryItem`, `HistoryListResult = { items, page, limit, total, nextBefore, categories }`.
 2. `listHistory(params)` → `GET /history?…` (dựng query bằng `URLSearchParams`, bỏ field rỗng).
 3. `getGroupTimeline(groupId)` → `GET /history/order-groups/${groupId}/timeline`.
 4. `downloadHistoryCsv(params)` → dùng `apiRequestBlob` (đã có trong `fe/src/lib/api.ts`) gọi `GET /history/export?…`, tạo link tải file `lich-su-thao-tac.csv`.
@@ -812,7 +799,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
    - Công tắc **"Chỉ việc của tôi"** (`mine=true`).
    - Admin/Store Owner: ô chọn **nhân viên** (`actor_id`, lấy danh sách từ `GET /users`) + nút **"Xuất Excel"**.
 4. Danh sách: nhóm theo **ngày** (tiêu đề "Thứ Năm, 23/10/2026"). Mỗi dòng: giờ `HH:mm` · chip loại (màu riêng mỗi loại) · **`summary`** · tên + vai trò người làm (`actor.name`, `actor.role`; null → "—"). Bấm dòng → mở khung chi tiết hiện `details` dạng bảng 2 cột (ẩn giá trị null) + nút **"Xem cả đơn"** nếu có `orderGroupId` (mở tab Dòng thời gian bên dưới).
-5. Cuối danh sách: nút **"Tải thêm"** khi `nextBefore` khác null → gọi lại với `before = nextBefore`, nối vào danh sách.
+5. Cuối danh sách (13/11/2026): thanh phân trang `QueuePaginationBar` (Trước/Sau, "Trang x/y", "Hiển thị a–b / total dòng") + ô **Số dòng mỗi trang** 20/50/100 (mặc định 20). Đổi bộ lọc hoặc số dòng/trang → về trang 1.
 6. Trống: "Chưa có thao tác nào trong khoảng thời gian này."
 
 **Bước 3 — tab "Dòng thời gian" ở chi tiết nhóm đơn** (`fe/src/pages/OrderGroupsPage.tsx`, khung chi tiết nhóm; và `fe/src/pages/order-groups/GroupOpsPanel.tsx` nếu màn đóng gói/kho mở chi tiết ở đó):

@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AiProviderConfig } from '../../config/ai.config';
+import { AiSettingsService } from '../ai-settings/ai-settings.service';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_ERROR_CODES } from './orders.errors';
 import {
@@ -137,11 +137,11 @@ const GEO_FIELDS: readonly string[] = ['province_name', 'district_name', 'ward_n
 export class ConsolidationRuleAiService {
   private readonly logger = new Logger(ConsolidationRuleAiService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly aiSettings: AiSettingsService) {}
 
   async translate(text: string): Promise<ConsolidationRuleTranslation> {
     const sourceText = text.trim();
-    const provider = this.configService.get<AiProviderConfig | null>('ai.provider', null);
+    const provider = await this.aiSettings.getProvider();
     if (!provider) throw unavailable('no_api_key');
 
     let raw: unknown;

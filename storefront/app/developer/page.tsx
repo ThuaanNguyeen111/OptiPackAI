@@ -29,7 +29,7 @@ export default function DeveloperPortalPage() {
 
   // Form states
   const [name, setName] = useState('');
-  const [redirectUri, setRedirectUri] = useState('http://localhost:3000/api/marketplace/aurelle/callback');
+  const [redirectUri, setRedirectUri] = useState('http://localhost:3000/marketplace/aurelle/callback');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showSecret, setShowSecret] = useState(false);
@@ -68,7 +68,7 @@ export default function DeveloperPortalPage() {
 
   function openCreateModal() {
     setName('');
-    setRedirectUri('http://localhost:3000/api/marketplace/aurelle/callback');
+    setRedirectUri('http://localhost:3000/marketplace/aurelle/callback');
     setFormError(null);
     setIsCreateOpen(true);
   }
@@ -451,7 +451,7 @@ export default function DeveloperPortalPage() {
                 <input
                   id="create-app-redirect"
                   type="url"
-                  placeholder="http://localhost:3000/api/marketplace/aurelle/callback"
+                  placeholder="http://localhost:3000/marketplace/aurelle/callback"
                   value={redirectUri}
                   onChange={(e) => setRedirectUri(e.target.value)}
                   required

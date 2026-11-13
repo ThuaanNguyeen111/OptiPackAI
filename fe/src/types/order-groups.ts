@@ -268,17 +268,17 @@ export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
 > = {
   awaiting_packaging: { vi: 'Đơn mới — cần lấy', en: 'New — to pick' },
   pending_approval: {
-    vi: 'Chờ duyệt kế hoạch thùng',
-    en: 'Pending packaging plan approval',
+    vi: 'Chờ chấp nhận kế hoạch',
+    en: 'Plan awaiting acceptance',
   },
   approved_for_packing: {
-    vi: 'Đã duyệt — chờ kho đóng gói',
-    en: 'Plan approved — await warehouse pack',
+    vi: 'Đang đóng gói',
+    en: 'Packing',
   },
   picking: { vi: 'Đang lấy hàng', en: 'Picking' },
-  picked: { vi: 'Đã lấy xong — chờ gợi ý/duyệt', en: 'Picked — await plan' },
+  picked: { vi: 'Đã lấy xong — đang tính kế hoạch', en: 'Picked — computing plan' },
   partial_needs_review: {
-    vi: 'Thiếu hàng — cần duyệt',
+    vi: 'Thiếu hàng — chờ quyết định',
     en: 'Partial — needs review',
   },
   packed: { vi: 'Đã đóng gói', en: 'Packed' },

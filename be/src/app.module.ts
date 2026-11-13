@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { RedisModule } from './common/redis/redis.module';
 import { RolePermissionsModule } from './modules/role-permissions/role-permissions.module';
+import { AiSettingsModule } from './modules/ai-settings/ai-settings.module';
 import { makeThrottleTracker } from './common/throttle/throttle-tracker';
 import { AppController } from './app.controller';
 import { HealthController } from './health/health.controller';
@@ -82,6 +83,7 @@ import { HistoryModule } from './modules/history/history.module';
     ScheduleModule.forRoot(),
     RedisModule,
     RolePermissionsModule, // 12/11/2026 — phân quyền trang cấu hình được (global, RolesGuard dùng)
+    AiSettingsModule, // 13/11/2026 — Admin nhập nhà cung cấp/model/API key AI trên web (global)
     UsersModule,
     AuthModule,
     MarketplaceIntegrationModule,

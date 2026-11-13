@@ -83,7 +83,7 @@ import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
- * Admin chốt kế hoạch ở `/app/admin/packing-plans` (không dùng trang này).
+ * Admin dùng chung trang này; không có bước Admin chốt riêng (BE tự tính và giao người).
  * Khung 3D dựng từ kế hoạch thật (placements + itemProfiles); chỉ xem, không ghi trạng thái lên BE.
  */
 
@@ -216,8 +216,8 @@ function statusLabel(status: string, vi: boolean): string {
 
 const PLAN_STATUS_LABELS: Record<string, { vi: string; en: string }> = {
   computing: { vi: 'Đang tính', en: 'Computing' },
-  ready: { vi: 'Chờ duyệt', en: 'Ready' },
-  approved: { vi: 'Đã duyệt', en: 'Approved' },
+  ready: { vi: 'Chờ chấp nhận', en: 'Awaiting acceptance' },
+  approved: { vi: 'Đã chấp nhận', en: 'Accepted' },
   packing: { vi: 'Đang đóng', en: 'Packing' },
   packed: { vi: 'Đã đóng', en: 'Packed' },
   rejected: { vi: 'Bị từ chối', en: 'Rejected' },
@@ -1236,7 +1236,7 @@ export function PackagingWorkbench() {
       [
         [
           'pending_approval',
-          vi ? 'Chờ duyệt kế hoạch' : 'Pending plan',
+          vi ? 'Chờ chấp nhận kế hoạch' : 'Pending plan',
           counts.pending,
           false,
         ],
@@ -1362,7 +1362,7 @@ export function PackagingWorkbench() {
             : vi
               ? counts.awaiting > 0 || counts.picked > 0
                 ? `Chưa có việc duyệt. ${counts.picked > 0 ? `${String(counts.picked)} nhóm đã lấy, đang tính kế hoạch. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} nhóm kho đang lấy (tab «Chỉ xem»). ` : ''}Bấm Tải lại khi có gợi ý.`
-                : 'Chưa có việc. Khi có gợi ý thùng, đơn sẽ hiện ở «Chờ duyệt kế hoạch».'
+                : 'Chưa có việc. Khi có kế hoạch đóng gói, đơn sẽ hiện ở «Chờ chấp nhận kế hoạch».'
               : counts.awaiting > 0 || counts.picked > 0
                 ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked, plans are being computed. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
                 : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
@@ -1588,7 +1588,7 @@ export function PackagingWorkbench() {
                     {groups.length === 0
                       ? empty.body
                       : vi
-                        ? `Có ${String(groups.length)} nhóm đang lấy. Chọn một dòng bên trái nếu cần xem chi tiết — bạn không thao tác được tại đây. Quay lại «Chờ duyệt kế hoạch» khi có việc.`
+                        ? `Có ${String(groups.length)} nhóm đang lấy. Chọn một dòng bên trái nếu cần xem chi tiết — bạn không thao tác được tại đây. Quay lại «Chờ chấp nhận kế hoạch» khi có việc.`
                         : `${String(groups.length)} group(s) in pick. Select a row to inspect — you cannot act here. Return to Pending plan when you have work.`}
                   </p>
                 </>

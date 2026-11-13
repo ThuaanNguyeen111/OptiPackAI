@@ -62,8 +62,8 @@ export async function recordActivity(
 /** Nhãn tiếng Việt của trạng thái nhóm đơn (dùng trong câu mô tả). */
 export const GROUP_STATUS_LABELS: Record<string, string> = {
   awaiting_packaging: 'Chờ xử lý',
-  pending_approval: 'Chờ duyệt',
-  approved_for_packing: 'Đã duyệt đóng gói',
+  pending_approval: 'Chờ chấp nhận kế hoạch',
+  approved_for_packing: 'Đang đóng gói',
   picking: 'Đang lấy hàng',
   picked: 'Đã lấy xong',
   partial_needs_review: 'Thiếu hàng — chờ quyết định',

@@ -1,19 +1,19 @@
-import { OrderGroupsService } from './order-groups.service';
+import { OrderGroupPickingService } from './order-group-picking.service';
 import { parseMasterSkuCode } from '../master-skus/master-skus.service';
 
-describe('OrderGroupsService.allocateShortage (22/10/2026)', () => {
+describe('OrderGroupPickingService.allocateShortage (22/10/2026)', () => {
   it('chia số đã lấy cho đơn cũ trước; chỉ trả đơn bị thiếu', () => {
     const orders = [
       { _id: 'o1', items: [{ sku: 'A', quantity: 2 }] },
       { _id: 'o2', items: [{ sku: 'A', quantity: 2 }, { sku: 'B', quantity: 1 }] },
     ];
-    const out = OrderGroupsService.allocateShortage(orders, new Map([['A', 3], ['B', 1]]));
+    const out = OrderGroupPickingService.allocateShortage(orders, new Map([['A', 3], ['B', 1]]));
     expect(out).toEqual([{ orderId: 'o2', items: [{ sku: 'A', ordered: 2, shipped: 1 }, { sku: 'B', ordered: 1, shipped: 1 }] }]);
   });
 
   it('bỏ dòng đã hủy; đủ hàng → rỗng', () => {
     const orders = [{ _id: 'o1', items: [{ sku: 'A', quantity: 1 }, { sku: 'B', quantity: 3, status: 'canceled' }] }];
-    expect(OrderGroupsService.allocateShortage(orders, new Map([['A', 1]]))).toEqual([]);
+    expect(OrderGroupPickingService.allocateShortage(orders, new Map([['A', 1]]))).toEqual([]);
   });
 });
 

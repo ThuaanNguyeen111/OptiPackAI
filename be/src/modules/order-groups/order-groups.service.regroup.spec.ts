@@ -4,6 +4,21 @@ import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { OrderGroupRegroupService } from './order-group-regroup.service';
+/** 13/11/2026 — liên kết/tách/gộp đã dời sang OrderGroupRegroupService; dựng nó từ đúng các mock của core. */
+/* eslint-disable @typescript-eslint/dot-notation -- đọc field private của core (TS chỉ cho qua ngoặc vuông) */
+function regroupFor(core: OrderGroupsService): OrderGroupRegroupService {
+  return new OrderGroupRegroupService(
+    core['orderGroupModel'],
+    core['orderModel'],
+    core['pickEventModel'],
+    core['connection'],
+    core,
+    core['activityLogModel'],
+  );
+}
+/* eslint-enable @typescript-eslint/dot-notation */
+
 
 //!=============================================
 // 23/10/2026 — ĐƠN GỘP: tách đơn khỏi nhóm, gộp 2 nhóm, cảnh báo nhiều người nhận khác tên.
@@ -118,7 +133,7 @@ describe('OrderGroupsService — tách / gộp nhóm đơn + cảnh báo khác t
 
   describe('splitOrderFromGroup', () => {
     it('tách đơn → nhóm mới đóng (không tự gom), đơn chuyển nhóm, ghi lịch sử 2 nhóm, giữ chỗ tính lại', async () => {
-      const { newGroup } = await service.splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'Khách khác nhau', 'owner-1');
+      const { newGroup } = await regroupFor(service).splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'Khách khác nhau', 'owner-1');
 
       const [[docs]] = orderGroupModel.create.mock.calls as [[Record<string, unknown>[]]];
       const [created] = docs as [Record<string, unknown>];
@@ -137,7 +152,7 @@ describe('OrderGroupsService — tách / gộp nhóm đơn + cảnh báo khác t
 
     it('đã quét lấy hàng ở lượt hiện tại → 409 REGROUP_HAS_PICKS, không đụng dữ liệu', async () => {
       pickEventModel.exists.mockImplementation(() => q({ _id: new Types.ObjectId() }));
-      await expect(service.splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.REGROUP_HAS_PICKS,
       });
       expect(orderGroupModel.create).not.toHaveBeenCalled();
@@ -145,27 +160,27 @@ describe('OrderGroupsService — tách / gộp nhóm đơn + cảnh báo khác t
 
     it('nhóm đã lấy xong (picked) → 409 REGROUP_NOT_ALLOWED', async () => {
       groups.set(gA.toString(), group(gA, { fulfillment_status: GroupFulfillmentStatus.PICKED }));
-      await expect(service.splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.REGROUP_NOT_ALLOWED,
       });
     });
 
     it('nhóm chỉ còn 1 đơn còn hiệu lực → 409 REGROUP_NOT_ALLOWED', async () => {
       orderModel.countDocuments.mockImplementation(() => q(1));
-      await expect(service.splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.REGROUP_NOT_ALLOWED,
       });
     });
 
     it('version cũ → 409 STATE_CONFLICT', async () => {
-      await expect(service.splitOrderFromGroup(gA.toString(), o1.toString(), 2, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).splitOrderFromGroup(gA.toString(), o1.toString(), 2, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
       });
     });
 
     it('đơn không thuộc nhóm → 404 ORDER_NOT_FOUND', async () => {
       orderModel.findOne.mockResolvedValue(null);
-      await expect(service.splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).splitOrderFromGroup(gA.toString(), o1.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.ORDER_NOT_FOUND,
       });
     });
@@ -173,7 +188,7 @@ describe('OrderGroupsService — tách / gộp nhóm đơn + cảnh báo khác t
 
   describe('mergeGroups', () => {
     it('gộp B vào A → B canceled + merged_into_group_id, đơn chuyển sang A, nhả giữ chỗ B, tính lại A', async () => {
-      await service.mergeGroups(gA.toString(), gB.toString(), 3, 'Cùng khách', 'coord-1');
+      await regroupFor(service).mergeGroups(gA.toString(), gB.toString(), 3, 'Cùng khách', 'coord-1');
 
       const closeCall = (orderGroupModel.updateOne.mock.calls as unknown[][]).find((c) => (c[0] as { _id: Types.ObjectId })._id.equals(gB)) as [
         unknown,
@@ -194,7 +209,7 @@ describe('OrderGroupsService — tách / gộp nhóm đơn + cảnh báo khác t
 
     it('khác shop → 409 MERGE_SCOPE_MISMATCH (hướng dẫn dùng liên kết)', async () => {
       groups.set(gB.toString(), group(gB, { shop_id: 'shop-2' }));
-      await expect(service.mergeGroups(gA.toString(), gB.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).mergeGroups(gA.toString(), gB.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.MERGE_SCOPE_MISMATCH,
       });
     });
@@ -209,14 +224,14 @@ describe('OrderGroupsService — tách / gộp nhóm đơn + cảnh báo khác t
           ]),
         }),
       }));
-      await expect(service.mergeGroups(gA.toString(), gB.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).mergeGroups(gA.toString(), gB.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.MERGE_RECIPIENT_MISMATCH,
       });
       expect(session.withTransaction).not.toHaveBeenCalled();
     });
 
     it('gộp với chính nó → 400 MERGE_SELF', async () => {
-      await expect(service.mergeGroups(gA.toString(), gA.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
+      await expect(regroupFor(service).mergeGroups(gA.toString(), gA.toString(), 3, 'x y z', 'u')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.MERGE_SELF,
       });
     });

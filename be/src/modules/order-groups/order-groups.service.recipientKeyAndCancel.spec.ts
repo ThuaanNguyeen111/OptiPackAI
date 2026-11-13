@@ -2,6 +2,21 @@ import { Types } from 'mongoose';
 import { OrderGroupsService } from './order-groups.service';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { OrderStatus } from '../orders/enums/order-status.enum';
+import { OrderGroupRegroupService } from './order-group-regroup.service';
+/** 13/11/2026 — liên kết/tách/gộp đã dời sang OrderGroupRegroupService; dựng nó từ đúng các mock của core. */
+/* eslint-disable @typescript-eslint/dot-notation -- đọc field private của core (TS chỉ cho qua ngoặc vuông) */
+function regroupFor(core: OrderGroupsService): OrderGroupRegroupService {
+  return new OrderGroupRegroupService(
+    core['orderGroupModel'],
+    core['orderModel'],
+    core['pickEventModel'],
+    core['connection'],
+    core,
+    core['activityLogModel'],
+  );
+}
+/* eslint-enable @typescript-eslint/dot-notation */
+
 
 //!=============================================
 // MỚI (29/09/2026, Mục 9.5 + N1 — AURELLE_MARKETPLACE_DESIGN.md):
@@ -280,7 +295,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
         recipient_key: null,
       });
 
-      const result = await service.findLinkedGroups(groupId);
+      const result = await regroupFor(service).findLinkedGroups(groupId);
 
       expect(result).toEqual([]);
       expect(orderGroupModel.find).not.toHaveBeenCalled();
@@ -297,7 +312,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
         lean: jest.fn().mockResolvedValue([{ _id: 'other-group' }]),
       });
 
-      const result = await service.findLinkedGroups(groupId);
+      const result = await regroupFor(service).findLinkedGroups(groupId);
 
       expect(orderGroupModel.find).toHaveBeenCalledWith(
         expect.objectContaining({

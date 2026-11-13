@@ -64,14 +64,14 @@ Hoặc build thẳng từng cái:
 
 ```bash
 docker build -f be/Dockerfile         -t optipackai-be:local .
-docker build -f fe/Dockerfile         -t optipackai-fe:local         --build-arg VITE_API_URL=http://api.optipackai.local/api .
-docker build -f storefront/Dockerfile -t optipackai-storefront:local --build-arg NEXT_PUBLIC_API_URL=http://api.optipackai.local/api .
+docker build -f fe/Dockerfile         -t optipackai-fe:local         --build-arg VITE_API_URL=http://api.optipackai.local .
+docker build -f storefront/Dockerfile -t optipackai-storefront:local --build-arg NEXT_PUBLIC_API_URL=http://api.optipackai.local .
 docker build -f packer/Dockerfile     -t optipackai-packer:local .   # CP-SAT, service nội bộ (04/10/2026)
 ```
 
 > ⚠️ `VITE_API_URL` / `NEXT_PUBLIC_API_URL` bị **nhúng vào bundle lúc build**. Nếu định vào
-> bằng Ingress (`http://api.optipackai.local/api`) thì phải build với đúng URL đó; nếu định dùng
-> `port-forward` thì build với `http://localhost:3000/api`. Đổi URL = build lại image.
+> bằng Ingress (`http://api.optipackai.local`) thì phải build với đúng URL đó; nếu định dùng
+> `port-forward` thì build với `http://localhost:3000`. Đổi URL = build lại image.
 
 ---
 

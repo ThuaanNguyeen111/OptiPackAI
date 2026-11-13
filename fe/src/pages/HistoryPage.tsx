@@ -13,6 +13,7 @@ import {
 } from '../api/history.api'
 import { fetchUsers } from '../api/users.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
@@ -70,6 +71,8 @@ function formatDetailValue(value: unknown): string {
   }
 }
 
+const PAGE_SIZES = [20, 50, 100] as const
+
 function dateToIsoStart(value: string): string | undefined {
   if (!value) return undefined
   return `${value}T00:00:00.000Z`
@@ -105,9 +108,9 @@ export function HistoryPage({
   const [orderCode, setOrderCode] = useState('')
   const [mine, setMine] = useState(false)
   const [items, setItems] = useState<HistoryItem[]>([])
-  const [nextBefore, setNextBefore] = useState<string | null>(null)
+  const [total, setTotal] = useState(0)
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
   const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [timelineGroupId, setTimelineGroupId] = useState(presetGroup)
   const [timelineItems, setTimelineItems] = useState<HistoryItem[]>([])
@@ -127,26 +130,32 @@ export function HistoryPage({
       ...(orderCode.trim() ? { order_code: orderCode.trim() } : {}),
       ...(mine ? { mine: true } : {}),
       ...(canFilterActor && actorId ? { actor_id: actorId } : {}),
-      limit: 50,
+      limit: pageSize,
     }
-  }, [category, from, to, sku, orderCode, mine, actorId, canFilterActor])
+  }, [category, from, to, sku, orderCode, mine, actorId, canFilterActor, pageSize])
+
+  // Đổi bộ lọc hoặc số dòng/trang → về trang 1 (trang gắn với đúng bộ lọc đã chọn nó).
+  const filterKey = JSON.stringify(query)
+  const [paging, setPaging] = useState({ key: filterKey, page: 1 })
+  const page = paging.key === filterKey ? paging.page : 1
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await listHistory(query)
+      const res = await listHistory({ ...query, page })
       setItems(res.items)
-      setNextBefore(res.nextBefore)
+      setTotal(res.total)
       if (res.categories.length > 0) setCategories(res.categories)
     } catch (err: unknown) {
       setError(formatApiError(err))
       setItems([])
-      setNextBefore(null)
+      setTotal(0)
     } finally {
       setLoading(false)
     }
-  }, [query])
+  }, [query, page])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -198,20 +207,6 @@ export function HistoryPage({
     }, 0)
     return () => window.clearTimeout(timer)
   }, [tab, timelineGroupId, loadTimeline])
-
-  async function loadMore(): Promise<void> {
-    if (!nextBefore) return
-    setLoadingMore(true)
-    try {
-      const res = await listHistory({ ...query, before: nextBefore })
-      setItems((current) => [...current, ...res.items])
-      setNextBefore(res.nextBefore)
-    } catch (err: unknown) {
-      setError(formatApiError(err))
-    } finally {
-      setLoadingMore(false)
-    }
-  }
 
   async function onExport(): Promise<void> {
     setExporting(true)
@@ -458,22 +453,34 @@ export function HistoryPage({
                   ))}
                 </div>
               )}
-              {nextBefore ? (
-                <button
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={() => void loadMore()}
-                  className="mt-4 self-center rounded-lg border border-hairline px-3 py-2 text-sm disabled:opacity-50"
-                >
-                  {loadingMore ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : vi ? (
-                    'Tải thêm'
-                  ) : (
-                    'Load more'
-                  )}
-                </button>
-              ) : null}
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                <QueuePaginationBar
+                  vi={vi}
+                  variant="plain"
+                  className="flex-1 border-t-0 px-0 py-0"
+                  rangeStart={(page - 1) * pageSize + 1}
+                  rangeEnd={(page - 1) * pageSize + items.length}
+                  total={total}
+                  page={page}
+                  totalPages={totalPages}
+                  onPrev={() => setPaging({ key: filterKey, page: Math.max(1, page - 1) })}
+                  onNext={() => setPaging({ key: filterKey, page: Math.min(totalPages, page + 1) })}
+                />
+                <label className="inline-flex items-center gap-2 text-xs text-ink-subtle">
+                  {vi ? 'Số dòng mỗi trang' : 'Rows per page'}
+                  <select
+                    value={pageSize}
+                    onChange={(event) => setPageSize(Number(event.target.value))}
+                    className="h-8 rounded-lg border border-hairline bg-surface px-2 text-sm text-ink"
+                  >
+                    {PAGE_SIZES.map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </>
           ) : (
             <>

@@ -3,7 +3,11 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { DEFAULT_FRAGILE_CUSHION_MM } from '../packaging/engine';
-import { DEFAULT_GUIDE_STYLE_PROMPT } from '../packaging/packing-guide-ai.service';
+import {
+  DEFAULT_GUIDE_STYLE_PROMPT,
+  GUIDE_PROMPT_CORE_HEAD,
+  GUIDE_PROMPT_CORE_TAIL,
+} from '../packaging/packing-guide-ai.service';
 import { PackingSettings, PackingSettingsDocument } from './schemas/packing-settings.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import type { UpdatePackingSettingsDto } from './dto/packing-session.dto';
@@ -29,6 +33,11 @@ export interface ActivePackingSettings {
   guideStylePrompt: string;
   /** true = đang dùng DEFAULT_GUIDE_STYLE_PROMPT (chưa ai sửa hoặc đã khôi phục). */
   guideStylePromptIsDefault: boolean;
+  /** Phần lõi cố định đứng trước / sau văn phong — chỉ để Admin xem trọn system prompt, không sửa được. */
+  guidePromptCoreHead: string;
+  guidePromptCoreTail: string;
+  /** Văn phong mặc định trong code — FE hiện khi Admin bấm khôi phục. */
+  guideStylePromptDefault: string;
   updatedBy: string | null;
   updatedAt: Date | null;
 }
@@ -50,6 +59,9 @@ export const DEFAULT_PACKING_SETTINGS: ActivePackingSettings = {
   estFeePerExtraStepVnd: 2500,
   guideStylePrompt: DEFAULT_GUIDE_STYLE_PROMPT,
   guideStylePromptIsDefault: true,
+  guidePromptCoreHead: GUIDE_PROMPT_CORE_HEAD,
+  guidePromptCoreTail: GUIDE_PROMPT_CORE_TAIL,
+  guideStylePromptDefault: DEFAULT_GUIDE_STYLE_PROMPT,
   updatedBy: null,
   updatedAt: null,
 };
@@ -97,6 +109,9 @@ export class PackingSettingsService {
       estFeePerExtraStepVnd: m.est_fee_per_extra_step_vnd ?? d.estFeePerExtraStepVnd,
       guideStylePrompt: stylePrompt ?? d.guideStylePrompt,
       guideStylePromptIsDefault: stylePrompt === null,
+      guidePromptCoreHead: d.guidePromptCoreHead,
+      guidePromptCoreTail: d.guidePromptCoreTail,
+      guideStylePromptDefault: d.guideStylePromptDefault,
       updatedBy: doc.updated_by?.toString() ?? null,
       updatedAt: doc.created_at ?? null,
     };

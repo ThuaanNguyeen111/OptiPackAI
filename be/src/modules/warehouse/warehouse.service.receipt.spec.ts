@@ -56,7 +56,7 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
   beforeEach(() => {
     notify = jest.fn().mockResolvedValue({});
     receiptOcr = new ReceiptOcrService(
-      { get: jest.fn() } as never,
+      { getProvider: jest.fn() } as never,
       { findById: jest.fn((id: Types.ObjectId) => ({ lean: () => Promise.resolve(String(id) === String(scanId) ? scan : null) })) } as never,
       { notify } as never,
     );

@@ -77,8 +77,8 @@ const navItems = [
   {
     to: '/app/packaging-rules',
     end: false,
-    labelVi: 'Quy tắc Bao bì',
-    labelEn: 'Packaging Rules',
+    labelVi: 'Cài đặt đóng gói & AI',
+    labelEn: 'Packing & AI settings',
     icon: Box,
     section: 'store' as NavSection,
   },

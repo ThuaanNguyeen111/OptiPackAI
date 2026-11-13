@@ -33,13 +33,10 @@ export function resolveNotificationPath(
   if (type === 'pending_approval' || type === 'abnormal_package') {
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.STORE_OWNER) return '/app/order-groups'
-    if (role === UserRole.ADMIN) return '/app/admin/packing-plans'
     return '/app/packing'
   }
   if (type === 'packaging_rejected') {
-    return role === UserRole.ADMIN
-      ? '/app/admin/packing-plans'
-      : '/app/packing'
+    return '/app/packing'
   }
   if (type === 'low_box_stock' || type === 'low_material_stock') {
     // BE: relatedEntityType = packaging_box | packaging_bag | packaging_material, relatedEntityId = mã vật liệu.
