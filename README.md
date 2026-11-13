@@ -276,8 +276,8 @@ npm install
 
 ```bash
 cp be/.env.example be/.env                  # điền MONGODB_URI, JWT, SMTP, Lazada... (xem bảng biến bên dưới)
-cp fe/.env.example fe/.env                  # VITE_API_URL=http://localhost:3000/api
-cp storefront/.env.example storefront/.env  # NEXT_PUBLIC_API_URL=http://localhost:3000/api (nếu chạy storefront)
+cp fe/.env.example fe/.env                  # VITE_API_URL=http://localhost:3000
+cp storefront/.env.example storefront/.env  # NEXT_PUBLIC_API_URL=http://localhost:3000 (nếu chạy storefront)
 ```
 
 **Bước 3. Bật Redis** — chọn 1 trong 2:
@@ -305,7 +305,7 @@ mongosh "<MONGODB_URI>" be/db/init-db.mongosh.js
 ```bash
 npm run dev            # chạy cùng lúc Backend + Frontend + Storefront
 # hoặc từng phần:
-npm run dev:be         # Backend  → http://localhost:3000/api (Swagger: /api/docs)
+npm run dev:be         # Backend  → http://localhost:3000 (Swagger: /api/docs)
 npm run dev:fe         # Frontend → http://localhost:5173
 npm run dev:storefront # Website bán hàng → http://localhost:3001
 ```
@@ -350,9 +350,9 @@ flutter run --dart-define=API_BASE_URL=http://<IP-LAN-máy-chạy-BE>:3000   # m
 
 | Dịch vụ | Địa chỉ |
 | ------- | ------- |
-| Backend API | `http://localhost:3000/api` |
+| Backend API | `http://localhost:3000` |
 | Swagger UI | `http://localhost:3000/api/docs` |
-| Kiểm tra sức khỏe | `http://localhost:3000/api/health` |
+| Kiểm tra sức khỏe | `http://localhost:3000/health` |
 | Frontend | `http://localhost:5173` |
 | Website AURELLE | `http://localhost:3001` |
 | Service CP-SAT | `http://localhost:8000/healthz` |

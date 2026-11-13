@@ -28,12 +28,12 @@ spec:
               mountPath: /etc/fcm
               readOnly: true
           readinessProbe:
-            httpGet: { path: /api, port: 3000 }
+            httpGet: { path: /, port: 3000 }
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
-            httpGet: { path: /api, port: 3000 }
+            httpGet: { path: /, port: 3000 }
             initialDelaySeconds: 40
             periodSeconds: 20
             failureThreshold: 3

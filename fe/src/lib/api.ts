@@ -6,7 +6,7 @@ import { SHIPMENT_ERROR_MESSAGES } from '../types/shipments'
 import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+  import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 /** JwtStrategy đọc Redis trước Mongo — Redis chậm/treo thì fetch không bao giờ settle. */
 const REQUEST_TIMEOUT_MS = 12_000

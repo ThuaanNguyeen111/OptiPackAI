@@ -4,7 +4,7 @@
 # BUILD CONTEXT = THƯ MỤC GỐC REPO (npm workspaces):
 #
 #   docker build -f storefront/Dockerfile -t optipackai-storefront:local \
-#     --build-arg NEXT_PUBLIC_API_URL=http://localhost:3000/api .
+#     --build-arg NEXT_PUBLIC_API_URL=http://localhost:3000 .
 #
 # NEXT_PUBLIC_* cũng được nhúng lúc build (giống VITE_*), đổi URL backend
 # phải build lại image.
@@ -19,7 +19,7 @@ COPY package.json package-lock.json ./
 COPY storefront/package.json ./storefront/package.json
 RUN npm ci --workspace storefront --include-workspace-root --ignore-scripts
 COPY storefront ./storefront
-ARG NEXT_PUBLIC_API_URL=http://localhost:3000/api
+ARG NEXT_PUBLIC_API_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build --workspace storefront

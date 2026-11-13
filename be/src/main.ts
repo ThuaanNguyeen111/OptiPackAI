@@ -42,10 +42,6 @@ async function bootstrap(): Promise<void> {
   // common/filters/global-exception.filter.ts
   app.useGlobalFilters(new GlobalExceptionFilter());
 
-  // Mọi route nằm dưới /api để chung domain với FE (optipack.io.vn/api/...).
-  // Swagger giữ đường riêng 'api/docs' (setup không cộng prefix).
-  app.setGlobalPrefix('api');
-
   const swaggerConfig = new DocumentBuilder()
     .setTitle('OptiPack AI API')
     .setDescription(
