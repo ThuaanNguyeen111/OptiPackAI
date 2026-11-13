@@ -49,6 +49,9 @@ export type HistoryCategoryOption = {
 
 export type HistoryListResult = {
   items: HistoryItem[]
+  page: number
+  limit: number
+  total: number
   nextBefore: string | null
   categories: HistoryCategoryOption[]
 }
@@ -58,6 +61,7 @@ export type HistoryQuery = {
   from?: string
   to?: string
   before?: string
+  page?: number
   limit?: number
   actor_id?: string
   mine?: boolean
@@ -85,6 +89,7 @@ function toQuery(params: HistoryQuery): string {
   if (params.from) qs.set('from', params.from)
   if (params.to) qs.set('to', params.to)
   if (params.before) qs.set('before', params.before)
+  if (params.page != null) qs.set('page', String(params.page))
   if (params.limit != null) qs.set('limit', String(params.limit))
   if (params.actor_id) qs.set('actor_id', params.actor_id)
   if (params.mine === true) qs.set('mine', 'true')
@@ -164,6 +169,9 @@ export async function listHistory(params: HistoryQuery = {}): Promise<HistoryLis
     : []
   return {
     items,
+    page: typeof res?.page === 'number' ? res.page : params.page ?? 1,
+    limit: typeof res?.limit === 'number' ? res.limit : params.limit ?? items.length,
+    total: typeof res?.total === 'number' ? res.total : items.length,
     nextBefore: pickString(res?.nextBefore, res?.next_before) || null,
     categories,
   }

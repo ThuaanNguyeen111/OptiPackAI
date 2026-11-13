@@ -776,15 +776,15 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
   | Nhân viên đóng gói | `orders, picking, packing, packaging_materials` |
   | Điều phối vận chuyển | `orders, shipping, returns` |
 
-  Query (đều tuỳ chọn): `category` (nhiều loại cách nhau dấu phẩy), `from`, `to` (ISO 8601; mặc định 30 ngày gần nhất), `before` (con trỏ trang sau), `limit` (1–100, mặc định 50), `actor_id`, `mine=true` (chỉ việc của tôi), `sku`, `order_group_id`, `order_code` (mã đơn sàn). Lọc loại không được phép → `403`.
-  Trả `{ items: HistoryItem[], nextBefore: string | null, categories: [{ code, label }] }`.
+  Query (đều tuỳ chọn): `category` (nhiều loại cách nhau dấu phẩy), `from`, `to` (ISO 8601; mặc định 30 ngày gần nhất), `page` (từ 1, mặc định 1), `limit` (số dòng/trang 1–100, mặc định 50), `before` (con trỏ cũ, vẫn chạy), `actor_id`, `mine=true` (chỉ việc của tôi), `sku`, `order_group_id`, `order_code` (mã đơn sàn). Lọc loại không được phép → `403`; `page × limit` > 5.000 → `400` (thu hẹp bộ lọc).
+  Trả `{ items: HistoryItem[], page, limit, total, nextBefore: string | null, categories: [{ code, label }] }` — `total` = tổng dòng khớp bộ lọc (13/11/2026).
 - `HistoryItem`: `{ id, occurredAt, category, categoryLabel, action, summary, actor: { id, name, role } | null, orderGroupId, entity: { type, id, code } | null, skus, quantity, fromStatus, toStatus, details }`. **`summary` là câu tiếng Việt hiển thị thẳng**, VD *"Bắt đầu giao SHP-1 qua GHN · Hàng nhẹ → Nguyễn Văn A (12 Lê Lợi, …) — mã GHN123"*, *"Niêm phong kiện 1: thùng BOX-S, 0.4 kg — đơn 720000001"*, *"Nhập lô LOT-… (phiếu PN-…): 30 sản phẩm, 2 mã"*. `details` là các field phụ (vận chuyển: `carrier, service, trackingCode, recipientName, recipientPhone, recipientAddress, costVnd, attempt, reason`; kho: `bin, quantityBefore, quantityAfter, reason, note`; phiếu nhập: `lotCode, receivedAt, supplier, lines`…).
 - `GET /history/categories` — mảng loại vai trò hiện tại được xem.
 - `GET /history/order-groups/:id/timeline` — dòng thời gian **cũ → mới** của 1 nhóm đơn: đơn về → đổi trạng thái → từng lần lấy hàng (ô, số lượng, ai lấy) → tính/duyệt/phân công/bắt đầu/niêm phong từng kiện/xong → vận chuyển (hãng, mã, người nhận, giao thất bại/lại/hoàn) → trả hàng (từng bước) → nhập lại kệ. Mọi vai trò. `{ orderGroupId, items }`.
 - `GET /history/export` — CSV mở bằng Excel, cùng bộ lọc, tối đa 5.000 dòng (Admin, Store Owner).
 
 **Bước 1 — API** (tạo `fe/src/api/history.api.ts`):
-1. Kiểu `HistoryItem`, `HistoryPage = { items, nextBefore, categories }`.
+1. Kiểu `HistoryItem`, `HistoryListResult = { items, page, limit, total, nextBefore, categories }`.
 2. `listHistory(params)` → `GET /history?…` (dựng query bằng `URLSearchParams`, bỏ field rỗng).
 3. `getGroupTimeline(groupId)` → `GET /history/order-groups/${groupId}/timeline`.
 4. `downloadHistoryCsv(params)` → dùng `apiRequestBlob` (đã có trong `fe/src/lib/api.ts`) gọi `GET /history/export?…`, tạo link tải file `lich-su-thao-tac.csv`.
@@ -799,7 +799,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
    - Công tắc **"Chỉ việc của tôi"** (`mine=true`).
    - Admin/Store Owner: ô chọn **nhân viên** (`actor_id`, lấy danh sách từ `GET /users`) + nút **"Xuất Excel"**.
 4. Danh sách: nhóm theo **ngày** (tiêu đề "Thứ Năm, 23/10/2026"). Mỗi dòng: giờ `HH:mm` · chip loại (màu riêng mỗi loại) · **`summary`** · tên + vai trò người làm (`actor.name`, `actor.role`; null → "—"). Bấm dòng → mở khung chi tiết hiện `details` dạng bảng 2 cột (ẩn giá trị null) + nút **"Xem cả đơn"** nếu có `orderGroupId` (mở tab Dòng thời gian bên dưới).
-5. Cuối danh sách: nút **"Tải thêm"** khi `nextBefore` khác null → gọi lại với `before = nextBefore`, nối vào danh sách.
+5. Cuối danh sách (13/11/2026): thanh phân trang `QueuePaginationBar` (Trước/Sau, "Trang x/y", "Hiển thị a–b / total dòng") + ô **Số dòng mỗi trang** 20/50/100 (mặc định 20). Đổi bộ lọc hoặc số dòng/trang → về trang 1.
 6. Trống: "Chưa có thao tác nào trong khoảng thời gian này."
 
 **Bước 3 — tab "Dòng thời gian" ở chi tiết nhóm đơn** (`fe/src/pages/OrderGroupsPage.tsx`, khung chi tiết nhóm; và `fe/src/pages/order-groups/GroupOpsPanel.tsx` nếu màn đóng gói/kho mở chi tiết ở đó):

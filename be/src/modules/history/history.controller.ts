@@ -7,7 +7,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { HistoryQueryDto } from './dto/history-query.dto';
-import { HistoryService } from './history.service';
+import { HistoryService, type HistoryListResult } from './history.service';
 import { Features } from '../role-permissions/feature-scope';
 
 const ALL_ROLES = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR];
@@ -28,8 +28,8 @@ export class HistoryController {
 
   @Get()
   @Roles(...ALL_ROLES)
-  @ApiOperation({ summary: 'Lịch sử thao tác (mới → cũ), lọc theo loại/ngày/người/SKU/đơn; phân trang bằng `before` = `nextBefore` của trang trước. 403 khi lọc loại vai trò không được xem.' })
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: HistoryQueryDto) {
+  @ApiOperation({ summary: 'Lịch sử thao tác (mới → cũ), lọc theo loại/ngày/người/SKU/đơn; phân trang `page` + `limit`, trả `page`, `limit`, `total` (con trỏ cũ `before`/`nextBefore` vẫn dùng được). 400 khi page × limit > 5.000; 403 khi lọc loại vai trò không được xem.' })
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: HistoryQueryDto): Promise<HistoryListResult> {
     return this.history.list(user, query);
   }
 

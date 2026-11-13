@@ -56,3 +56,5 @@ export const StockReceiptSchema = SchemaFactory.createForClass(StockReceipt);
 StockReceiptSchema.index({ warehouse_id: 1, received_at: -1 });
 // 11/11/2026 — GET .../receipts?ocr_status=mismatch (danh sách phiếu lệch).
 StockReceiptSchema.index({ warehouse_id: 1, ocr_status: 1, received_at: -1 });
+// 13/11/2026 — GET /history: cửa sổ created_at mọi kho, sắp mới → cũ + đếm tổng.
+StockReceiptSchema.index({ created_at: -1 });
