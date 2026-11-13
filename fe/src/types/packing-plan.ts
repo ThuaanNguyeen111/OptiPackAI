@@ -281,7 +281,14 @@ export type PackingSettings = {
   splitMinSavingVnd: number
   estFeeFirstStepVnd: number
   estFeePerExtraStepVnd: number
+  /** (09/11/2026) Văn phong AI viết hướng dẫn đóng gói. BE cũ không trả → undefined. */
+  guideStylePrompt?: string
+  /** true = đang dùng văn phong mặc định của hệ thống. */
+  guideStylePromptIsDefault?: boolean
 }
+
+/** Khớp GUIDE_STYLE_PROMPT_MAX_LENGTH của BE. */
+export const GUIDE_STYLE_PROMPT_MAX_LENGTH = 4000
 
 export type PackingReport = {
   from: string

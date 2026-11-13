@@ -665,9 +665,10 @@ export function PackagingWorkbench() {
       return () => window.clearTimeout(clear)
     }
     let cancelled = false
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setRemoteSearching(true)
-      void listOrderGroups({ q: query })
+      void listOrderGroups({ q: query }, { signal: controller.signal })
         .then((rows) => {
           if (!cancelled) setRemoteGroups(rows)
         })
@@ -680,6 +681,7 @@ export function PackagingWorkbench() {
     }, 400)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
   }, [queueQuery, localVisibleGroups.length])

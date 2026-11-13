@@ -1,6 +1,7 @@
+import { useAbortPrevious } from './useAbortPrevious'
 import { useCallback, useState } from 'react'
 import { getOrderById, listOrders, syncLazadaOrders } from '../api/orders.api'
-import { formatApiError, getApiErrorCode } from '../lib/api'
+import { formatApiError, getApiErrorCode, isRequestCanceled } from '../lib/api'
 import type {
   ListOrdersParams,
   MarketplaceOrderDetail,
@@ -25,24 +26,28 @@ export function useMarketplaceOrders() {
     setErrorCode(getApiErrorCode(err))
   }, [])
 
+  const nextSignal = useAbortPrevious()
+
   const load = useCallback(async (params: ListOrdersParams = {}) => {
+    const signal = nextSignal()
     setLoading(true)
     setError(null)
     setErrorCode(null)
     try {
-      const res = await listOrders({ ...params, limit: params.limit ?? PAGE_LIMIT })
+      const res = await listOrders({ ...params, limit: params.limit ?? PAGE_LIMIT }, { signal })
       setOrders(res.orders)
       setNextCursor(res.nextCursor)
       return res
     } catch (err: unknown) {
+      if (isRequestCanceled(err)) return null
       captureError(err)
       setOrders([])
       setNextCursor(null)
       return null
     } finally {
-      setLoading(false)
+      if (!signal.aborted) setLoading(false)
     }
-  }, [captureError])
+  }, [captureError, nextSignal])
 
   const loadMore = useCallback(
     async (params: Omit<ListOrdersParams, 'before'> = {}) => {

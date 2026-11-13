@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:image_picker/image_picker.dart';
+
 import '../../app/mock_providers.dart';
+import '../../core/network/api_exception.dart';
+import '../proof/proof_photo_field.dart';
+import '../proof/proof_photo_repository.dart';
 import '../../core/format/deadline.dart';
 import '../../core/format/units.dart';
 import '../../shared/widgets.dart';
@@ -44,7 +49,7 @@ class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
             onRefresh: () async => ref.invalidate(packingQueueProvider(_stage)),
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(packingQueueProvider(_stage))),
               data: (items) => items.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
@@ -200,6 +205,10 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
     } on PackingException catch (e) {
       if (mounted) showToast(context, e.message, error: true);
       return false;
+    } on ApiException catch (e) {
+      // Lỗi tải ảnh lỗi kiện.
+      if (mounted) showToast(context, e.message, error: true);
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -258,15 +267,22 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
   }
 
   Future<void> _reportIssue(Parcel parcel) async {
-    final result = await showModalBottomSheet<({String sku, PackIssue issue})>(
+    final result = await showModalBottomSheet<({String sku, PackIssue issue, List<XFile> photos})>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => _IssueSheet(parcel: parcel),
     );
     if (result == null || !mounted) return;
-    await _run(() => ref.read(packingRepositoryProvider).reportIssue(widget.groupId, parcel.no, result.sku, result.issue));
-    if (mounted) showToast(context, 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.');
+    final photos = ref.read(proofPhotoRepositoryProvider);
+    final ok = await _run(() async => ref.read(packingRepositoryProvider).reportIssue(
+          widget.groupId,
+          parcel.no,
+          result.sku,
+          result.issue,
+          photoUrls: await photos.upload(result.photos),
+        ));
+    if (ok && mounted) showToast(context, 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.');
   }
 
   @override
@@ -282,7 +298,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             child: async.when(
               skipLoadingOnRefresh: true,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(packingGroupProvider(widget.groupId))),
               data: (g) => g.stage == PackingStage.pendingApproval ? _planView(g) : _sessionView(g),
             ),
           ),
@@ -482,8 +498,6 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             icon: const Icon(Icons.report_gmailerrorred_outlined),
             label: const Text('Báo lỗi kiện (hỏng / thiếu / nhầm)'),
           ),
-          const SizedBox(height: 10),
-          const WaitingBackendButton(label: 'Chụp ảnh lỗi'),
         ],
       ],
     );
@@ -556,6 +570,7 @@ class _IssueSheet extends StatefulWidget {
 class _IssueSheetState extends State<_IssueSheet> {
   String? _sku;
   PackIssue _issue = PackIssue.damaged;
+  List<XFile> _photos = const [];
 
   @override
   Widget build(BuildContext context) {
@@ -582,9 +597,15 @@ class _IssueSheetState extends State<_IssueSheet> {
               selected: {_issue},
               onSelectionChanged: (s) => setState(() => _issue = s.first),
             ),
+            const SizedBox(height: 12),
+            ProofPhotoField(
+              label: 'Ảnh lỗi',
+              photos: _photos,
+              onChanged: (p) => setState(() => _photos = p),
+            ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue)),
+              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue, photos: _photos)),
               child: const Text('Gửi báo cáo'),
             ),
           ],

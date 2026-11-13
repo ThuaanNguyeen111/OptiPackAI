@@ -89,6 +89,13 @@ export function resolveNotificationPath(
     if (role === UserRole.SHIPPING_COORDINATOR) return '/app/shipping'
     return '/app/order-groups'
   }
+  // 10/11/2026 (BE) — nhân viên kho vừa được giao một nhóm đơn: mở thẳng màn lấy hàng của nhóm đó.
+  if (type === 'picking_assigned') {
+    if (role === UserRole.WAREHOUSE_STAFF || role === UserRole.ADMIN) {
+      return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'
+    }
+    return '/app/order-groups'
+  }
   if (type === 'missing_item') {
     if (role === UserRole.WAREHOUSE_STAFF) {
       return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'

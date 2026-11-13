@@ -252,6 +252,8 @@ export function reportPackingIssue(
     resolution: 'replace' | 'back_to_picking'
     warehouseId?: string
     note?: string
+    /** (13/11/2026) Ảnh món lỗi từ POST /proof-photos, không bắt buộc. */
+    photoUrls?: string[]
   },
 ): Promise<PackingPlan> {
   return readPlan(groupId, '/report-issue', {
@@ -262,6 +264,7 @@ export function reportPackingIssue(
     resolution: input.resolution,
     ...(input.warehouseId ? { warehouse_id: input.warehouseId } : {}),
     ...(input.note ? { note: input.note } : {}),
+    ...(input.photoUrls && input.photoUrls.length > 0 ? { photo_urls: input.photoUrls } : {}),
   })
 }
 

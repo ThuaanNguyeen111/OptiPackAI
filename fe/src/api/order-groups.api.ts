@@ -279,6 +279,8 @@ function extractPackableItems(raw: unknown): PackableItem[] {
 
 export async function listOrderGroups(
   params: ListOrderGroupsParams = {},
+  /** (13/11/2026) Huỷ khi đổi bộ lọc. */
+  opts: { signal?: AbortSignal } = {},
 ): Promise<OrderGroup[]> {
   const query = toQuery({
     fulfillment_status: params.fulfillment_status,
@@ -302,6 +304,7 @@ export async function listOrderGroups(
   })
   const res = await apiRequest<unknown>(`/order-groups${query}`, {
     auth: true,
+    signal: opts.signal,
   })
   if (!Array.isArray(res)) return []
   return res
