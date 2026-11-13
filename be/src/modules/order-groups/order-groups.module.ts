@@ -47,6 +47,7 @@ import {
 } from '../marketplace-writeback/schemas/status-outbox.schema';
 import { ActivityLog, ActivityLogSchema } from '../activity-log/schemas/activity-log.schema';
 import { OrderGroupsService } from './order-groups.service';
+import { OrderGroupRegroupService } from './order-group-regroup.service';
 import { OrderGroupBackfillScheduler } from './order-group-backfill.scheduler';
 import { OrderGroupsController } from './order-groups.controller';
 import { StaffAssignmentService } from './staff-assignment.service';
@@ -84,6 +85,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
   ],
   providers: [
     OrderGroupsService,
+    OrderGroupRegroupService,
     OrderGroupBackfillScheduler,
     StaffAssignmentService,
     ExpressOrderSlaScheduler,
