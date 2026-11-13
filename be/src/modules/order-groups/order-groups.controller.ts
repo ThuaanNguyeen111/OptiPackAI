@@ -13,6 +13,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService, GroupOrderCounts, type GroupOrderView } from './order-groups.service';
 import { OrderGroupRegroupService } from './order-group-regroup.service';
+import { OrderGroupPickingService } from './order-group-picking.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
 import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
 import { PickItemDto } from './dto/pick-item.dto';
@@ -254,6 +255,7 @@ export class OrderGroupsController {
   constructor(
     private readonly orderGroupsService: OrderGroupsService,
     private readonly regroupService: OrderGroupRegroupService,
+    private readonly pickingService: OrderGroupPickingService,
   ) {}
 
   @Get()
@@ -424,7 +426,7 @@ export class OrderGroupsController {
     @Param('id') id: string,
     @Param('sku') sku: string,
   ): Promise<PickableItem> {
-    return this.orderGroupsService.getPickableItemDetail(id, sku);
+    return this.pickingService.getPickableItemDetail(id, sku);
   }
 
   @Post(':id/fulfillment/pick-item')
@@ -439,7 +441,7 @@ export class OrderGroupsController {
     @Body() body: PickItemDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
-    return this.orderGroupsService.pickItem(
+    return this.pickingService.pickItem(
       id,
       body.warehouse_id,
       body.sku,
@@ -462,7 +464,7 @@ export class OrderGroupsController {
     @Body() body: ReportMissingDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.reportMissing(
+    const group = await this.pickingService.reportMissing(
       id,
       user.userId,
       body.sku,
@@ -484,7 +486,7 @@ export class OrderGroupsController {
     @Body() body: DecidePartialDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.decidePartial(
+    const group = await this.pickingService.decidePartial(
       id,
       body.approve,
       body.expected_version,
@@ -517,7 +519,7 @@ export class OrderGroupsController {
     @Param('id') id: string,
     @Body() body: TransitionOrderGroupDto,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.confirmPicked(id, body.expected_version);
+    const group = await this.pickingService.confirmPicked(id, body.expected_version);
     return buildOrderGroupResponse(this.orderGroupsService, group);
   }
 

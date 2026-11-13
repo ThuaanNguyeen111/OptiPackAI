@@ -16,7 +16,7 @@ const ALLOWED: Record<string, string> = {
   'modules/order-groups/order-groups.service.ts:transitionFulfillmentStatus': 'chính là cổng chuyển trạng thái',
   'modules/order-groups/order-group-regroup.service.ts:mergeGroups':
     'nhóm nguồn bị gộp → canceled cùng merged_into_group_id trong 1 transaction; assertRegroupable chỉ cho chờ/đang lấy, cả hai đều được sang canceled',
-  'modules/order-groups/order-groups.service.ts:decidePartial':
+  'modules/order-groups/order-group-picking.service.ts:decidePartial':
     'thiếu hàng, chọn lấy lại: sang picking cùng pick_round + 1 trong 1 transaction; đã kiểm isValidStatusTransition ngay trước',
 };
 
