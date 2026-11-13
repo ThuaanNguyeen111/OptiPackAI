@@ -83,7 +83,7 @@ import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
- * Admin chốt kế hoạch ở `/app/admin/packing-plans` (không dùng trang này).
+ * Admin dùng chung trang này; không có bước Admin chốt riêng (BE tự tính và giao người).
  * Khung 3D dựng từ kế hoạch thật (placements + itemProfiles); chỉ xem, không ghi trạng thái lên BE.
  */
 

@@ -8,7 +8,6 @@ const STAGE_PATHS: { stage: FulfillmentStage; paths: string[] }[] = [
       '/app/packing',
       '/app/packaging-rules',
       '/app/packaging-materials',
-      '/app/admin/packing-plans',
       '/app/admin/packaging-materials',
     ],
   },

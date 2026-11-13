@@ -953,7 +953,7 @@ Admin chọn nhà cung cấp AI, nhập API key và chọn model ở trang **Cà
 | POST | `/ai-settings/test` | Admin | Body `{ provider?, base_url?, model?, api_key? }` — giá trị đang nhập, chưa lưu; `api_key` trống = dùng key đã lưu/.env. Gọi `GET {baseUrl}/models`. Trả 200 `{ result: { ok, latencyMs, models[], modelFound, error } }` kể cả khi thất bại (`ok: false`, `error` tiếng Việt). Không có key nào → 400 `AI_KEY_MISSING` |
 | POST | `/ai-settings/reveal-key` | Admin | Body `{ password }` — mật khẩu tài khoản đang đăng nhập. Trả 200 `{ key: { apiKey, source: 'db'\|'env' } }` (key thật, lấy từ web hoặc `.env`). Sai mật khẩu → 400 `AI_REVEAL_PASSWORD_INVALID` (400 chứ không 401 để FE không tự đăng xuất); tài khoản Google chưa đặt mật khẩu → 400 `AI_REVEAL_PASSWORD_NOT_SET`; không có key → 404 `AI_KEY_MISSING`; quá 5 lần/phút → 429. Mọi lần thử ghi Lịch sử thao tác (`ai_settings.key_revealed` / `ai_settings.key_reveal_failed`, chỉ lưu 4 ký tự cuối). FE hiện key 60 giây rồi tự ẩn |
 
-Cache cấu hình 30 giây mỗi pod. `GET /packing/settings` không đổi; `PackingSettingsForm` đã gỡ khỏi trang Báo cáo và Chốt kế hoạch đóng gói — chỉnh quy tắc ở `/app/packaging-rules`.
+Cache cấu hình 30 giây mỗi pod. `GET /packing/settings` không đổi; `PackingSettingsForm` đã gỡ khỏi trang Báo cáo — chỉnh quy tắc ở `/app/packaging-rules`. 13/11: gỡ trang Admin "Chốt kế hoạch đóng gói" (`/app/admin/packing-plans` chuyển sang `/app/packing`) vì BE tự tính và tự giao người đóng, không có bước Admin chốt (xem `INTEGRATION_GUIDE_PACKING.md`).
 
 ## 34. 🆕 12/11/2026 — Phân quyền trang cấu hình được (`/role-permissions`)
 
