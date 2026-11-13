@@ -973,10 +973,10 @@ function MovementTable({
     return <p className="text-sm text-ink-muted">{tx(vi, 'Chưa có dòng sổ.', 'No movements.')}</p>
   }
   return (
-    <table className="w-full text-left text-xs">
+    <table className="w-full text-left text-xs tabular-nums [&_td]:pr-3 [&_td]:align-top [&_td:last-child]:pr-0 [&_th]:pr-3 [&_th]:font-medium [&_th:last-child]:pr-0">
       <thead className="text-ink-muted">
         <tr>
-          <th className="py-1">{tx(vi, 'Thời điểm', 'When')}</th>
+          <th className="py-1 whitespace-nowrap">{tx(vi, 'Thời điểm', 'When')}</th>
           <th className="py-1">{tx(vi, 'Loại', 'Type')}</th>
           <th className="py-1">{tx(vi, 'Lượng', 'Qty')}</th>
           {g4 ? <th className="py-1">{tx(vi, 'Tiết kiệm', 'Saved')}</th> : null}
@@ -990,7 +990,7 @@ function MovementTable({
           const reason = isG4 ? row.type : row.reason
           return (
             <tr key={`${row.createdAt ?? 'row'}-${index}`} className="border-t border-hairline">
-              <td className="py-1">{row.createdAt ? formatDateTime(row.createdAt) : '—'}</td>
+              <td className="py-1 whitespace-nowrap">{row.createdAt ? formatDateTime(row.createdAt) : '—'}</td>
               <td className="py-1">
                 {movementLabel(reason, vi)}
                 {isG4 ? ` · ${movementLabel(row.condition, vi)}` : ''}

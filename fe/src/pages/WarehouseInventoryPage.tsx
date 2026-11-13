@@ -655,6 +655,18 @@ function ActionPanel({
         }
         receipt = await createStockReceipt(warehouseId, { ...base, force: true })
       }
+      // Xoá form ngay để bấm Lưu lần nữa không lập trùng phiếu (phiếu không có idempotency key).
+      setEvidence(EMPTY_RECEIPT_EVIDENCE)
+      setReceiptQty(1)
+      setSupplier('')
+      setNote('')
+      setLotCode('')
+      setReceivedAt('')
+      listAssignmentLots(warehouseId, row.id)
+        .then(setLots)
+        .catch(() => {
+          // Danh sách lô tải lại khi mở lại tab.
+        })
       await openWarehouseDocument(stockReceiptDocumentPath(warehouseId, receipt.id)).catch(() => {
         // Phiếu đã lưu. In lại được ở tab Phiếu nhập.
       })
