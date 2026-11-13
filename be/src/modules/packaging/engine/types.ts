@@ -75,6 +75,11 @@ export interface BoxSpec {
    * đây là chiều cao gốc trong danh mục. Thiếu = không cắt. Xem `cutBoxToLoad`.
    */
   cut_from?: { inner_height_mm: number; outer_height_mm: number };
+  /**
+   * ADR 0002 (13/11/2026) — sàn chiều cao lòng khi cắt hạ = lòng thùng thấp nhất của
+   * danh mục lúc nạp (`PackagingBoxService`). Thiếu = không có sàn (test/dữ liệu cũ).
+   */
+  min_cut_height_mm?: number;
 }
 
 /**

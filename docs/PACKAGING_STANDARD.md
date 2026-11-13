@@ -111,22 +111,43 @@ Bốn cỡ trên là cỡ **có sẵn** trên thị trường VN (nhà sản xu�
 Quy tắc xếp trong cùng một thùng:
 
 - **Hàng mềm luôn nằm trên hàng cứng**, không bao giờ đặt dưới hộp giày/túi xách.
-- Món có `max_stack_load_kg = null` (vd. túi xách form cứng) không bị đặt gì lên trên — luật có sẵn.
+- Món có `max_stack_load_kg = null` (vd. túi xách form cứng) không bị đặt gì lên trên — luật có sẵn. Riêng quần áo (loại nằm phẳng) để trống thì coi như chịu được 5 kg (`SOFT_DEFAULT_STACK_LOAD_G`, 13/11/2026).
+- Mục tiêu lấp đầy 80% (`FILL_TARGET`, 13/11/2026) chỉ dùng để **cảnh báo**, không phải ràng buộc. Kiện lấp đầy dưới 80% được ghi thêm một câu vào `explanation` nêu lý do: kho chưa có túi niêm phong cho hàng mềm, hoặc nêu cỡ khối bao của chồng hàng để gợi ý nhập thùng sát hơn. Lý do có thể là kho chưa có túi niêm phong cho hàng mềm, hoặc là cỡ khối bao của chồng hàng (gợi ý nhập thùng sát hơn). Túi niêm phong không bị xét.
+- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 10 cm). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
+- Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập đôi thêm đúng 1 lần nếu bật `can_fold_in_half`. Số đo hồ sơ là của gói sau khi đã gập túi.
 - Quần áo luôn nằm phẳng — luật có sẵn (`FLAT_CATEGORIES`).
 
-### 5.2. Khuôn gấp chuẩn (giả định — kho đo kiểm)
+### 5.2. Độ dày quần áo tính từ GSM (13/11/2026, user chốt)
 
-Kích thước **sau khi gấp và cho vào túi zip** (D × R × dày, cm). Đây là giá trị mặc định khi tạo hồ sơ SKU; kho ghi đè bằng số đo thật (`package_*_cm`) và khi đó số đo thật được dùng.
+Bảng khuôn gấp cũ (áo thun dày 2–3,5 cm) đã **bỏ**. Bảng đó chỉ là giả định và dày gấp nhiều lần thực tế: một áo thun gập trong túi zip dày dưới 1 cm. Kho vẫn đo **dài × rộng** sau khi gấp và cho vào túi. **Độ dày** tính theo trọng lượng vải:
 
-| Loại | S | M | L | XL | Cách gấp |
+```
+dày (cm) = max(0,3 ; làm tròn lên 0,1 cm của  số lớp × GSM ÷ mật độ vải ÷ 10 000)
+```
+
+- **GSM** (g/m²) là trọng lượng của **1 lớp** vải, lưu theo SKU ở trường `fabric_gsm` (không bắt buộc). SKU bỏ trống thì dùng GSM mặc định theo loại.
+- GSM ÷ mật độ vải (g/cm³) ÷ 10 000 = độ dày 1 lớp vải (cm).
+- **Số lớp** là số lớp vải chồng lên nhau sau khi gấp theo cách gấp chuẩn của loại đó.
+- **Sàn 0,3 cm**: chừa phần cổ áo, cúc áo và vỏ túi zip.
+- **Không xét size.** Size lớn hay nhỏ không đổi số lớp; chênh lệch thật được bù bằng `fabric_gsm` của SKU hoặc số đo tay.
+
+| Loại | GSM mặc định | Mật độ vải (g/cm³) | Số lớp | Dày mặc định | Cách gấp (ra số lớp) |
 |---|---|---|---|---|---|
-| Áo thun | 22×28×2 | 24×30×2.5 | 25×32×3 | 27×33×3.5 | Bảng gấp: gập 2 tay ra sau, gập 2 bên vào giữa, gập đôi thân |
-| Sơ mi | 24×30×3 | 25×32×3 | 26×33×3.5 | 27×34×4 | Cài cúc, đặt bìa cứng sau lưng, gập 2 bên + tay, gập thân 1 lần |
-| Quần short | 20×25×2 | 22×26×2.5 | 23×28×3 | 24×29×3 | Gập đôi theo chiều dọc, gập đôi chiều dài |
-| Quần dài | 25×32×3 | 27×34×3.5 | 28×36×4 | 30×37×4.5 | Gập đôi dọc, gập 3 chiều dài |
-| Đầm ngắn | 24×30×2.5 | 25×32×3 | 26×33×3.5 | 27×34×4 | Lót pelure, gập 2 bên vào, gập đôi thân |
-| Đầm dài | 25×35×3 | 26×36×3.5 | 27×37×4 | 28×38×4.5 | Lót pelure, gập 2 bên vào, gập 3 thân |
-| Áo khoác | 28×34×5 | 30×35×6 | 32×38×7 | 33×40×8 | Kéo khoá, gập tay chéo, gập 2 bên, gập đôi |
+| `t_shirt` áo thun | 180 | 0,30 (thun dệt kim) | 8 | 0,5 cm | 2 lớp thân, gập 2 bên vào (4), gập đôi thân (8) |
+| `shirt` sơ mi | 120 | 0,50 (dệt thoi) | 8 | 0,3 cm (sàn) | Cài cúc, gập 2 bên + tay (4), gập thân 1 lần (8) |
+| `shorts` quần short | 200 | 0,40 | 8 | 0,4 cm | 2 ống chồng (4), gập đôi dọc, gập đôi chiều dài (8) |
+| `trousers` quần dài/jean | 350 | 0,55 (denim) | 12 | 0,8 cm | 2 ống chồng (4), gập 3 chiều dài (12) |
+| `dress` váy/đầm | 150 | 0,40 | 8 | 0,3 cm | Gập 2 bên vào (4), gập đôi thân (8) |
+| `jacket` áo khoác | 300 | 0,25 (có lớp đệm) | 8 | 1,0 cm | Kéo khoá, gập 2 bên + tay (4), gập đôi (8) |
+
+Mật độ vải và số lớp là **giả định**, kho hiệu chỉnh sau khi đo thực tế (code: `GARMENT_FABRIC` trong `be/src/modules/product-master/garment-thickness.ts`).
+
+**Khi kho xác nhận hồ sơ quần áo** (`PUT /product-master/:id/packaging-profile`):
+- `height_cm` **bỏ trống**: BE tính độ dày theo công thức trên và ghi vào `dimension.package_height_cm`. Engine đóng gói không đổi. Sửa GSM xong phải xác nhận lại hồ sơ thì độ dày mới được tính lại.
+- `height_cm` **có nhập** mà lệch quá 50% so với số tính từ GSM (dày hơn hay mỏng hơn đều tính): vẫn lưu số đo tay, response trả thêm `warnings[]` để FE hiện. Không chặn, không lưu cờ vào DB.
+- Hàng không phải quần áo vẫn **bắt buộc** nhập `height_cm`. Không có GSM.
+
+Hồ sơ cũ đo dày bất thường được sửa bằng `be/scripts/migrate-garment-thickness.ts`. Mặc định chỉ chạy thử, `--apply` mới ghi, có file backup.
 
 Túi zip theo khuôn: chọn túi nhỏ nhất vừa gói bằng `suggestBag` có sẵn (lỗi `PM_ZIP_BAG_TOO_SMALL` gợi ý túi khác).
 

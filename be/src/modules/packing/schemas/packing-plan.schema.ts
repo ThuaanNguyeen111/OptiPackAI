@@ -71,6 +71,8 @@ export class PlanBox {
   /** (08/11/2026) Thùng cắt hạ: chiều cao lòng/ngoài GỐC; inner_mm/outer_mm là số sau cắt. null = không cắt. */
   @Prop({ type: Number, default: null }) cut_from_inner_height_mm?: number | null;
   @Prop({ type: Number, default: null }) cut_from_outer_height_mm?: number | null;
+  /** ADR 0002 (13/11/2026) — sàn cắt hạ lúc tính; giữ để chỉnh tay/xếp lại không cắt thấp hơn. null = kế hoạch cũ. */
+  @Prop({ type: Number, default: null }) min_cut_height_mm?: number | null;
 }
 export const PlanBoxSchema = SchemaFactory.createForClass(PlanBox);
 

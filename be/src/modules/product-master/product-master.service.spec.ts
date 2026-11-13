@@ -26,7 +26,14 @@ describe('ProductMasterService', () => {
   let activeBags: Record<string, unknown>[];
 
   function makeDto(
-    zip: { zip_bag_code?: string; zip_bag_folded?: boolean; can_fold_in_half?: boolean; product_category?: ProductCategory } = {},
+    zip: {
+      zip_bag_code?: string;
+      zip_bag_folded?: boolean;
+      can_fold_in_half?: boolean;
+      product_category?: ProductCategory;
+      height_cm?: number;
+      fabric_gsm?: number;
+    } = {},
   ): ConfirmPackagingProfileDto {
     return {
       length_cm: 28,
@@ -95,6 +102,42 @@ describe('ProductMasterService', () => {
       package_weight_kg: 0.25,
     });
     expect(String(update.$set.profile_confirmed_by)).toBe(userId);
+  });
+
+  it('quần áo bỏ trống độ dày → BE tính từ GSM của SKU và lưu cả fabric_gsm', async () => {
+    productMasterModel.findByIdAndUpdate.mockResolvedValue({ seller_sku: 'AO-M', shop_id: 's1' });
+    await service.confirmPackagingProfile(new Types.ObjectId().toString(), new Types.ObjectId().toString(), makeDto({ height_cm: undefined, fabric_gsm: 240 }));
+    const [, update] = productMasterModel.findByIdAndUpdate.mock.calls[0] as [string, { $set: Record<string, unknown> }];
+    // 8 lớp × 240 gsm ÷ 0,3 g/cm³ = 0,64 → 0,7 cm (PACKAGING_STANDARD §5.2).
+    expect(update.$set.dimension).toMatchObject({ package_height_cm: 0.7 });
+    expect(update.$set.fabric_gsm).toBe(240);
+  });
+
+  it('cảnh báo độ dày chỉ khi kho tự nhập: null coi như bỏ trống, 5 cm cho áo thun thì cảnh báo', async () => {
+    productMasterModel.findByIdAndUpdate.mockResolvedValue({ seller_sku: 'AO-M', shop_id: 's1' });
+    const blank = await service.confirmPackagingProfile(
+      new Types.ObjectId().toString(),
+      new Types.ObjectId().toString(),
+      makeDto({ height_cm: null as unknown as undefined }),
+    );
+    expect(blank.warnings).toEqual([]);
+    const [, update] = productMasterModel.findByIdAndUpdate.mock.calls[0] as [string, { $set: Record<string, unknown> }];
+    expect(update.$set.dimension).toMatchObject({ package_height_cm: 0.5 });
+
+    const thick = await service.confirmPackagingProfile(
+      new Types.ObjectId().toString(),
+      new Types.ObjectId().toString(),
+      makeDto({ height_cm: 5 }),
+    );
+    expect(thick.warnings).toEqual([expect.stringContaining('Độ dày đo 5 cm lệch quá 50%')]);
+  });
+
+  it('hàng không phải quần áo bỏ trống độ dày → 422, không ghi', async () => {
+    const withoutHeight = makeDto({ product_category: ProductCategory.SHOES, height_cm: undefined });
+    await expect(
+      service.confirmPackagingProfile(new Types.ObjectId().toString(), new Types.ObjectId().toString(), withoutHeight),
+    ).rejects.toMatchObject({ errorCode: PRODUCT_MASTER_ERROR_CODES.HEIGHT_REQUIRED });
+    expect(productMasterModel.findByIdAndUpdate.mock.calls).toHaveLength(0);
   });
 
   it('lưu loại sản phẩm; không có túi zip thì không gập đôi và không kiểm tra danh mục túi', async () => {

@@ -95,6 +95,13 @@ export function foldUnit(unit: PackingUnit): PackingUnit {
  */
 export const DEFAULT_FRAGILE_CUSHION_MM = 5;
 
+/**
+ * (13/11/2026, user chốt) Quần áo để trống sức chịu đè vẫn chồng được — vải gập
+ * không bẹp như hộp giày. Số hữu hạn (không phải Infinity) vì bài CP-SAT gửi JSON.
+ * Hàng khác để trống vẫn = không chịu đè.
+ */
+export const SOFT_DEFAULT_STACK_LOAD_G = 5000;
+
 export interface ExpandOptions {
   /** Đệm quanh món dễ vỡ (mm mỗi mặt); bỏ qua = 0 (số đo thật, dùng cho test hình học thuần). */
   fragileCushionMm?: number;
@@ -119,7 +126,9 @@ export function expandToUnits(
         : ALL_ORIENTATIONS;
     const maxStack =
       item.max_stack_load_kg === null || item.max_stack_load_kg === undefined
-        ? null
+        ? lieFlat
+          ? SOFT_DEFAULT_STACK_LOAD_G
+          : null
         : Math.floor(item.max_stack_load_kg * 1000);
     for (let n = 1; n <= item.quantity; n += 1) {
       units.push({

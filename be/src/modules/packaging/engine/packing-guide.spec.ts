@@ -195,4 +195,15 @@ describe('gập đôi trong hướng dẫn (22/09/2026)', () => {
     );
     expect(guide.steps[0]?.instruction).toContain('Gập đôi');
   });
+  it('gói đã gập túi zip được engine gập thêm → hướng dẫn gập túi rồi gập đôi cả gói', () => {
+    const folded = { ...placement('AO#1', 1, [0, 0, 0], [180, 240, 80]), folded: true };
+    const profiles = new Map([
+      ['AO', { product_category: 't_shirt', zip_bag: { code: 'ZIP-M', name: 'Túi zip M', folded: true } }],
+    ]);
+    const guide = buildTemplateGuide(describePackingSteps([folded], box, [], profiles), box, null, []);
+    expect(guide.steps[0]?.instruction).toContain(
+      'Cho áo thun AO (AO#1) vào túi zip Túi zip M, gập đôi túi, gập đôi cả gói theo chiều dài',
+    );
+  });
 });
+

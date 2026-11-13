@@ -231,6 +231,7 @@ function toPlanParcel(
       price_vnd: p.box.price_vnd,
       cut_from_inner_height_mm: p.box.cut_from?.inner_height_mm ?? null,
       cut_from_outer_height_mm: p.box.cut_from?.outer_height_mm ?? null,
+      min_cut_height_mm: p.box.min_cut_height_mm ?? null,
     },
     placements: p.placements.map((q) => ({
       ...q,
@@ -329,6 +330,7 @@ function boxSpecOf(parcel: PlanParcel): BoxSpec {
     tare_g: parcel.box.tare_g,
     max_load_g: parcel.box.max_load_g,
     price_vnd: parcel.box.price_vnd,
+    ...(typeof parcel.box.min_cut_height_mm === 'number' && { min_cut_height_mm: parcel.box.min_cut_height_mm }),
     ...(typeof cutInner === 'number' &&
       typeof cutOuter === 'number' && { cut_from: { inner_height_mm: cutInner, outer_height_mm: cutOuter } }),
   });

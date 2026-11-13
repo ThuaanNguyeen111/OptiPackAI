@@ -21,11 +21,29 @@ export class ConfirmPackagingProfileDto {
   @Max(500, { message: 'width_cm không vượt quá 500 cm' })
   width_cm!: number;
 
-  @ApiProperty({ example: 4, description: 'Chiều cao sau gấp/bọc (cm)' })
+  @ApiProperty({
+    required: false,
+    example: 4,
+    description:
+      'Chiều cao (độ dày) sau gấp/bọc (cm). Quần áo được bỏ trống → BE tính từ GSM (PACKAGING_STANDARD §5.2); hàng khác bắt buộc.',
+  })
+  @IsOptional()
   @IsNumber({}, { message: 'height_cm phải là số' })
   @Min(0.1, { message: 'height_cm phải lớn hơn 0' })
   @Max(500, { message: 'height_cm không vượt quá 500 cm' })
-  height_cm!: number;
+  height_cm?: number;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    example: 180,
+    description: 'GSM của vải (g/m², 1 lớp) — chỉ quần áo. Bỏ trống/null = GSM mặc định theo loại.',
+  })
+  @IsOptional()
+  @IsNumber({}, { message: 'fabric_gsm phải là số' })
+  @Min(20, { message: 'fabric_gsm tối thiểu 20' })
+  @Max(1500, { message: 'fabric_gsm không vượt quá 1500' })
+  fabric_gsm?: number | null;
 
   @ApiProperty({ example: 0.25, description: 'Khối lượng gồm lớp bọc (kg)' })
   @IsNumber({}, { message: 'weight_kg phải là số' })
