@@ -1492,7 +1492,7 @@ export function ShippingPage() {
                         </p>
                         <p className="text-[11px] text-slate-500">
                           {vi
-                            ? 'Sửa người gửi ở Quy tắc bao bì (chủ shop / Admin).'
+                            ? 'Sửa người gửi ở Cài đặt đóng gói & AI (chủ shop / Admin).'
                             : 'Edit sender on Packaging Rules (Store Owner / Admin).'}
                         </p>
                       </div>

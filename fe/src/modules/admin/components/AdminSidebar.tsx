@@ -62,7 +62,7 @@ const navItems: NavItem[] = [
   { to: '/app/packing', end: false, labelVi: 'Đóng gói', labelEn: 'Packing station', icon: Boxes, section: 'warehouse' },
   { to: '/app/shipping', end: false, labelVi: 'Vận chuyển', labelEn: 'Shipping', icon: Truck, section: 'warehouse' },
   { to: '/app/admin/packing-plans', end: false, labelVi: 'Chốt kế hoạch đóng gói', labelEn: 'Confirm packing plan', icon: Sparkles, section: 'ai' },
-  { to: '/app/packaging-rules', end: false, labelVi: 'Quy tắc bao bì', labelEn: 'Packaging rules', icon: Box, section: 'ai' },
+  { to: '/app/packaging-rules', end: false, labelVi: 'Cài đặt đóng gói & AI', labelEn: 'Packing & AI settings', icon: Box, section: 'ai' },
   { to: '/app/analytics', end: false, labelVi: 'Báo cáo', labelEn: 'Analytics', icon: BarChart3, section: 'reports' },
   { to: '/app/admin/history', end: false, labelVi: 'Lịch sử thao tác', labelEn: 'Activity history', icon: Clock, section: 'reports' },
 ]

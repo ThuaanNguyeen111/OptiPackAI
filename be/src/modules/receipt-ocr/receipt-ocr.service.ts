@@ -1,9 +1,9 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import axios from 'axios';
 import { Model, Types } from 'mongoose';
 import type { AiProviderConfig } from '../../config/ai.config';
+import { AiSettingsService } from '../ai-settings/ai-settings.service';
 import { AppException } from '../../common/exceptions/app-exception';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -75,17 +75,17 @@ export class ReceiptOcrService {
   private readonly logger = new Logger(ReceiptOcrService.name);
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly aiSettings: AiSettingsService,
     @InjectModel(ReceiptOcrScan.name) private readonly scanModel: Model<ReceiptOcrScanDocument>,
     @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   async scan(photoUrls: string[], actorId: string): Promise<ReceiptOcrScanView> {
-    const provider = this.configService.get<AiProviderConfig | null>('ai.provider', null);
+    const provider = await this.aiSettings.getProvider();
     if (!provider) {
-      throw new AppException(E.OCR_UNAVAILABLE, 'Chưa cấu hình AI đọc phiếu (AI_API_KEY) — hãy nhập số tay.', HttpStatus.SERVICE_UNAVAILABLE);
+      throw new AppException(E.OCR_UNAVAILABLE, 'Chưa cấu hình AI đọc phiếu (Admin nhập API key ở Cài đặt đóng gói & AI) — hãy nhập số tay.', HttpStatus.SERVICE_UNAVAILABLE);
     }
-    const model = this.configService.get<string>('ai.visionModel') ?? provider.model;
+    const model = (await this.aiSettings.getVisionModel()) || provider.model;
     let raw: unknown;
     try {
       raw = await this.callProvider(provider, model, photoUrls);

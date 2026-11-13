@@ -11,7 +11,10 @@ describe('ReceiptOcrService.scan', () => {
   let create: jest.Mock;
 
   function make(withProvider = true): ReceiptOcrService {
-    const config = { get: jest.fn((key: string) => (key === 'ai.provider' ? (withProvider ? provider : null) : 'vision-model')) };
+    const config = {
+      getProvider: jest.fn(() => Promise.resolve(withProvider ? provider : null)),
+      getVisionModel: jest.fn(() => Promise.resolve('vision-model')),
+    };
     create = jest.fn((doc: Record<string, unknown>) => Promise.resolve({ _id: new Types.ObjectId(), ...doc }));
     return new ReceiptOcrService(config as never, { create } as never);
   }

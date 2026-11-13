@@ -281,7 +281,17 @@ export type PackingSettings = {
   splitMinSavingVnd: number
   estFeeFirstStepVnd: number
   estFeePerExtraStepVnd: number
+  /** Phần văn phong system prompt AI hướng dẫn đóng gói đang dùng (đã bù mặc định). */
+  guideStylePrompt: string
+  guideStylePromptIsDefault: boolean
+  /** Lõi cố định trước / sau văn phong — chỉ xem. */
+  guidePromptCoreHead: string
+  guidePromptCoreTail: string
+  guideStylePromptDefault: string
 }
+
+/** Khớp GUIDE_STYLE_PROMPT_MAX_LENGTH ở BE. */
+export const GUIDE_STYLE_PROMPT_MAX_LENGTH = 4000
 
 export type PackingReport = {
   from: string
