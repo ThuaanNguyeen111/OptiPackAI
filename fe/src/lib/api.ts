@@ -20,19 +20,39 @@ function isAbortError(err: unknown): boolean {
   )
 }
 
+/**
+ * (13/11/2026) Request bị người gọi huỷ (VD đổi bộ lọc khi danh sách cũ chưa về).
+ * Màn hình bắt bằng `isRequestCanceled(err)` và bỏ qua, không hiện lỗi.
+ */
+export class RequestCanceledError extends Error {
+  constructor() {
+    super('Đã huỷ yêu cầu.')
+    this.name = 'RequestCanceledError'
+  }
+}
+
+export function isRequestCanceled(err: unknown): boolean {
+  return err instanceof RequestCanceledError
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number = REQUEST_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<Response> {
+  if (signal?.aborted) throw new RequestCanceledError()
   const controller = new AbortController()
   const timeoutId = globalThis.setTimeout(
     () => controller.abort(),
     timeoutMs,
   )
+  const onCancel = () => controller.abort()
+  signal?.addEventListener('abort', onCancel)
   try {
     return await fetch(url, { ...init, signal: controller.signal })
   } catch (err: unknown) {
+    if (signal?.aborted) throw new RequestCanceledError()
     if (isAbortError(err)) {
       throw new ApiError(0, [
         'Máy chủ không phản hồi kịp. Kiểm tra backend và Redis đang chạy, rồi tải lại trang.',
@@ -41,6 +61,7 @@ async function fetchWithTimeout(
     throw err
   } finally {
     globalThis.clearTimeout(timeoutId)
+    signal?.removeEventListener('abort', onCancel)
   }
 }
 
@@ -149,13 +170,15 @@ type RequestOptions = {
   skipRefresh?: boolean
   /** Đồng bộ catalog Lazada có thể lâu hơn 12 giây mặc định. */
   timeoutMs?: number
+  /** (13/11/2026) Huỷ request (VD đổi bộ lọc) — ném `RequestCanceledError`. */
+  signal?: AbortSignal
 }
 
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = false, skipRefresh = false, timeoutMs } = options
+  const { method = 'GET', body, auth = false, skipRefresh = false, timeoutMs, signal } = options
 
   // FormData (tải ảnh): để trình duyệt tự đặt Content-Type kèm boundary.
   const isForm = body instanceof FormData
@@ -174,6 +197,7 @@ export async function apiRequest<T>(
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     },
     timeoutMs,
+    signal,
   )
 
   if (res.status === 401 && auth && !skipRefresh) {

@@ -2,7 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:image_picker/image_picker.dart';
+
 import '../../app/mock_providers.dart';
+import '../../core/network/api_exception.dart';
+import '../proof/proof_photo_field.dart';
+import '../proof/proof_photo_repository.dart';
+import '../warehouse/scanner_screen.dart';
 import '../../shared/widgets.dart';
 import 'returns_repository.dart';
 import '../../app/colors.dart';
@@ -73,7 +79,7 @@ class _WarehouseReturnsScreenState extends ConsumerState<WarehouseReturnsScreen>
             onRefresh: () async => _refresh(),
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: _refresh),
               data: (items) => items.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
@@ -172,10 +178,31 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
   late final Map<String, InspectResult> _results = {
     for (final i in widget.request.items) i.sku: InspectResult.restock,
   };
+  late final Map<String, TextEditingController> _bins = {
+    for (final i in widget.request.items) i.sku: TextEditingController(),
+  };
+  final _material = TextEditingController();
   PackagingGrade? _grade;
   bool _labelRemoved = false;
+  List<XFile> _photos = const [];
   bool _busy = false;
   String? _error;
+
+  @override
+  void dispose() {
+    for (final c in _bins.values) {
+      c.dispose();
+    }
+    _material.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scanBin(String sku) async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (code != null && mounted) setState(() => _bins[sku]!.text = code.trim());
+  }
 
   Future<void> _submit() async {
     setState(() {
@@ -183,18 +210,29 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
       _error = null;
     });
     try {
+      final photoUrls = await ref.read(proofPhotoRepositoryProvider).upload(_photos);
       await ref.read(returnsRepositoryProvider).inspect(
             widget.request.id,
             [
               for (final i in widget.request.items)
-                InspectLine(sku: i.sku, quantity: i.quantity, result: _results[i.sku]!),
+                InspectLine(
+                  sku: i.sku,
+                  quantity: i.quantity,
+                  result: _results[i.sku]!,
+                  binCode: _bins[i.sku]!.text,
+                ),
             ],
-            _grade == null ? null : PackagingCheck(grade: _grade!, oldLabelRemoved: _labelRemoved),
+            _grade == null
+                ? null
+                : PackagingCheck(grade: _grade!, oldLabelRemoved: _labelRemoved, materialCode: _material.text),
+            photoUrls: photoUrls,
           );
       if (!mounted) return;
       HapticFeedback.mediumImpact();
       Navigator.pop(context, true);
     } on ReturnsException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -235,6 +273,22 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                             selected: {_results[i.sku]!},
                             onSelectionChanged: (s) => setState(() => _results[i.sku] = s.first),
                           ),
+                          if (_results[i.sku] == InspectResult.restock) ...[
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _bins[i.sku],
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: InputDecoration(
+                                labelText: 'Ô nhập lại',
+                                hintText: 'VD KA-D1-P01-T01-1',
+                                suffixIcon: IconButton(
+                                  tooltip: 'Quét mã ô',
+                                  icon: const Icon(Icons.qr_code_scanner),
+                                  onPressed: () => _scanBin(i.sku),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -260,6 +314,14 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                       ),
                   ],
                 ),
+                if (_grade != null) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _material,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(labelText: 'Mã thùng thu hồi', hintText: 'VD BOX-M'),
+                  ),
+                ],
                 if (_grade == PackagingGrade.a)
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
@@ -269,7 +331,12 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                     subtitle: const Text('Nhãn cũ có tên, SĐT khách. Bắt buộc với thùng hạng A.'),
                   ),
                 const SizedBox(height: 12),
-                const WaitingBackendButton(label: 'Chụp ảnh tình trạng hàng'),
+                ProofPhotoField(
+                  label: 'Ảnh tình trạng hàng',
+                  enabled: !_busy,
+                  photos: _photos,
+                  onChanged: (p) => setState(() => _photos = p),
+                ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(_error!, style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600)),
@@ -315,7 +382,7 @@ class ReturnsApprovalScreen extends ConsumerWidget {
             onRefresh: () async => refresh(),
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: refresh),
               data: (items) => items.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),

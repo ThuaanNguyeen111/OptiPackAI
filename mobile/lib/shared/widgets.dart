@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
-import '../app/colors.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Biểu ngữ cho màn đang dùng **dữ liệu giả** (chưa nối BE). Xoá khi đã nối thật.
-class MockBanner extends StatelessWidget {
+import '../app/colors.dart';
+import '../app/mock_providers.dart';
+import '../core/network/api_exception.dart';
+
+/// Biểu ngữ "Dữ liệu mẫu": chỉ hiện khi app chạy dữ liệu giả (`USE_MOCK_DATA=true`, hoặc trong test).
+class MockBanner extends ConsumerWidget {
   const MockBanner({super.key, this.text = 'Dữ liệu mẫu — chưa nối BE'});
 
   final String text;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(useMockDataProvider)) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
       color: AppColors.warningBg,
@@ -98,6 +103,60 @@ class EmptyState extends StatelessWidget {
             const SizedBox(height: 12),
             Text(text, textAlign: TextAlign.center),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Màn lỗi khi tải dữ liệu: câu dễ hiểu (không in `ApiException(...)`), biểu tượng theo loại lỗi,
+/// nút "Thử lại". Kéo xuống để tải lại cũng được (nằm trong `RefreshIndicator`).
+class ErrorState extends StatelessWidget {
+  const ErrorState({super.key, required this.error, this.onRetry});
+
+  final Object error;
+  final VoidCallback? onRetry;
+
+  static ({IconData icon, String title, String message}) describe(Object error) {
+    if (error is ApiException) {
+      if (error.isNetwork) {
+        return (icon: Icons.cloud_off_outlined, title: 'Không kết nối được máy chủ', message: error.message);
+      }
+      if (error.isForbidden) {
+        return (icon: Icons.lock_outline, title: 'Bạn không có quyền xem mục này', message: error.message);
+      }
+      return (icon: Icons.error_outline, title: 'Không tải được dữ liệu', message: error.message);
+    }
+    return (icon: Icons.error_outline, title: 'Không tải được dữ liệu', message: error.toString());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = describe(error);
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: box.maxHeight.isFinite ? box.maxHeight : 0),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(d.icon, size: 56, color: AppColors.inkTertiary),
+                  const SizedBox(height: 12),
+                  Text(d.title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  const SizedBox(height: 6),
+                  Text(d.message, textAlign: TextAlign.center, style: TextStyle(color: AppColors.inkSubtle)),
+                  if (onRetry != null) ...[
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: const Text('Thử lại')),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

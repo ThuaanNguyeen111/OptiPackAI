@@ -14,6 +14,7 @@ import {
   Clock3,
   AlertTriangle,
   Folder,
+  XCircle,
 } from 'lucide-react'
 import { MarketplaceLabelButtons } from '../components/marketplace/MarketplaceFulfillmentBlock'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
@@ -78,9 +79,18 @@ import type {
 import { isShipmentDeliveryOverdue, SHIPMENT_STATUS_LABELS } from '../types/shipments'
 import { formatCurrency, formatDateTime } from '../utils/format'
 import { formatKg } from '../utils/units'
+import { uploadProofPhotos } from '../api/proof-photos.api'
+import { ProofPhotoPicker } from '../components/proof/ProofPhotoPicker'
 
 type QueueTab = 'packed' | ShipmentStatus
 type ModalMode = 'start' | 'deliver' | 'fail' | 'retry' | null
+
+/** Hộp thoại kết quả sau mỗi thao tác: nhân viên thấy rõ thành công hay không rồi bấm Đóng. */
+type ResultDialog = {
+  tone: 'success' | 'warning' | 'error'
+  title: string
+  message: string
+}
 
 type QueueRow =
   | { key: string; kind: 'packed'; group: OrderGroup }
@@ -291,7 +301,9 @@ export function ShippingPage() {
   const [loading, setLoading] = useState(true)
   const [actionBusy, setActionBusy] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [toastTone, setToastTone] = useState<'success' | 'neutral' | 'error'>('neutral')
   const [loadError, setLoadError] = useState<string | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [events, setEvents] = useState<ShipmentEvent[]>([])
@@ -302,6 +314,9 @@ export function ShippingPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [failReason, setFailReason] = useState<string>('customer_unreachable')
   const [actionNote, setActionNote] = useState('')
+  const [resultDialog, setResultDialog] = useState<ResultDialog | null>(null)
+  /** (13/11/2026) Ảnh bằng chứng khi giao thành công / thất bại (chưa tải lên). */
+  const [proofFiles, setProofFiles] = useState<File[]>([])
   const [returnsByGroup, setReturnsByGroup] = useState<
     Record<string, { rmaCode: string; status: string }[]>
   >({})
@@ -337,9 +352,19 @@ export function ShippingPage() {
   const [sampleCode, setSampleCode] = useState('')
   const [sampleName, setSampleName] = useState('')
 
-  const showToast = (msg: string) => {
+  const showToast = (
+    msg: string,
+    tone: 'success' | 'neutral' | 'error' = 'neutral',
+  ) => {
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current)
+    }
+    setToastTone(tone)
     setToastMessage(msg)
-    window.setTimeout(() => setToastMessage(null), 3500)
+    toastTimerRef.current = window.setTimeout(
+      () => setToastMessage(null),
+      tone === 'success' ? 5000 : 3500,
+    )
   }
 
   const reload = useCallback(async () => {
@@ -700,8 +725,62 @@ export function ShippingPage() {
     return null
   }, [selected, isAdmin, session?.accessToken])
 
+  const closeModal = () => {
+    setModalMode(null)
+    setProofFiles([])
+  }
+
+  /** Vận đơn shop tự giao (không qua hãng): BE bắt ảnh khi giao thành công. */
+  const proofRequired =
+    modalMode === 'deliver' && selected?.kind === 'shipment' && !selected.shipment.carrierCode
+
+  /** Giao lại trước `nextAttemptNotBefore` → BE bắt `override_reason` (≥ 3 ký tự). */
+  const retryTooEarly = useMemo(() => {
+    if (modalMode !== 'retry' || selected?.kind !== 'shipment') return false
+    const notBefore = selected.shipment.nextAttemptNotBefore
+    if (!notBefore) return false
+    const t = new Date(notBefore).getTime()
+    return Number.isFinite(t) && t > nowMs
+  }, [modalMode, selected, nowMs])
+
+  const failNoteMissing =
+    modalMode === 'fail' && failReason === 'other' && !actionNote.trim()
+  const retryOverrideMissing =
+    modalMode === 'retry' && retryTooEarly && actionNote.trim().length < 3
+  const modalConfirmBlocked =
+    (proofRequired && proofFiles.length === 0) ||
+    failNoteMissing ||
+    retryOverrideMissing
+
   const runAction = async () => {
     if (!selected || !modalMode) return
+    if (failNoteMissing) {
+      showToast(
+        vi
+          ? 'Chọn «Lý do khác» thì bắt buộc ghi chú.'
+          : 'A note is required when the reason is “Other”.',
+        'error',
+      )
+      return
+    }
+    if (retryOverrideMissing) {
+      showToast(
+        vi
+          ? 'Giao lại sớm hơn lịch phải ghi lý do (tối thiểu 3 ký tự).'
+          : 'Early retry needs a reason (at least 3 characters).',
+        'error',
+      )
+      return
+    }
+    if (proofRequired && proofFiles.length === 0) {
+      showToast(
+        vi
+          ? 'Vận đơn shop tự giao cần ít nhất 1 ảnh giao hàng.'
+          : 'Self-delivered shipments need at least one delivery photo.',
+        'error',
+      )
+      return
+    }
     setActionBusy(true)
     try {
       if (modalMode === 'start' && selected.kind === 'packed') {
@@ -738,39 +817,92 @@ export function ShippingPage() {
       } else if (selected.kind === 'shipment') {
         const id = selected.shipment.id
         const version = selected.shipment.version
+        const photoUrls = await uploadProofPhotos(proofFiles)
         if (modalMode === 'deliver') {
-          const next = await deliverShipment(id, version, actionNote)
+          const next = await deliverShipment(id, version, actionNote, photoUrls)
           setTab('delivered')
           setSelectedKey(`shp:${next.id}`)
-          showToast(vi ? 'Đã ghi nhận giao thành công.' : 'Marked delivered.')
+          setResultDialog({
+            tone: 'success',
+            title: vi ? 'Giao hàng thành công' : 'Delivered successfully',
+            message: vi
+              ? `Vận đơn ${next.shipmentCode} đã được ghi nhận là giao thành công.`
+              : `Shipment ${next.shipmentCode} was recorded as delivered.`,
+          })
         } else if (modalMode === 'fail') {
           const next = await failShipment(
             id,
             version,
             failReason as DeliveryFailureReason,
             actionNote,
+            undefined,
+            photoUrls,
           )
           setTab(next.status as QueueTab)
           setSelectedKey(`shp:${next.id}`)
-          showToast(vi ? 'Đã ghi nhận giao thất bại.' : 'Marked delivery failed.')
+          const returning = next.status === 'returning_to_warehouse'
+          setResultDialog({
+            tone: 'warning',
+            title: vi ? 'Giao hàng thất bại' : 'Delivery failed',
+            message: vi
+              ? `Vận đơn ${next.shipmentCode} đã ghi nhận giao thất bại. ${
+                  returning
+                    ? 'Kiện được chuyển về kho.'
+                    : 'Có thể giao lại ở tab "Giao thất bại".'
+                }`
+              : `Shipment ${next.shipmentCode} was recorded as failed. ${
+                  returning
+                    ? 'The parcel is returning to the warehouse.'
+                    : 'You can retry it from the Failed tab.'
+                }`,
+          })
         } else if (modalMode === 'retry') {
-          const next = await retryShipment(id, version, actionNote)
+          const next = await retryShipment(
+            id,
+            version,
+            actionNote,
+            retryTooEarly ? actionNote.trim() : undefined,
+          )
           setTab('out_for_delivery')
           setSelectedKey(`shp:${next.id}`)
-          showToast(vi ? 'Đã mở lượt giao lại.' : 'Retry started.')
+          setResultDialog({
+            tone: 'success',
+            title: vi ? 'Đã mở lượt giao lại' : 'Retry started',
+            message: vi
+              ? `Vận đơn ${next.shipmentCode} đang giao lại.`
+              : `Shipment ${next.shipmentCode} is out for delivery again.`,
+          })
         }
       }
       setModalMode(null)
       setActionNote('')
+      setProofFiles([])
       await reload()
     } catch (err: unknown) {
-      showToast(
+      const reason =
         getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
           ? vi
             ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
             : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
-          : formatApiError(err),
-      )
+          : getApiErrorCode(err) === 'SHP_PROOF_PHOTO_REQUIRED'
+            ? vi
+              ? 'Vận đơn shop tự giao cần ít nhất 1 ảnh giao hàng.'
+              : 'Self-delivered shipments need at least one delivery photo.'
+            : formatApiError(err)
+      const actionTitle: Record<string, { vi: string; en: string }> = {
+        deliver: { vi: 'Chưa ghi nhận được giao thành công', en: 'Could not mark as delivered' },
+        fail: { vi: 'Chưa ghi nhận được giao thất bại', en: 'Could not record the failure' },
+        retry: { vi: 'Chưa mở được lượt giao lại', en: 'Could not start the retry' },
+        start: { vi: 'Chưa tạo được vận đơn', en: 'Could not create the shipment' },
+      }
+      const titles = actionTitle[modalMode ?? 'start'] ?? actionTitle.start
+      setResultDialog({
+        tone: 'error',
+        title: vi ? titles.vi : titles.en,
+        message: reason,
+      })
+      // Đóng form xác nhận để hộp thoại kết quả không bị che.
+      setModalMode(null)
     } finally {
       setActionBusy(false)
     }
@@ -1165,15 +1297,33 @@ export function ShippingPage() {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-1 pb-8 sm:px-6">
         <div className="mx-auto max-w-7xl space-y-4">
           {toastMessage && (
-            <div className="owner-panel flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-xs font-semibold text-[var(--ls-ink)] sm:text-sm">
+            <div
+              role="status"
+              aria-live="polite"
+              className={`fixed right-4 top-20 z-[60] flex w-[min(26rem,calc(100vw-2rem))] items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs font-semibold shadow-xl sm:text-sm ${
+                toastTone === 'success'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100'
+                  : toastTone === 'error'
+                    ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200'
+                    : 'owner-panel text-[var(--ls-ink)]'
+              }`}
+            >
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--ls-cta)]" />
+                <CheckCircle2
+                  className={`h-4 w-4 shrink-0 ${
+                    toastTone === 'success'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : toastTone === 'error'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-[var(--ls-cta)]'
+                  }`}
+                />
                 <span>{toastMessage}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setToastMessage(null)}
-                className="rounded p-1 text-[var(--ls-muted)] hover:text-[var(--ls-ink)] cursor-pointer"
+                className="rounded p-1 opacity-70 hover:opacity-100 cursor-pointer"
                 aria-label="Dismiss toast"
               >
                 <X className="h-3.5 w-3.5" />
@@ -2262,15 +2412,13 @@ export function ShippingPage() {
               disabled={
                 !primaryAction ||
                 actionBusy ||
-                (primaryAction === 'start' && (boxWeightKg(packRec) <= 0 || startBlocked)) ||
-                (primaryAction !== 'start' && boxWeightKg(packRec) <= 0)
+                (primaryAction === 'start' && (boxWeightKg(packRec) <= 0 || startBlocked))
               }
               onClick={() => primaryAction && setModalMode(primaryAction)}
               className={`flex h-auto min-h-11 w-full items-center justify-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-bold transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-auto ${
                 !selected ||
-                boxWeightKg(packRec) <= 0 ||
                 !primaryAction ||
-                (primaryAction === 'start' && startBlocked)
+                (primaryAction === 'start' && (boxWeightKg(packRec) <= 0 || startBlocked))
                   ? 'cursor-not-allowed bg-slate-200 text-slate-400 shadow-none dark:bg-slate-800 dark:text-slate-500'
                   : primaryAction === 'deliver'
                     ? 'cursor-pointer bg-emerald-600 text-white shadow-md hover:bg-emerald-700 active:scale-[0.98] focus-visible:ring-emerald-500'
@@ -2305,6 +2453,56 @@ export function ShippingPage() {
         </div>
       </footer>
 
+      {resultDialog && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="shipping-result-title"
+          onClick={() => setResultDialog(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-2xl dark:border-slate-800 dark:bg-surface-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full ${
+                resultDialog.tone === 'success'
+                  ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400'
+                  : resultDialog.tone === 'warning'
+                    ? 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400'
+                    : 'bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-400'
+              }`}
+            >
+              {resultDialog.tone === 'success' ? (
+                <CheckCircle2 className="h-8 w-8" />
+              ) : resultDialog.tone === 'warning' ? (
+                <AlertTriangle className="h-8 w-8" />
+              ) : (
+                <XCircle className="h-8 w-8" />
+              )}
+            </div>
+            <h3
+              id="shipping-result-title"
+              className="mt-4 text-base font-bold text-slate-900 dark:text-slate-100"
+            >
+              {resultDialog.title}
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              {resultDialog.message}
+            </p>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setResultDialog(null)}
+              className="owner-btn-primary mt-5 w-full cursor-pointer rounded-xl px-4 py-2.5 text-sm font-semibold"
+            >
+              {vi ? 'Đóng' : 'Close'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {modalMode && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
@@ -2331,7 +2529,7 @@ export function ShippingPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setModalMode(null)}
+                onClick={closeModal}
                 className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="h-4 w-4" />
@@ -2398,36 +2596,71 @@ export function ShippingPage() {
                 </label>
               ) : null}
 
+              {modalMode === 'retry' && retryTooEarly && selected?.kind === 'shipment' ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                  {vi
+                    ? `Chưa tới giờ giao lại (${formatDateTime(selected.shipment.nextAttemptNotBefore ?? '')}). Muốn giao sớm phải ghi lý do (tối thiểu 3 ký tự).`
+                    : `Retry is locked until ${formatDateTime(selected.shipment.nextAttemptNotBefore ?? '')}. Early retry needs a reason (min. 3 characters).`}
+                </div>
+              ) : null}
+
               <label className="block space-y-1.5">
                 <span className="text-slate-500">
                   {vi
-                    ? failReason === 'other' && modalMode === 'fail'
+                    ? failNoteMissing || (modalMode === 'fail' && failReason === 'other')
                       ? 'Ghi chú (bắt buộc với lý do khác)'
-                      : 'Ghi chú (tuỳ chọn)'
-                    : failReason === 'other' && modalMode === 'fail'
+                      : retryTooEarly
+                        ? 'Lý do giao lại sớm (bắt buộc, ≥ 3 ký tự)'
+                        : 'Ghi chú (tuỳ chọn)'
+                    : failNoteMissing || (modalMode === 'fail' && failReason === 'other')
                       ? 'Note (required for Other)'
-                      : 'Note (optional)'}
+                      : retryTooEarly
+                        ? 'Early-retry reason (required, ≥ 3 characters)'
+                        : 'Note (optional)'}
                 </span>
                 <textarea
                   value={actionNote}
                   onChange={(e) => setActionNote(e.target.value)}
                   rows={2}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-surface-1"
+                  className={`w-full rounded-xl border bg-white px-3 py-2 text-sm dark:bg-surface-1 ${
+                    failNoteMissing || retryOverrideMissing
+                      ? 'border-red-300 dark:border-red-700'
+                      : 'border-slate-200 dark:border-slate-700'
+                  }`}
                 />
               </label>
+
+              {modalMode === 'deliver' || modalMode === 'fail' ? (
+                <ProofPhotoPicker
+                  vi={vi}
+                  files={proofFiles}
+                  onChange={setProofFiles}
+                  required={proofRequired}
+                  disabled={actionBusy}
+                  label={
+                    modalMode === 'deliver'
+                      ? vi
+                        ? 'Ảnh giao hàng'
+                        : 'Delivery photo'
+                      : vi
+                        ? 'Ảnh hiện trường'
+                        : 'Site photo'
+                  }
+                />
+              ) : null}
             </div>
 
             <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setModalMode(null)}
+                onClick={closeModal}
                 className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
               >
                 {vi ? 'Hủy' : 'Cancel'}
               </button>
               <button
                 type="button"
-                disabled={actionBusy}
+                disabled={actionBusy || modalConfirmBlocked}
                 onClick={() => void runAction()}
                 className="owner-btn-primary cursor-pointer rounded-xl px-4 py-2 text-xs font-semibold disabled:opacity-60"
               >

@@ -10,6 +10,7 @@ import { formatApiError } from '../../lib/api'
 import { cmToMm } from '../../utils/units'
 import {
   BOX_SOURCE_REASON_LABELS,
+  GUIDE_STYLE_PROMPT_MAX_LENGTH,
   type BoxSourceReason,
   type PackingFeedbackReport,
   type PackingReport,
@@ -39,6 +40,8 @@ export function PackingSettingsForm({
   const [settings, setSettings] = useState<PackingSettings | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Văn phong AI: 'keep' = không gửi, 'edit' = gửi chữ đang soạn, 'reset' = gửi null (khôi phục mặc định). */
+  const [promptChange, setPromptChange] = useState<'keep' | 'edit' | 'reset'>('keep')
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -69,8 +72,14 @@ export function PackingSettingsForm({
         split_min_saving_vnd: settings.splitMinSavingVnd,
         est_fee_first_step_vnd: settings.estFeeFirstStepVnd,
         est_fee_per_extra_step_vnd: settings.estFeePerExtraStepVnd,
+        ...(promptChange === 'reset'
+          ? { guide_style_prompt: null }
+          : promptChange === 'edit'
+            ? { guide_style_prompt: settings.guideStylePrompt ?? '' }
+            : {}),
       })
       setSettings(next)
+      setPromptChange('keep')
     } catch (err: unknown) {
       setError(formatApiError(err))
     } finally {
@@ -220,12 +229,62 @@ export function PackingSettingsForm({
               </div>
             ) : null}
           </div>
+          {settings.guideStylePrompt !== undefined ? (
+            <div className="space-y-2 border-t border-hairline pt-3 sm:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label htmlFor="guide-style-prompt" className="text-xs font-medium text-ink">
+                  {vi ? 'Văn phong AI viết hướng dẫn đóng gói' : 'AI packing guide style'}
+                  {promptChange === 'reset' || (promptChange === 'keep' && settings.guideStylePromptIsDefault) ? (
+                    <span className="ml-2 rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted">
+                      {vi ? 'Mặc định' : 'Default'}
+                    </span>
+                  ) : null}
+                </label>
+                {canEdit ? (
+                  <button
+                    type="button"
+                    disabled={busy || (promptChange === 'keep' && settings.guideStylePromptIsDefault === true)}
+                    onClick={() => setPromptChange('reset')}
+                    className="rounded-lg border border-hairline px-2.5 py-1 text-xs font-semibold text-ink hover:bg-surface-sunken disabled:opacity-50"
+                  >
+                    {vi ? 'Khôi phục mặc định' : 'Restore default'}
+                  </button>
+                ) : null}
+              </div>
+              <textarea
+                id="guide-style-prompt"
+                rows={8}
+                disabled={!canEdit || promptChange === 'reset'}
+                maxLength={GUIDE_STYLE_PROMPT_MAX_LENGTH}
+                value={settings.guideStylePrompt}
+                onChange={(e) => {
+                  setSettings({ ...settings, guideStylePrompt: e.target.value })
+                  setPromptChange('edit')
+                }}
+                className="w-full rounded-lg border border-hairline bg-surface px-2 py-1.5 font-mono text-xs text-ink disabled:opacity-60"
+              />
+              <p className="flex flex-wrap justify-between gap-2 text-[11px] text-ink-subtle">
+                <span>
+                  {promptChange === 'reset'
+                    ? vi
+                      ? 'Bấm "Lưu cài đặt" để quay về văn phong mặc định.'
+                      : 'Press "Save settings" to go back to the default style.'
+                    : vi
+                      ? 'Chỉ đổi giọng văn (xưng hô, độ dài câu, cách nhắc lưu ý). Số bước, SKU và khuôn trả lời do hệ thống giữ cố định.'
+                      : 'Only changes the tone. Step count, SKUs and the reply format stay fixed.'}
+                </span>
+                <span>
+                  {(settings.guideStylePrompt ?? '').length}/{GUIDE_STYLE_PROMPT_MAX_LENGTH}
+                </span>
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
       {canEdit ? (
         <button
           type="button"
-          disabled={busy || !settings}
+          disabled={busy || !settings || (promptChange === 'edit' && !(settings.guideStylePrompt ?? '').trim())}
           onClick={() => void save()}
           className="rounded-lg bg-ink px-3 py-1.5 text-xs font-semibold text-canvas disabled:opacity-50"
         >

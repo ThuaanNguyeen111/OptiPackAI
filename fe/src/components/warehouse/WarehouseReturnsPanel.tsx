@@ -1,3 +1,5 @@
+import { uploadProofPhotos } from '../../api/proof-photos.api'
+import { ProofPhotoPicker } from '../proof/ProofPhotoPicker'
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
@@ -67,6 +69,8 @@ export function WarehouseReturnsPanel({
   const [bins, setBins] = useState<BinLocationRecord[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** (13/11/2026) Ảnh tình trạng hàng hoàn, chưa tải lên. */
+  const [inspectPhotos, setInspectPhotos] = useState<File[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
@@ -148,8 +152,11 @@ export function WarehouseReturnsPanel({
     packaging?: PackagingInspectInput[],
   ): Promise<void> {
     if (!selected) return
+    let photoUrls: string[] | null = null
     async function send(confirmOtherBin: boolean) {
       if (!selected) return
+      // Tải ảnh 1 lần, gửi lại (xác nhận ô khác) thì dùng lại link cũ.
+      photoUrls ??= await uploadProofPhotos(inspectPhotos)
       await inspectReturn(selected.id, {
         expected_version: selected.version,
         lines: drafts.map((line) => ({
@@ -165,18 +172,21 @@ export function WarehouseReturnsPanel({
             : {}),
         })),
         ...(packaging && packaging.length > 0 ? { packaging } : {}),
+        photo_urls: photoUrls,
       })
     }
     setBusy(true)
     setError(null)
     try {
       await send(false)
+      setInspectPhotos([])
       await load()
     } catch (err: unknown) {
       const prompt = otherBinMessage(err, vi)
       if (prompt && window.confirm(`${formatApiError(err)}\n\n${prompt}`)) {
         try {
           await send(true)
+          setInspectPhotos([])
           await load()
         } catch (retryErr: unknown) {
           setError(formatApiError(retryErr))
@@ -420,15 +430,24 @@ export function WarehouseReturnsPanel({
                   {vi ? 'Đã nhận hàng về kho' : 'Mark received'}
                 </button>
               ) : (
-                <InspectForm
-                  key={`${selected.id}:${String(selected.version)}`}
-                  vi={vi}
-                  items={selected.items}
-                  bins={visibleBins}
-                  busy={busy}
-                  onError={setError}
-                  onSubmit={onInspect}
-                />
+                <div className="space-y-3">
+                  <ProofPhotoPicker
+                    vi={vi}
+                    files={inspectPhotos}
+                    onChange={setInspectPhotos}
+                    disabled={busy}
+                    label={vi ? 'Ảnh tình trạng hàng' : 'Item condition photo'}
+                  />
+                  <InspectForm
+                    key={`${selected.id}:${String(selected.version)}`}
+                    vi={vi}
+                    items={selected.items}
+                    bins={visibleBins}
+                    busy={busy}
+                    onError={setError}
+                    onSubmit={onInspect}
+                  />
+                </div>
               )}
             </div>
           ) : null}

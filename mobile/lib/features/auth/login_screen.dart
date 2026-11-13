@@ -1,3 +1,4 @@
+import 'google_sign_in_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -158,6 +159,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           if (_mfaStep) _mfaError = e.message;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Nút "Tiếp tục với Google": lấy `id_token` rồi gửi `POST /auth/google/mobile`.
+  Future<void> _loginWithGoogle() async {
+    if (_loading) return;
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _emailError = null;
+      _passwordError = null;
+      _formError = null;
+      _locked = false;
+    });
+    try {
+      final outcome = await ref.read(authControllerProvider.notifier).loginWithGoogle();
+      if (!mounted) return;
+      // Tài khoản bật MFA: nhập mã 6 số bằng form thường (BE đòi email + mật khẩu kèm mã).
+      if (outcome is LoginMfaRequired) {
+        setState(() => _formError = 'Tài khoản bật xác thực 2 lớp. Đăng nhập bằng email và mật khẩu.');
+      }
+    } on GoogleSignInCanceled {
+      // Người dùng đóng hộp chọn tài khoản: không báo lỗi.
+    } on GoogleSignInFailed catch (e) {
+      if (mounted) setState(() => _formError = e.message);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        if (isAccountLockedMessage(e.message)) {
+          _locked = true;
+          _formError = accountLockedMessage;
+        } else {
+          _formError = e.message;
+        }
+      });
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -328,22 +366,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       const SizedBox(height: 16),
       _Divider(palette: p),
       const SizedBox(height: 16),
-      // Đăng nhập Google của BE chuyển hướng về trang web; app chưa có deep link nên chờ BE hỗ trợ.
-      Tooltip(
-        message: 'Chờ BE hỗ trợ (cần chuyển hướng về app)',
-        child: OutlinedButton.icon(
-          onPressed: null,
-          icon: const Text('G', style: TextStyle(color: Color(0xFFEA4335), fontWeight: FontWeight.w800, fontSize: 16)),
-          label: const Text('Tiếp tục với Google (chờ BE)'),
-          style: OutlinedButton.styleFrom(
-            minimumSize: const Size.fromHeight(44),
-            foregroundColor: p.ink,
-            disabledForegroundColor: p.ink.withValues(alpha: 0.65),
-            side: BorderSide(color: p.fieldBorder),
-            backgroundColor: p.fieldBg.withValues(alpha: 0.7),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            textStyle: const TextStyle(fontSize: 13.5),
-          ),
+      // Chỉ đăng nhập được tài khoản đã có (Admin cấp); Google không tự tạo tài khoản mới.
+      OutlinedButton.icon(
+        onPressed: _loading ? null : _loginWithGoogle,
+        icon: const Text('G', style: TextStyle(color: Color(0xFFEA4335), fontWeight: FontWeight.w800, fontSize: 16)),
+        label: const Text('Tiếp tục với Google'),
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(44),
+          foregroundColor: p.ink,
+          disabledForegroundColor: p.ink.withValues(alpha: 0.65),
+          side: BorderSide(color: p.fieldBorder),
+          backgroundColor: p.fieldBg.withValues(alpha: 0.7),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: const TextStyle(fontSize: 13.5),
         ),
       ),
       const SizedBox(height: 20),

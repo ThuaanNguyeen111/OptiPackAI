@@ -45,7 +45,7 @@ class _OverviewScreenState extends ConsumerState<OverviewScreen> {
             onRefresh: () async => ref.invalidate(overviewSummaryProvider),
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(overviewSummaryProvider)),
               data: (s) => ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),

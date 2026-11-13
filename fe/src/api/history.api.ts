@@ -150,8 +150,11 @@ function mapCategory(raw: unknown): HistoryCategoryOption | null {
   return { code, label: pickString(row.label) || code }
 }
 
-export async function listHistory(params: HistoryQuery = {}): Promise<HistoryListResult> {
-  const res = asRecord(await apiRequest<unknown>(`/history${toQuery(params)}`, { auth: true }))
+export async function listHistory(
+  params: HistoryQuery = {},
+  opts: { signal?: AbortSignal } = {},
+): Promise<HistoryListResult> {
+  const res = asRecord(await apiRequest<unknown>(`/history${toQuery(params)}`, { auth: true, signal: opts.signal }))
   const items = Array.isArray(res?.items) ? res.items.flatMap((row) => {
     const item = mapItem(row)
     return item ? [item] : []
