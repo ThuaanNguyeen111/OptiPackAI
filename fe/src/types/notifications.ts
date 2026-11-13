@@ -70,7 +70,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<
   sla_warning: { vi: 'Cảnh báo SLA', en: 'SLA warning' },
   sla_breach: { vi: 'Quá hạn SLA', en: 'SLA breach' },
   connection_lost: { vi: 'Mất kết nối sàn', en: 'Connection lost' },
-  pending_approval: { vi: 'Chờ duyệt đóng gói', en: 'Pending approval' },
+  pending_approval: { vi: 'Chờ chấp nhận kế hoạch', en: 'Plan awaiting acceptance' },
   sync_failed: { vi: 'Đồng bộ thất bại', en: 'Sync failed' },
   cancel_confirmation_required: {
     vi: 'Cần xác nhận hủy',
