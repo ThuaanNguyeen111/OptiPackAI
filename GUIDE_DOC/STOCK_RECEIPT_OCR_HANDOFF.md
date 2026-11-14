@@ -1,75 +1,73 @@
 # Giao việc — Phiếu nhập kho có minh chứng + OCR đối chiếu số lượng
 
-> **Phiên bản 1.0 — 11/11/2026.** Người giao: Thuận. Người nhận: ____________. Hạn đề xuất: code xong cuối tuần 11 (20/11/2026), tài liệu + test case trước 27/11.
-> Nguồn yêu cầu: góp ý của hội đồng (Phượng ghi lại). Chức năng **chưa có dòng code nào** — người nhận tự nghiên cứu, chốt nghiệp vụ rồi mới code.
+> **Phiên bản 1.1, 14/11/2026.** Người giao: Thuận. Người nhận: **Thi** (BE). Bản 1.0 (11/11) Thi đã làm xong phần chính; bản này tóm gọn phần đã làm và ghi **việc BE mới** (mục 3) để chặn gian lận ảnh, bỏ điền sẵn số và có đường dự phòng khi AI không chạy.
+> Việc hiển thị: web ở `FE_UPDATE_CHECKLIST.md` mục 20, app ở `MOBILE_UPDATE_CHECKLIST.md` mục 9g. File này **chỉ ghi việc BE**.
 
 ---
 
-## 1. Hội đồng yêu cầu gì
+## 1. Hội đồng yêu cầu gì (giữ nguyên)
 
-1. **Minh chứng:** khi nhập hàng hoặc mua vật liệu đóng gói, phải tải **phiếu nhập kho / phiếu giao hàng của nhà cung cấp** (tờ giấy NCC gửi kèm hàng: loại hàng hoặc vật liệu, số lượng, ngày nhập) lên hệ thống và **lưu làm minh chứng trong lịch sử**.
-2. **Bắt lệch bằng OCR:** hội đồng sẽ hỏi _"phiếu ghi 50 mà nhân viên nhập 48 thì hệ thống có biết không?"_ → hệ thống **tự đọc chữ trên ảnh phiếu (OCR)**, đối chiếu với số đã nhập, báo dòng lệch; **cho sửa tay** khi OCR đọc sai.
+1. **Minh chứng:** nhập hàng hoặc mua vật liệu đóng gói phải có ảnh **phiếu giao hàng của nhà cung cấp**, lưu trong lịch sử.
+2. **Bắt lệch:** _"phiếu ghi 50 mà nhân viên nhập 48 thì hệ thống có biết không?"_ → AI đọc phiếu, đối chiếu số đã nhập, báo dòng lệch.
 
-Gợi ý chia 2 bước để kịp hạn: **bước 1** = lưu ảnh phiếu làm minh chứng (nhỏ, bắt buộc phải có); **bước 2** = OCR + đối chiếu + sửa tay.
+## 2. Đã làm (Thi, AOFP-277..279) ✅
 
-## 2. Hiện trạng code (đọc trước khi làm)
+| Phần | Đã có |
+|---|---|
+| Ảnh phiếu | `POST /proof-photos?purpose=receipt` (Cloudinary). Nhập hàng NCC và mua / nhập vật liệu **bắt buộc** ảnh (`WH_RECEIPT_PHOTO_REQUIRED`); hàng hoàn, kiểm kê, chuyển ô không bắt |
+| OCR | `POST /receipt-ocr` → Groq vision (`AI_VISION_MODEL`), lưu `receipt_ocr_scans` (`supplier`, `date`, `lines[{ name, code, quantity, unit }]`) |
+| Đối chiếu | `checkAgainstScan` / `resolveChecks` (`receipt-ocr.util.ts`): `matched` / `mismatch` / `not_checked`; lệch bắt `mismatch_reason`; thông báo `stock_receipt_mismatch` |
+| Dự phòng | AI lỗi / sai key → vẫn lưu, phiếu `not_checked` |
+| Xem lại | `?ocr_status=mismatch` ở danh sách phiếu nhập; chi tiết phiếu và lịch sử vật liệu có ảnh, số trên phiếu, lý do |
+| Tài liệu | `API_LIST.md` mục 33, `FE_UPDATE_CHECKLIST.md` mục 18 |
 
-| Phần                  | Đã có                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Chưa có                                                  |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Phiếu nhập hàng       | `POST /warehouse/warehouses/:warehouseId/receipts` (Admin, Warehouse Staff), `GET .../receipts`, `GET .../receipts/:receiptId`. Code: `be/src/modules/warehouse/` — schema `schemas/stock-receipt.schema.ts` (`receipt_code`, `warehouse_id`, `lot_code`, `received_at`, `supplier`, `note`, `lines[]` = assignment / bin / lot / platform / shop / `seller_sku` / `master_sku` / `quantity`, `total_quantity`, `created_by`), DTO `dto/stock-receipt.dto.ts`. PDF phiếu nhập: `GET /documents/stock-receipt/:warehouseId/:receiptId` | Không nhận file đính kèm, không lưu ảnh phiếu, không OCR |
-| Mua vật liệu đóng gói | `POST /packaging-materials/:code/purchase` (`quantity`, `note`) — `be/src/modules/packaging-materials/packaging-materials.service.ts` `purchase()`, ghi sổ `movementModel`                                                                                                                                                                                                                                                                                                                                                            | Không có NCC, không có ảnh phiếu                         |
-| Lưu ảnh               | `POST /proof-photos` (module `be/src/modules/proof-photos/`): nhận 1–3 ảnh JPG/PNG/WebP/HEIC ≤ 10 MB, lưu Cloudinary thư mục `optipack/proof`, trả `url`. Biến `CLOUDINARY_*` đã có trong `be/.env`                                                                                                                                                                                                                                                                                                                                   | Thư mục / quy tắc riêng cho ảnh phiếu, nhận PDF          |
-| AI                    | `be/src/config/ai.config.ts`: Groq (`AI_BASE_URL` mặc định `https://api.groq.com/openai/v1`), đang dùng cho AI hướng dẫn đóng gói và AI dịch quy tắc gộp đơn                                                                                                                                                                                                                                                                                                                                                                          | Gọi model đọc ảnh                                        |
-| Web FE                | Màn nhập hàng: `fe/src/pages/WarehouseInventoryPage.tsx` (`createStockReceipt` trong `fe/src/api/warehouse.api.ts`); mua vật liệu: `fe/src/pages/PackagingMaterialsPage.tsx` (`purchasePackagingMaterial`)                                                                                                                                                                                                                                                                                                                            | Bước tải phiếu, bảng đối chiếu                           |
+**Chưa làm từ bản 1.0:** tự khớp dòng theo mã ở BE (Q6, hiện web tự khớp), `activity_logs` cho phiếu / OCR, Report 3/4/5 (mục 5).
 
-## 3. Câu hỏi nghiệp vụ phải chốt TRƯỚC khi code
+**Sửa lại đề xuất bản 1.0:** Q4 "OCR điền sẵn số" là **sai**: nhân viên thấy số trên phiếu rồi bấm lưu thì không còn kiểm đếm. Đổi thành **nhập mù**: nhân viên đếm và nhập số trước, hệ thống mới so với phiếu (việc R3).
 
-| #   | Câu hỏi                                                                                                                | Đề xuất (tham khảo, người nhận tự cân nhắc)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| --- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Q1  | Dùng dịch vụ OCR nào?                                                                                                  | **Groq vision** — dùng lại key Groq đã có; theo tài liệu Groq (`console.groq.com/docs/vision`, đọc 10/11/2026) model `qwen/qwen3.8-27b` nhận ảnh (≤ 3 ảnh / request, URL ảnh ≤ 20 MB) và JSON mode → trả thẳng `{ supplier, date, lines: [{ name, code, quantity, unit }] }`. Phương án khác: Azure Document Intelligence (Free 500 trang/tháng, cần tài khoản Azure, chưa kiểm tiếng Việt); OCR.space (Free 25.000 lượt/tháng, ảnh ≤ 1 MB, chỉ trả chữ thô, phải tự tách dòng). **Kiểm lại hạn mức miễn phí trước khi chọn** |
-| Q2  | Số nhập lệch số trên phiếu thì sao?                                                                                    | **Không chặn**, bắt nhập **lý do** cho dòng lệch, gắn nhãn "Lệch phiếu" trong lịch sử, báo Store Owner (thông báo in-app). Lý do: NCC hay giao thiếu / có hàng lỗi — chặn thì kho kẹt. Phương án khác: chặn đến khi khớp; hoặc chờ Admin duyệt rồi mới cộng tồn                                                                                                                                                                                                                                                               |
-| Q3  | Bắt buộc ảnh phiếu không?                                                                                              | **Bắt buộc** khi nhập hàng từ NCC và mua vật liệu (chính là minh chứng hội đồng cần); **không bắt** với nhập lại hàng hoàn, kiểm kê, chuyển ô                                                                                                                                                                                                                                                                                                                                                                                 |
-| Q4  | Thứ tự thao tác?                                                                                                       | **Chụp phiếu → OCR điền sẵn dòng → nhân viên chọn SKU cho từng dòng, đếm hàng thật, sửa số → lưu.** Lưu cả số OCR đọc, số đã lưu, ai sửa gì. Phương án khác: nhập tay như hiện nay rồi tải phiếu, hệ thống đối chiếu sau                                                                                                                                                                                                                                                                                                      |
-| Q5  | Phiếu là ảnh hay PDF, mấy trang?                                                                                       | Ảnh (1–3 tấm / phiếu). PDF tuỳ chọn: Cloudinary đổi được trang PDF thành ảnh                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Q6  | Ghép dòng trên phiếu NCC với SKU nội bộ thế nào? (Tên trên phiếu NCC khác tên SKU, VD "Áo thun đỏ M" ↔ `AT-001-RED-M`) | Tự khớp nếu phiếu in đúng mã SKU / mã NCC đã lưu; còn lại nhân viên chọn tay. Có thể nhớ "tên trên phiếu → SKU" cho lần sau                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Q7  | Ai được sửa số OCR? Ai xem được lệch?                                                                                  | Người nhập (Warehouse Staff / Admin) sửa, có log; Store Owner + Admin xem danh sách phiếu lệch                                                                                                                                                                                                                                                                                                                                                                                                                                |
+## 3. Việc BE mới (chưa làm)
 
-## 4. Gợi ý thiết kế (sau khi đã chốt — sửa theo câu trả lời)
+AI chỉ dùng ở **1 lần gọi có sẵn** (`POST /receipt-ocr`). R1 đọc thêm kết quả của chính lần gọi đó; R2–R9 không gọi AI, không tốn token.
 
-**BE (`be/`)**
+| # | Việc | Chi tiết |
+|---|---|---|
+| R1 | **Ảnh không phải phiếu** | Sau `scan()`: 0 dòng, hoặc không đọc được cả nhà cung cấp lẫn ngày → trả lỗi `RECEIPT_OCR_NOT_A_SLIP` (422, "Ảnh không giống phiếu giao hàng, chụp lại") và lưu lần quét là thất bại. Tuỳ chọn: thêm `is_receipt` vào JSON yêu cầu model trả (cùng 1 lần gọi) |
+| R2 | **Tự khớp dòng theo mã ở BE** (Q6) | Khi lưu phiếu, dòng không gửi `ocr_line_index` → BE so mã in trên phiếu với `seller_sku` / `master_sku` (bỏ khoảng trắng, gạch, không phân biệt hoa thường). Khớp đúng 1 dòng → gắn; không khớp / khớp nhiều → bắt người nhập **chọn tay** `ocr_line_index` hoặc gửi `not_on_slip: true` + `mismatch_reason` (lỗi `WH_RECEIPT_LINE_UNMATCHED`). Dòng có `not_on_slip` tính là lệch |
+| R3 | **Nhập mù** | BE không đổi luật đối chiếu; chỉ ghi rõ trong `API_LIST.md` mục 33 rằng web / app **không** được điền số từ phiếu vào ô số lượng. Lưu `quantity` người nhập và `ocr_quantity` như hiện nay |
+| R4 | **Dự phòng: chụp lại → nhập không đối chiếu** | Cho lưu `not_checked` có chủ đích khi: (a) đã quét lỗi ≥ 2 lần cho cùng phiếu (đếm trong `receipt_ocr_scans`; cách nhận "cùng phiếu" Thi chốt, VD cùng người + cùng kho trong 30 phút), hoặc (b) AI không khả dụng (thiếu key, hết hạn mức, lỗi mạng). Bắt `unchecked_reason` (b: BE tự điền "AI không khả dụng: <mã lỗi>"). Ảnh vẫn bắt buộc, tồn vẫn cộng. Thông báo Store Owner + Admin: loại mới `stock_receipt_unchecked` (thêm vào `notification-type.enum.ts`; push theo `push-policy.ts` nếu cần) |
+| R5 | **Kiểm lại sau** | Bộ lọc có sẵn nhận thêm `?ocr_status=not_checked`; thêm `?reviewed=false`. Route mới `POST /warehouse/warehouses/:warehouseId/receipts/:receiptId/review` (Store Owner, Admin) ghi `reviewed_by`, `reviewed_at`, `review_note`; làm tương tự cho lần mua / nhập vật liệu |
+| R6 | **Chặn dùng lại ảnh cũ** | Lúc tải ảnh lấy `etag` (MD5 file) Cloudinary trả về, bật `phash: true` khi upload để lấy `phash`; lưu vào phiếu (`document_photos[{ url, etag, phash }]`). `etag` đã dùng ở phiếu khác → chặn `WH_RECEIPT_PHOTO_REUSED` (409). `phash` gần giống (Hamming ≤ ngưỡng, Thi thử chọn) → không chặn, gắn cờ `photo_suspect` để R5 kiểm |
+| R7 | **Nhãn nguồn ảnh** | `POST /proof-photos` nhận thêm `source: camera \| upload` (client gửi), lưu cùng ảnh, chỉ để hiển thị "Chụp trực tiếp" / "Tải từ máy", **không** dùng để chặn (client tự khai, không tin được) |
+| R8 | **`activity_logs`** | Ghi: quét phiếu (thành công / thất bại), lưu phiếu lệch, lưu không đối chiếu, kiểm lại (R5), chặn ảnh dùng lại (R6) |
+| R9 | **Bằng chứng giao hàng** (shop tự giao) | `POST /shipments/:id/deliver` nhận thêm `scanned_code` = nội dung QR trên nhãn (nhãn in dạng `mã vận đơn\|mã chuyến` hoặc `mã kiện\|mã vận đơn\|mã chuyến`, xem `document-renderers.ts`). Không chứa mã vận đơn của shipment → 422 `SHIP_LABEL_SCAN_MISMATCH`. Nhãn hỏng không quét được → `scan_skipped_reason` bắt buộc + thông báo Store Owner. Ảnh giao hàng áp R6 + R7 |
+| R10 | **Phiếu mẫu để demo** | Script dev `be/scripts/generate-supplier-slips.ts` (pdfkit + font tiếng Việt của module `documents`) đọc DB (`MONGODB_URI`), xuất 5 phiếu giao hàng PDF A5 ngang vào `docs/test-data/supplier-slips/` + file kịch bản demo. Nhà cung cấp hư cấu, dạng **phiếu giao hàng** (không phải hoá đơn VAT, không mã số thuế thật), trình bày như phiếu thật, **không** in chữ "mẫu / demo". 5 trường hợp: (1) vật liệu khớp; (2) hàng lệch: phiếu 50, nhập 48; (3) hàng không có trên phiếu; (4) phiếu nhiều dòng, dùng thử chặn ảnh cũ R6; (5) SKU mới (đặt sẵn, đổi bằng `--new-sku` / `--new-name`) |
 
-- Ảnh phiếu: upload qua route riêng (VD `POST /stock-receipt-photos`) hoặc mở rộng `proof-photos` với thư mục `optipack/receipts`; chỉ nhận URL đúng cloud + thư mục (học theo `@IsProofPhotoUrls()`).
-- OCR: `POST /stock-receipts/ocr` nhận URL ảnh → trả các dòng đọc được + độ tin cậy. **Không** tự cộng tồn ở bước này.
-- Phiếu nhập: thêm vào `StockReceipt` (và lần mua vật liệu) — `document_photo_urls[]`, `ocr: { provider, read_at, lines[{ text, code, quantity }] }`, mỗi dòng `ocr_quantity`, `mismatch_reason`, `edited_by`; cờ `has_mismatch` có index để lọc.
-- Lỗi rõ ràng theo chuẩn dự án: `{ error_code, message, details }`, tiền tố mã lỗi theo module (VD `WH_RECEIPT_PHOTO_REQUIRED`, `WH_RECEIPT_OCR_FAILED`, `WH_RECEIPT_MISMATCH_REASON_REQUIRED`).
-- OCR lỗi / hết hạn mức → vẫn cho nhập tay (không chặn kho), ghi nhận "chưa đối chiếu".
-- Thông báo lệch: gọi `NotificationsService.notify()` (thêm loại thông báo mới vào `notification-type.enum.ts`; nếu cần push thì cập nhật `notifications/push/push-policy.ts`).
-- Ghi lịch sử thao tác (`activity_logs`) cho: tải phiếu, sửa số OCR, lưu phiếu lệch.
+**Không làm:** chức năng tạo phiếu NCC trong sản phẩm (phiếu do NCC gửi); tạo SKU ở màn nhập kho (SKU mới đi luồng có sẵn: thêm sản phẩm trên AURELLE → đồng bộ → "SKU chưa gán ô" → gán ô → nhập kho; Lazada dùng `POST /product-master/sync`).
 
-**Web FE (`fe/`)**: bước tải / chụp phiếu ở màn nhập hàng và mua vật liệu (dùng lại hộp thoại webcam của ảnh bằng chứng, `FE_UPDATE_CHECKLIST.md` mục 14.1), bảng **"Theo phiếu – Đã nhập – Lệch"**, ô lý do cho dòng lệch, xem lại ảnh phiếu trong chi tiết phiếu nhập và lịch sử.
+**Lưu ý code:** field mới `X | null` khai `type:` trong `@Prop()`; ObjectId (`reviewed_by`) thêm vào `objectid-fields.ts`; chạy lại `npm run db:script`. Lỗi theo `{ error_code, message, details }`. Thêm test cho R1, R2, R4, R6, R9.
 
-## 5. Quy tắc dự án (bắt buộc)
+## 4. Quy tắc dự án
 
-- Làm trên nhánh riêng của mình; commit `type(AOFP-<số>): mô tả viết thường`, header ≤ 100 ký tự, mỗi chức năng 1 commit + 1 commit docs. Xem số AOFP lớn nhất trên GitHub trước khi đặt (hiện 274).
-- Pre-commit chạy `npm test` — phải đạt. Trước khi đẩy: `npx tsc --noEmit`, `npx eslint`, `npx jest` trong `be/`.
-- Schema mới: field `X | null` khai `type:` tường minh trong `@Prop()`; field ObjectId dùng `SchemaTypes.ObjectId` và thêm vào `be/src/common/schemas/objectid-fields.ts`; sinh lại `be/db/init-db.mongosh.js` bằng `npm run db:script`.
-- **Không commit** `be/.env`, key Groq / Cloudinary, ảnh phiếu thật có thông tin NCC.
-- Ghi nhật ký 5 câu vào `CLAUDE.md` (vấn đề / đã làm / vì sao / kiểm chứng / còn lại); route mới vào `GUIDE_DOC/API_LIST.md`; việc web vào `GUIDE_DOC/FE_UPDATE_CHECKLIST.md`.
+- Nhánh riêng; commit `type(AOFP-<số>): mô tả viết thường`, header ≤ 100 ký tự, mỗi chức năng 1 commit + 1 commit docs; xem số AOFP lớn nhất trên GitHub trước (14/11 lớn nhất là AOFP-294).
+- Pre-commit `npm test` phải đạt; trước khi đẩy: `npx tsc --noEmit`, `npx eslint`, `npx jest` trong `be/`.
+- **Không commit** `be/.env`, key Groq / Cloudinary, ảnh phiếu thật.
+- Ghi nhật ký 5 câu vào `CLAUDE.md`; route / field / mã lỗi mới vào `API_LIST.md` mục 33; việc web / app đã có sẵn ở 2 checklist (cập nhật trạng thái khi BE xong).
 
-## 6. Tài liệu phải cập nhật
+## 5. Tài liệu còn nợ
 
-| Tài liệu                                             | Nội dung                                                                                               |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Report 3 — SRS                                       | Yêu cầu chức năng mới: tải phiếu, OCR, đối chiếu, sửa tay, xử lý lệch (+ business rule cho Q2, Q3)     |
-| Report 4 — SDD                                       | Sơ đồ tuần tự "Nhập kho có phiếu + OCR"; cập nhật class / ERD (`stock_receipts`)                       |
-| Report 5 — Test                                      | Test case: thiếu ảnh, OCR khớp, OCR lệch có / không lý do, OCR lỗi → nhập tay, sửa số OCR, xem lại ảnh |
-| `API_LIST.md`, `FE_UPDATE_CHECKLIST.md`, `CLAUDE.md` | Như mục 5                                                                                              |
+| Tài liệu | Nội dung |
+|---|---|
+| Report 3 — SRS | Yêu cầu: ảnh phiếu bắt buộc, OCR, nhập mù, đối chiếu, lý do lệch, nhập không đối chiếu, kiểm lại, chặn ảnh cũ, quét nhãn khi giao |
+| Report 4 — SDD | Sơ đồ tuần tự "Nhập kho có phiếu + OCR" (cả nhánh AI lỗi); class / ERD: `stock_receipts`, `receipt_ocr_scans` |
+| Report 5 — Test | Test case theo mục 6 |
 
-## 7. Nghiệm thu (demo trước hội đồng)
+## 6. Nghiệm thu (demo trước hội đồng)
 
-1. Nhập hàng **không** tải phiếu → bị chặn (nếu chốt Q3 = bắt buộc).
-2. Chụp phiếu NCC "Áo thun đỏ M — 50" → hệ thống tự điền dòng, số 50.
-3. Nhân viên đếm thật được 48, sửa thành 48 → hệ thống bắt ghi lý do → lưu → phiếu gắn nhãn "Lệch phiếu", Store Owner nhận thông báo.
-4. Mở lại chi tiết phiếu / lịch sử → thấy ảnh phiếu, số OCR đọc (50), số đã nhập (48), lý do, người sửa, thời điểm.
-5. OCR lỗi (tắt mạng / sai key) → vẫn nhập tay được, phiếu ghi "chưa đối chiếu".
-6. Mua vật liệu (VD BOX-M × 100) có ảnh phiếu → tương tự bước 2–4.
+1. Nhập hàng không ảnh → bị chặn.
+2. Chụp ảnh không phải phiếu (VD ảnh bàn) → "chụp lại" (R1).
+3. Chụp phiếu 2 "Áo thun đỏ M — 50" → ô số lượng **trống**, nhân viên nhập 48 → bắt lý do → lưu → nhãn "Lệch phiếu", Store Owner nhận thông báo.
+4. Phiếu 3: dòng hàng không có trên phiếu → phải chọn "Không có trên phiếu" + lý do (R2).
+5. Dùng lại ảnh phiếu 4 cho phiếu nhập khác → bị chặn (R6).
+6. Tắt key AI → nút "Nhập không đối chiếu", lý do tự điền, vẫn lưu; Store Owner thấy trong lọc "Chưa đối chiếu", bấm "Đã kiểm" (R4, R5).
+7. Mua vật liệu theo phiếu 1 → khớp.
+8. Giao hàng shop tự giao: quét QR nhãn kiện khác → bị chặn; quét đúng + chụp ảnh → giao thành công (R9).

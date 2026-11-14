@@ -33,6 +33,8 @@
 | 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ✅ 13/11 — khung soạn (≤ 4000 ký tự, nhãn "Mặc định") + nút "Khôi phục mặc định" (gửi `null`) trong `PackingSettingsForm`; chỉ gửi khi có sửa |
 | 21 | 🆕 11/11 **Phiếu NCC có ảnh + AI đối chiếu số lượng** (góp ý hội đồng): nhập kho (Phiếu nhập / lô) và nhập thùng / túi / vật tư chèn / mua vật liệu bắt buộc ảnh phiếu, AI đọc phiếu, bảng Theo phiếu – Đã nhập – Lệch, lý do lệch, nhãn Lệch phiếu, lọc phiếu lệch | 18 | ~1 ngày | 🟡 11/11 — Claude đã làm web (`ReceiptEvidencePanel`); chụp bằng webcam ✅ 13/11 (nút "Chụp bằng camera" dùng chung `CameraCapture`, chụp tới 3 ảnh rồi tải + đọc phiếu); **còn** app mobile |
 | 22 | 🆕 11/11 ⚠ **App mobile gọi sai đường sau khi BE thêm tiền tố `/api`** (⚠ **chặn** — mọi màn app báo 404): sửa địa chỉ mặc định trong `mobile/lib/core/config/env.dart` thành `http://10.0.2.2:3000/api`, mọi lệnh `--dart-define=API_BASE_URL=` thêm `/api` | 19 | Nhỏ | ✅ 13/11 — `env.dart` mặc định `http://10.0.2.2:3000/api`; README và checklist mobile đã ghi `/api` ở mọi lệnh `--dart-define=API_BASE_URL` |
+| 23 | 🆕 14/11 **Phiếu NCC: nhập mù + chống gian lận ảnh + dự phòng AI**: bỏ điền sẵn số từ phiếu (làm ngay), báo "chụp lại", "Không có trên phiếu", "Nhập không đối chiếu", lọc Chưa đối chiếu / Chưa kiểm + nút Đã kiểm, chặn ảnh dùng lại, nhãn nguồn ảnh | 20.1–20.8 | ~1 ngày | ☐ 20.1 làm ngay; còn lại chờ BE (Thi, R1–R7) |
+| 24 | 🆕 14/11 **Giao thành công phải quét mã nhãn kiện** (shop tự giao): ô quét / nhập mã + "Nhãn hỏng" có lý do, rồi chụp ảnh | 20.9 | ~2 giờ | ☐ Chờ BE (Thi, R9) |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -515,9 +517,11 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 | 18.5 | Chuông thông báo | Loại `stock_receipt_mismatch` ("Nhập hàng lệch phiếu NCC") → mở `/app/inventory?view=receipts` hoặc trang vật liệu |
 
 **Còn lại (chưa làm):**
-1. Chụp bằng **webcam** trên máy tính: hiện dùng `<input type="file" accept="image/*">` (điện thoại mở được camera, máy tính chỉ chọn file). Làm chung hộp thoại chụp ảnh của mục 14.1 rồi thay nút "Chụp / chọn ảnh".
+1. ✅ 13/11 (dòng 21) Chụp bằng **webcam** trên máy tính: hiện dùng `<input type="file" accept="image/*">` (điện thoại mở được camera, máy tính chỉ chọn file). Làm chung hộp thoại chụp ảnh của mục 14.1 rồi thay nút "Chụp / chọn ảnh".
 2. **App mobile:** chưa có màn nhập kho có ảnh phiếu.
 3. Chi tiết phiếu chưa hiện tên người nhập (BE trả `createdBy` là id).
+
+> ⚠ 14/11: phần **điền sẵn số lượng** ở 18.1 phải bỏ (nhập mù), xem mục 20.
 
 **Nghiệm thu (theo handoff):** nhập không ảnh → nút mờ / BE 400 `WH_RECEIPT_PHOTO_REQUIRED`; chụp phiếu "50" → tự điền 50; sửa 48 → bắt lý do → lưu → nhãn Lệch phiếu, Store Owner nhận thông báo; mở lại chi tiết thấy ảnh, 50, 48, lý do; tắt key AI → vẫn lưu, "Chưa đối chiếu"; nhập BOX-M × 100 có ảnh → tương tự.
 
@@ -535,6 +539,24 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 3. Chạy trên điện thoại thật: `flutter run --dart-define=API_BASE_URL=http://<IP máy BE>:3000/api` (có `/api` ở cuối, không có dấu `/` sau `api`).
 
 **Thử:** trình duyệt trên điện thoại mở `http://<IP máy BE>:3000/api/health` → `"status":"ok"`; app đăng nhập được, vào "Việc của tôi" có dữ liệu; terminal BE không còn log `Cannot POST /auth/...`.
+
+## 20. 🆕 14/11/2026 — Phiếu NCC: chống gian lận ảnh, nhập mù, dự phòng khi AI lỗi (dòng 23, 24)
+
+**Vì sao:** mục 18 đã chạy nhưng còn kẽ hở: (1) web **điền sẵn số trên phiếu** vào ô số lượng (`onQuantityFromSlip` trong `ReceiptEvidencePanel.tsx`) → nhân viên bấm lưu là "khớp", không còn kiểm đếm; (2) chụp ảnh bất kỳ / dùng lại ảnh phiếu cũ vẫn qua; (3) AI hỏng thì chưa có đường đi rõ ràng. BE do **Thi** làm theo `STOCK_RECEIPT_OCR_HANDOFF.md` bản 1.1 mục 3 (R1–R9). **Chỉ nối khi BE xong từng việc** (mã R trong cột cuối); trước đó chỉ làm được 20.1.
+
+| # | Màn | Việc FE | BE |
+|---|---|---|---|
+| 20.1 | Khối ảnh phiếu (`ReceiptEvidencePanel`, cả nhập kho và vật liệu) | **Nhập mù:** bỏ `onQuantityFromSlip`, ô số lượng để trống, **không** hiện số trên phiếu trước khi nhân viên nhập số. Sau khi nhập mới hiện bảng Theo phiếu – Đã nhập – Lệch. Vẫn điền sẵn được nhà cung cấp (không ảnh hưởng kiểm đếm) | Không cần (R3) |
+| 20.2 | Khối ảnh phiếu | Lỗi `RECEIPT_OCR_NOT_A_SLIP` → báo đỏ "Ảnh không giống phiếu giao hàng, chụp lại", giữ nút chụp / chọn ảnh | R1 |
+| 20.3 | Khối ảnh phiếu | Dòng không tự khớp (lỗi `WH_RECEIPT_LINE_UNMATCHED`) → ô chọn dòng trên phiếu + lựa chọn **"Không có trên phiếu"** (bắt lý do, tính là lệch). Thay phần tự khớp mã đang làm ở web bằng kết quả BE trả | R2 |
+| 20.4 | Khối ảnh phiếu | Quét lỗi ≥ 2 lần hoặc BE báo AI không khả dụng → hiện nút **"Nhập không đối chiếu"** + ô lý do (AI không khả dụng: BE tự điền, chỉ hiện). Câu giải thích: "Ảnh phiếu vẫn được lưu, chủ shop sẽ kiểm lại". Bỏ câu vàng cũ "Vẫn lưu được…" của mục 18.1 | R4 |
+| 20.5 | Chuông thông báo | Loại mới `stock_receipt_unchecked` ("Nhập hàng chưa đối chiếu phiếu") → mở `/app/inventory?view=receipts` (hoặc trang vật liệu), giống `stock_receipt_mismatch` | R4 |
+| 20.6 | Tồn kho → tab **Phiếu nhập**; Vật liệu → Lịch sử | Bộ lọc thêm **Chưa đối chiếu** (`?ocr_status=not_checked`) và **Chưa kiểm** (`?reviewed=false`). Chi tiết phiếu: nút **"Đã kiểm"** (Store Owner, Admin) + ô ghi chú → `POST …/receipts/:receiptId/review`; đã kiểm thì hiện người kiểm, lúc kiểm | R5 |
+| 20.7 | Khối ảnh phiếu | Lỗi `WH_RECEIPT_PHOTO_REUSED` (409) → "Ảnh này đã dùng cho phiếu <mã> — chụp phiếu thật"; phiếu có cờ `photo_suspect` → nhãn cam "Nghi trùng ảnh" ở danh sách + chi tiết | R6 |
+| 20.8 | Mọi chỗ tải ảnh (`ProofPhotoPicker`, `CameraCapture`) | Gửi `source=camera` khi chụp bằng `CameraCapture`, `source=upload` khi chọn file; ảnh trong chi tiết hiện nhãn nhỏ "Chụp trực tiếp" / "Tải từ máy" (chỉ để xem) | R7 |
+| 20.9 | Vận chuyển → Giao thành công (shop tự giao, `ShippingPage`) | Thêm ô **"Quét / nhập mã trên nhãn"** trước khi chụp ảnh (máy quét cầm tay gõ như bàn phím, không cần thư viện mới) → gửi `scanned_code`. Lỗi `SHIP_LABEL_SCAN_MISMATCH` → "Mã nhãn không phải kiện này". Có lựa chọn "Nhãn hỏng, không quét được" + lý do (`scan_skipped_reason`). Ảnh chụp bằng `CameraCapture` có sẵn | R9 |
+
+**Nghiệm thu:** theo `STOCK_RECEIPT_OCR_HANDOFF.md` mục 6 (phiếu mẫu ở `docs/test-data/supplier-slips/` khi Thi xong R10).
 
 ## Phụ lục ✅ — đã hoàn thành
 

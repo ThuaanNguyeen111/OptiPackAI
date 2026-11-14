@@ -158,6 +158,7 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☑ BE xong 10/11/2026 (mục 9a) |
 | Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
 | `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
+| Ảnh phiếu NCC chống gian lận, nhập không đối chiếu, quét nhãn khi giao (handoff OCR bản 1.1, R1–R9) | Màn nhập kho có phiếu, giao thành công (mục 9g) | ☐ Thi đang làm (giao 14/11/2026) |
 | `GET /app/version` (phiên bản app tối thiểu) | Bắt cập nhật app cũ; không cần khi chỉ demo trên máy nhóm | ✖ Bỏ 10/11/2026 (app không đưa lên store) |
 
 ### 9a. Ảnh bằng chứng (BE xong 10/11/2026)
@@ -181,6 +182,17 @@ Chi tiết và mã lỗi: `API_LIST.md` mục 30. Link ảnh là link Cloudinary
 - Giao hàng: đơn Hỏa Tốc chỉ có "Shop tự giao" (người tạo vận đơn là shipper); vận đơn GHN chỉ xem, trạng thái do hãng cập nhật.
 - Tra cứu đơn của chủ shop lọc 100 đơn mới nhất trên máy (BE chưa có tìm kiếm theo chữ).
 - Lỗi tải hiện câu của BE + nút "Thử lại" (mất mạng / không có quyền có biểu tượng riêng).
+
+### 9g. Phiếu NCC khi nhập kho + quét nhãn khi giao (14/11/2026)
+
+☐ **Chưa làm.** BE ảnh phiếu + AI đọc phiếu đã có (`API_LIST.md` mục 33, web làm ở `FE_UPDATE_CHECKLIST.md` mục 18); việc BE mới do **Thi** làm theo `STOCK_RECEIPT_OCR_HANDOFF.md` bản 1.1 (mã R ở cuối mỗi dòng). Làm theo đúng luật web mục 20, app chỉ khác cách chụp:
+
+1. **Màn nhập kho có ảnh phiếu** (Warehouse Staff, tab Kho; hiện app chưa có): chọn ô / SKU → chụp 1–3 ảnh phiếu → `POST /proof-photos?purpose=receipt` → `POST /receipt-ocr` → nhân viên **tự đếm và nhập số** (nhập mù: không điền số từ phiếu, không hiện số trên phiếu trước khi nhập) → hiện Theo phiếu – Đã nhập – Lệch, lệch bắt lý do → lưu phiếu nhập (`document_photo_urls`, `ocr_scan_id`, `ocr_line_index`, `mismatch_reason`).
+2. **Chỉ chụp bằng camera** ở màn nhập kho và giao thành công: `ProofPhotoField` thêm tuỳ chọn ẩn nút thư viện ảnh (`ImageSource.gallery`); các màn khác giữ nguyên. Gửi `source=camera` (R7).
+3. Lỗi `RECEIPT_OCR_NOT_A_SLIP` → "Ảnh không giống phiếu giao hàng, chụp lại" (R1). Dòng không khớp → chọn dòng trên phiếu hoặc "Không có trên phiếu" + lý do (R2). `WH_RECEIPT_PHOTO_REUSED` → "Ảnh này đã dùng cho phiếu khác" (R6).
+4. **Dự phòng:** quét lỗi ≥ 2 lần hoặc AI không khả dụng → nút "Nhập không đối chiếu" + lý do (BE tự điền khi AI hỏng) (R4). Mất mạng: không cho lưu phiếu nhập ngoại tuyến (phải có ảnh lên Cloudinary và đọc phiếu trước), báo "Cần có mạng để nhập kho có phiếu".
+5. **Giao thành công (shop tự giao):** trước khi chụp ảnh, mở `ScannerScreen` có sẵn quét QR trên nhãn kiện → gửi `scanned_code` cùng `POST /shipments/:id/deliver`. Lỗi `SHIP_LABEL_SCAN_MISMATCH` → "Mã nhãn không phải kiện này". Nút "Nhãn hỏng, không quét được" + lý do (`scan_skipped_reason`) (R9).
+6. Thông báo mới `stock_receipt_unchecked` ("Nhập hàng chưa đối chiếu phiếu") cho Store Owner: thêm nhãn vào danh sách loại thông báo (R4).
 
 ### 9e. Quyền trang theo vai trò (BE AOFP-283)
 
