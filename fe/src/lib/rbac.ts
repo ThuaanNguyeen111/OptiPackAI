@@ -73,6 +73,8 @@ function normalizePath(pathname: string): string {
 
 function featureOfPath(path: string): Feature | null {
   if (path === '/app') return 'dashboard'
+  // Trang nhúng khung 3D cho WebView của app mobile: cùng quyền với trang Đóng gói.
+  if (path.startsWith('/embed/packing/')) return 'packing'
   for (const f of FEATURE_VALUES) {
     const prefix = FEATURE_PATHS[f]
     if (prefix !== '/app' && (path === prefix || path.startsWith(`${prefix}/`))) return f

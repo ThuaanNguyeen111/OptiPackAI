@@ -1,3 +1,4 @@
+import { embedApiBase, isEmbedMode } from './embed-session'
 import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
 import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
@@ -5,8 +6,9 @@ import { RETURNS_ERROR_MESSAGES } from '../types/returns'
 import { SHIPMENT_ERROR_MESSAGES } from '../types/shipments'
 import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
+// Trang nhúng (WebView trong app mobile) dùng địa chỉ API do app truyền vào.
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+  embedApiBase() || import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 
 /** JwtStrategy đọc Redis trước Mongo — Redis chậm/treo thì fetch không bao giờ settle. */
 const REQUEST_TIMEOUT_MS = 12_000
@@ -126,6 +128,8 @@ async function parseJson(res: Response): Promise<unknown> {
 let refreshInFlight: Promise<boolean> | null = null
 
 async function rotateRefreshToken(): Promise<boolean> {
+  // Trang nhúng không tự làm mới token (xem embed-session.ts) — để app cấp token mới.
+  if (isEmbedMode()) return false
   const refreshToken = getRefreshToken()
   if (!refreshToken) return false
 

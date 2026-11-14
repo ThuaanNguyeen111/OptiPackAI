@@ -23,6 +23,7 @@ import { fetchMyProfile } from '../../api/users.api'
 import { listMarketplaceShops } from '../../api/marketplace.api'
 import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
+import { usePreserveNavScroll } from '../../hooks/usePreserveNavScroll'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useTheme } from '../../hooks/useTheme'
 import { usesTealAppChrome } from '../../lib/app-chrome'
@@ -192,6 +193,7 @@ export function PortalSidebar() {
     locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
   const isStoreOwner = role === UserRole.STORE_OWNER
   const tealChrome = usesTealAppChrome(role)
+  const { navRef, onNavLinkMouseDown, rememberScroll } = usePreserveNavScroll()
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
   const sidebarDisplayName = session
@@ -335,7 +337,10 @@ export function PortalSidebar() {
         </div>
       ) : null}
 
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+      <nav
+        ref={navRef}
+        className="flex flex-1 flex-col gap-1 overflow-y-auto p-2"
+      >
         {visibleNav.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
           const prevSection = idx > 0 ? visibleNav[idx - 1].section : null
           const showSection =
@@ -355,7 +360,11 @@ export function PortalSidebar() {
               <NavLink
                 to={to}
                 end={end}
-                onClick={() => setMobileNavOpen(false)}
+                onMouseDown={onNavLinkMouseDown}
+                onClick={() => {
+                  rememberScroll()
+                  setMobileNavOpen(false)
+                }}
                 title={locale === 'vi' ? labelVi : labelEn}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${

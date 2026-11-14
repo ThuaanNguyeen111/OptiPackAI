@@ -52,6 +52,8 @@ dependencies:
   image_picker: ^1.2.0
   # 13/11/2026 — đăng nhập Google (id_token → POST /auth/google/mobile)
   google_sign_in: ^7.2.0
+  # 14/11/2026 — khung 3D đóng gói: nhúng trang web /embed/packing trong WebView
+  webview_flutter: ^4.13.0
 
 dev_dependencies:
   flutter_test:

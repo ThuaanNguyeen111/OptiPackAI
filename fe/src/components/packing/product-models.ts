@@ -35,7 +35,26 @@ export const ITEM_MODELS: Record<string, ItemModel> = {
   jacket: { path: '/models/bomber.glb', kind: 'garment' },
   shoes: { path: '/models/shoepack.glb', kind: 'rigid', prepStep: 'shoeBox' },
   bag: { path: '/models/handbag.glb', kind: 'rigid', prepStep: 'bagPrep' },
+  // Hộp phụ kiện (kính, đồ nhỏ dễ vỡ): bọc xốp hơi rồi dán băng keo trước khi đặt vào thùng.
+  accessory: { path: '/models/materials/accessory_case.glb', kind: 'rigid' },
 }
+
+/**
+ * Model vật tư chèn (tự dựng bằng Blender: `fe/blender/make_packing_materials.py`). Khóa là loại vật tư BE trả ở
+ * `materials[].type`. Mét, trục Y hướng lên, đáy ở y = 0 — cảnh 3D tự thu phóng theo chỗ đặt.
+ */
+export const MATERIAL_MODELS: Record<string, string> = {
+  bubble_wrap: '/models/materials/bubble_wrap.glb',
+  air_pillow: '/models/materials/air_pillow.glb',
+  fragile_tape: '/models/materials/fragile_label.glb',
+  foam_corner: '/models/materials/foam_corner.glb',
+  corrugated_divider: '/models/materials/corrugated_divider.glb',
+  kraft_paper: '/models/materials/kraft_paper.glb',
+  tissue_paper: '/models/materials/tissue_paper.glb',
+}
+
+/** Cuộn băng keo dán thùng (không nằm trong danh mục vật tư của BE). */
+export const TAPE_ROLL_MODEL = '/models/materials/tape_roll.glb'
 
 /** Túi niêm phong (`box.kind = 'mailer'`): trải phẳng → phồng → dán nắp → dán tem. */
 export const MAILER_MODEL = '/models/mailer.glb'

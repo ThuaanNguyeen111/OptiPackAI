@@ -13,7 +13,7 @@ import '../../core/format/units.dart';
 import '../../shared/widgets.dart';
 import '../warehouse/scanner_screen.dart';
 import 'packing_repository.dart';
-import 'parcel_layer_view.dart';
+import 'parcel_3d_screen.dart';
 import '../../app/colors.dart';
 
 /// Hàng đợi của Packaging Staff: chờ chấp nhận kế hoạch / đang đóng.
@@ -354,7 +354,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
                       ),
                     ),
                   const SizedBox(height: 12),
-                  ParcelLayerView(parcel: p),
+                  ParcelLayoutCard(groupId: g.id, parcel: p),
                   const SizedBox(height: 8),
                   for (final e in p.needed.entries)
                     Text('• ${e.value} × ${e.key}', style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
@@ -449,7 +449,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
         const SizedBox(height: 12),
         ExpansionTile(
           title: const Text('Xem cách xếp'),
-          children: [ParcelLayerView(parcel: parcel)],
+          children: [ParcelLayoutCard(groupId: widget.groupId, parcel: parcel)],
         ),
         if (pending) ...[
           const SizedBox(height: 12),
