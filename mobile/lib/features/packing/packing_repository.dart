@@ -2,7 +2,7 @@
 /// BE đã có: `GET /order-groups?assigned_packer_id=`, `GET /order-groups/:id/packing-plan`,
 /// `POST …/packing-plan/approve|reject|start`, `…/parcels/:no/scan|unscan|seal|unseal`, `…/report-issue`, `…/finish`.
 /// Quét món (`scan`) có `client_event_id` nên đưa được vào hàng đợi ngoại tuyến; niêm phong/báo lỗi thì không.
-/// Ảnh báo lỗi kiện: **BE chưa có API upload**.
+/// Ảnh báo lỗi kiện: tải lên `POST /proof-photos`, gửi `photo_urls` kèm report-issue (không bắt buộc).
 enum PackingStage { pendingApproval, packing }
 
 enum ParcelStatus { pending, sealed, held }
@@ -173,7 +173,7 @@ abstract class PackingRepository {
   Future<Parcel> scan(String groupId, int parcelNo, String code);
   Future<Parcel> unscan(String groupId, int parcelNo, String sku);
   Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg);
-  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue);
+  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue, {List<String> photoUrls = const []});
 }
 
 class MockPackingRepository implements PackingRepository {
@@ -355,7 +355,7 @@ class MockPackingRepository implements PackingRepository {
   }
 
   @override
-  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue) async {
+  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue, {List<String> photoUrls = const []}) async {
     await _latency();
     _parcel(groupId, parcelNo);
   }

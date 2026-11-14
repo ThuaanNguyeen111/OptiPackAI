@@ -163,6 +163,15 @@ class ApiClient {
 
   Future<Object?> delete(String path) => _send(() => _dio.delete<dynamic>(path));
 
+  /// Gửi file `multipart/form-data` (ảnh bằng chứng). Ảnh vài MB nên cho thời gian gửi dài hơn.
+  Future<Object?> upload(String path, FormData data, {Map<String, dynamic>? query}) =>
+      _send(() => _dio.post<dynamic>(
+            path,
+            data: data,
+            queryParameters: _clean(query),
+            options: Options(sendTimeout: const Duration(seconds: 60)),
+          ));
+
   Future<Object?> _send(Future<Response<dynamic>> Function() call) async {
     try {
       final res = await call();

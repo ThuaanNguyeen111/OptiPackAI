@@ -41,11 +41,23 @@ class StockItem {
 }
 
 class BinStock {
-  const BinStock({required this.binCode, required this.zoneCode, required this.items});
+  const BinStock({
+    required this.binCode,
+    required this.zoneCode,
+    required this.items,
+    this.binId,
+    this.isActive = true,
+  });
 
   final String binCode;
   final String zoneCode;
   final List<StockItem> items;
+
+  /// Id ô trên BE (cần khi chuyển hàng sang ô này).
+  final String? binId;
+
+  /// Ô đã ngừng dùng thì không nhập / chuyển vào được.
+  final bool isActive;
 }
 
 class StockException implements Exception {

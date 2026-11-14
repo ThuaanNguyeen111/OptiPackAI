@@ -26,7 +26,7 @@ class NotificationsScreen extends ConsumerWidget {
             onRefresh: refresh,
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: refresh),
               data: (items) => ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(16),
@@ -168,12 +168,13 @@ class _PushSettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: SwitchListTile(
-        value: false,
-        onChanged: null,
-        secondary: const Icon(Icons.notifications_active_outlined),
+      child: ListTile(
+        leading: const Icon(Icons.notifications_active_outlined),
         title: const Text('Thông báo đẩy'),
-        subtitle: const Text('Báo ngay cả khi app đóng. Chờ BE hỗ trợ (đăng ký thiết bị + FCM).'),
+        subtitle: const Text(
+          'Việc gấp và việc được giao báo ngay cả khi app đóng. '
+          'Không thấy thông báo thì bật quyền Thông báo cho OptiPackAI trong Cài đặt của máy.',
+        ),
       ),
     );
   }

@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
-import { Camera, Loader2, RefreshCw, X } from 'lucide-react'
+import { Camera, ImagePlus, Loader2, RefreshCw, X } from 'lucide-react'
+import { CameraCapture } from '../proof/CameraCapture'
+import { canUseCamera } from '../proof/camera'
 import { scanReceipt, uploadReceiptPhotos } from '../../api/receipt-evidence.api'
 import { formatApiError } from '../../lib/api'
 import { EMPTY_RECEIPT_EVIDENCE, guessLine, MAX_PHOTOS, selectedLine, type ReceiptEvidenceState } from './receipt-evidence'
@@ -24,6 +26,9 @@ export function ReceiptEvidencePanel({
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState<'upload' | 'scan' | null>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  /** (13/11/2026) Ảnh chụp bằng webcam, gom tới khi bấm "Dùng ảnh" rồi mới tải + đọc phiếu. */
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [shots, setShots] = useState<File[]>([])
   const line = selectedLine(value)
   const diff = line ? quantity - line.quantity : 0
 
@@ -42,7 +47,7 @@ export function ReceiptEvidencePanel({
     }
   }
 
-  async function pick(files: FileList | null) {
+  async function pick(files: FileList | File[] | null) {
     if (!files || files.length === 0) return
     const chosen = Array.from(files).slice(0, MAX_PHOTOS)
     setUploadError(
@@ -80,16 +85,56 @@ export function ReceiptEvidencePanel({
           className="hidden"
           onChange={(e) => void pick(e.target.files)}
         />
-        <button
-          type="button"
-          disabled={busy !== null}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken disabled:opacity-50"
-          onClick={() => fileRef.current?.click()}
-        >
-          {busy === 'upload' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-          {value.photoUrls.length > 0 ? (vi ? 'Chụp / chọn lại' : 'Replace') : vi ? 'Chụp / chọn ảnh' : 'Take / pick photo'}
-        </button>
+        <div className="flex gap-1.5">
+          {canUseCamera() ? (
+            <button
+              type="button"
+              disabled={busy !== null}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken disabled:opacity-50"
+              onClick={() => {
+                setShots([])
+                setCameraOpen(true)
+              }}
+            >
+              <Camera className="h-3.5 w-3.5" />
+              {vi ? 'Chụp bằng camera' : 'Use camera'}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy !== null}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken disabled:opacity-50"
+            onClick={() => fileRef.current?.click()}
+          >
+            {busy === 'upload' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+            {value.photoUrls.length > 0 ? (vi ? 'Chọn lại' : 'Replace') : vi ? 'Chọn ảnh' : 'Pick photo'}
+          </button>
+        </div>
       </div>
+
+      {cameraOpen ? (
+        <CameraCapture
+          vi={vi}
+          onCapture={(file) => {
+            const next = [...shots, file].slice(0, MAX_PHOTOS)
+            setShots(next)
+            // Đủ số ảnh tối đa thì dùng luôn.
+            if (next.length >= MAX_PHOTOS) {
+              setCameraOpen(false)
+              void pick(next)
+            }
+          }}
+          onClose={() => {
+            setCameraOpen(false)
+            if (shots.length > 0) void pick(shots)
+          }}
+          hint={
+            vi
+              ? `Đã chụp ${String(shots.length)}/${String(MAX_PHOTOS)} ảnh. Bấm "Xong" để tải lên và đọc phiếu.`
+              : `${String(shots.length)}/${String(MAX_PHOTOS)} taken. Press "Done" to upload.`
+          }
+        />
+      ) : null}
 
       {value.photoUrls.length > 0 ? (
         <div className="flex flex-wrap gap-2">

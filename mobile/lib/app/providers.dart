@@ -8,6 +8,7 @@ import '../core/storage/json_cache.dart';
 import '../core/storage/token_store.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_repository.dart';
+import '../features/auth/google_sign_in_service.dart';
 import '../features/offline/action_queue.dart';
 import '../features/offline/sqlite_action_queue.dart';
 import '../features/offline/sync_controller.dart';
@@ -62,6 +63,9 @@ final syncServiceProvider = Provider<SyncService>((ref) {
     },
   );
 });
+
+/// Lấy `id_token` cho đăng nhập Google. Test ghi đè bằng bản giả.
+final googleIdTokenProvider = Provider<GoogleIdTokenProvider>((ref) => PlatformGoogleIdTokenProvider());
 
 final authControllerProvider =
     NotifierProvider<AuthController, AuthState>(AuthController.new);

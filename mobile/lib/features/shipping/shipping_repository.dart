@@ -1,15 +1,28 @@
 /// Giao hàng cho Shipping Coordinator. **Đang là dữ liệu giả.**
 /// BE đã có: `GET /order-groups?fulfillment_status=packed`, `GET /shipping/quote/:groupId`, `POST /shipments`,
 /// `POST /shipments/:id/deliver|fail|retry`, `GET /shipments/reason-codes`.
-/// Ảnh bằng chứng giao hàng: **BE chưa có API upload** (`proof.photo_urls` mới chỉ là chỗ chừa sẵn).
+/// Ảnh bằng chứng: tải lên `POST /proof-photos` rồi gửi `photo_urls` kèm deliver / fail.
+/// BE bắt ảnh khi giao thành công vận đơn **shop tự giao** (không qua hãng): thiếu → 400 `SHP_PROOF_PHOTO_REQUIRED`.
 enum ShipmentStatus {
-  outForDelivery('Đang giao'),
-  deliveryFailed('Giao thất bại'),
-  returningToWarehouse('Đang hoàn về kho'),
-  delivered('Đã giao');
+  awaitingPickup('awaiting_pickup', 'Chờ hãng lấy hàng'),
+  inTransit('in_transit', 'Đang trung chuyển'),
+  outForDelivery('out_for_delivery', 'Đang giao'),
+  deliveryFailed('delivery_failed', 'Giao thất bại'),
+  returningToWarehouse('returning_to_warehouse', 'Đang hoàn về kho'),
+  delivered('delivered', 'Đã giao'),
+  returnedToWarehouse('returned_to_warehouse', 'Đã về kho'),
+  cancelled('cancelled', 'Đã huỷ ở hãng');
 
-  const ShipmentStatus(this.label);
+  const ShipmentStatus(this.code, this.label);
+
+  /// Giá trị `status` của BE.
+  final String code;
   final String label;
+
+  static ShipmentStatus? fromCode(String code) =>
+      ShipmentStatus.values.where((s) => s.code == code).firstOrNull;
+
+  bool get isFinal => this == delivered || this == returnedToWarehouse || this == cancelled;
 }
 
 /// Khớp `DELIVERY_FAILURE_REASONS` của BE.
@@ -47,6 +60,7 @@ class ShipGroup {
     required this.parcelCount,
     this.isExpress = false,
     this.deadline,
+    this.requiresSelfDelivery = false,
   });
 
   final String id;
@@ -57,7 +71,13 @@ class ShipGroup {
   final int parcelCount;
   final bool isExpress;
   final DateTime? deadline;
+
+  /// Đơn Hỏa Tốc AURELLE: shop tự giao, không qua hãng (BE chặn chọn hãng).
+  final bool requiresSelfDelivery;
 }
+
+/// Mã lựa chọn "shop tự giao" trong danh sách báo giá (không phải hãng thật).
+const selfDeliveryQuoteCode = 'SELF';
 
 class CarrierQuote {
   const CarrierQuote({
@@ -66,6 +86,7 @@ class CarrierQuote {
     required this.service,
     required this.feeVnd,
     required this.eta,
+    this.unavailableReason,
   });
 
   final String code;
@@ -73,6 +94,9 @@ class CarrierQuote {
   final String service;
   final int feeVnd;
   final String eta;
+
+  /// Hãng không báo giá được (VD địa chỉ không hợp lệ) → không chọn được.
+  final String? unavailableReason;
 }
 
 class ShipmentView {
@@ -87,6 +111,9 @@ class ShipmentView {
     this.attempt = 1,
     this.dueAt,
     this.failureReason,
+    this.selfDelivery = false,
+    this.managedByCarrier = false,
+    this.version = 0,
   });
 
   final String id;
@@ -99,6 +126,15 @@ class ShipmentView {
   final int attempt;
   final DateTime? dueAt;
   final FailureReason? failureReason;
+
+  /// Shop tự giao (đơn Hỏa Tốc, không có hãng): giao thành công bắt buộc có ảnh.
+  final bool selfDelivery;
+
+  /// Vận đơn hãng API (GHN): trạng thái do hãng báo, không bấm giao / thất bại tay được.
+  final bool managedByCarrier;
+
+  /// `version` của vận đơn: gửi làm `expected_version`.
+  final int version;
 
   bool get canRetry => status == ShipmentStatus.deliveryFailed && attempt < maxDeliveryAttempts;
 
@@ -113,6 +149,9 @@ class ShipmentView {
         attempt: attempt ?? this.attempt,
         dueAt: dueAt,
         failureReason: failureReason ?? this.failureReason,
+        selfDelivery: selfDelivery,
+        managedByCarrier: managedByCarrier,
+        version: version,
       );
 }
 
@@ -129,8 +168,8 @@ abstract class ShippingRepository {
   Future<List<CarrierQuote>> quote(String groupId);
   Future<ShipmentView> create(String groupId, String carrierCode);
   Future<List<ShipmentView>> shipments();
-  Future<ShipmentView> deliver(String id);
-  Future<ShipmentView> fail(String id, FailureReason reason, {String? note});
+  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const []});
+  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []});
   Future<ShipmentView> retry(String id);
 }
 
@@ -158,6 +197,17 @@ class MockShippingRepository implements ShippingRepository {
       ),
     ];
     _shipments = [
+      ShipmentView(
+        id: 'ship40',
+        code: 'SHP-261109-000040',
+        groupShortId: '5d2e8b1f07',
+        recipientName: 'Phạm Minh Đức',
+        status: ShipmentStatus.outForDelivery,
+        carrierName: 'Shop tự giao (Hỏa Tốc)',
+        trackingCode: 'SHP-261109-000040',
+        dueAt: now.add(const Duration(minutes: 50)),
+        selfDelivery: true,
+      ),
       ShipmentView(
         id: 'ship41',
         code: 'SHP-261109-000041',
@@ -241,11 +291,14 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<ShipmentView> deliver(String id) async {
+  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const []}) async {
     await _latency();
     final s = _get(id);
     if (s.status != ShipmentStatus.outForDelivery) {
       throw const ShippingException('Vận đơn không ở trạng thái đang giao.', code: 'SHP_INVALID_TRANSITION');
+    }
+    if (s.selfDelivery && photoUrls.isEmpty) {
+      throw const ShippingException('Vận đơn shop tự giao cần ít nhất 1 ảnh bằng chứng.', code: 'SHP_PROOF_PHOTO_REQUIRED');
     }
     final v = s.copyWith(status: ShipmentStatus.delivered);
     _set(v);
@@ -253,7 +306,7 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<ShipmentView> fail(String id, FailureReason reason, {String? note}) async {
+  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []}) async {
     await _latency();
     final s = _get(id);
     if (s.status != ShipmentStatus.outForDelivery) {

@@ -1,4 +1,5 @@
 import { apiRequest } from '../lib/api'
+import { uploadProofPhotos } from './proof-photos.api'
 
 /**
  * 11/11/2026 — Ảnh phiếu nhà cung cấp + đọc phiếu bằng AI (OCR) để đối chiếu số lượng
@@ -72,21 +73,8 @@ export function mapIntakeEvidence(raw: Record<string, unknown>): IntakeEvidence 
 }
 
 /** POST /proof-photos?purpose=receipt — 1–3 ảnh, mỗi ảnh ≤ 10 MB. Trả URL theo thứ tự gửi. */
-export async function uploadReceiptPhotos(files: File[]): Promise<string[]> {
-  const form = new FormData()
-  for (const file of files) form.append('files', file, file.name)
-  const res = await apiRequest<unknown>('/proof-photos?purpose=receipt', {
-    method: 'POST',
-    auth: true,
-    body: form,
-    timeoutMs: 60_000,
-  })
-  const photos = asRecord(res)?.photos
-  if (!Array.isArray(photos)) throw new Error('Không đọc được ảnh vừa tải.')
-  return photos.flatMap((p) => {
-    const url = str(asRecord(p)?.url)
-    return url ? [url] : []
-  })
+export function uploadReceiptPhotos(files: File[]): Promise<string[]> {
+  return uploadProofPhotos(files, 'receipt')
 }
 
 /** POST /receipt-ocr — AI đọc phiếu. Lỗi 503/502 → FE cho nhập tay ("chưa đối chiếu"). */

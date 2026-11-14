@@ -162,6 +162,8 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 
 ### 9a. Ảnh bằng chứng (BE xong 10/11/2026)
 
+🟡 **App đã nối 13/11/2026 (chưa thử trên máy thật):** `features/proof/` (`ProofPhotoField` chụp / chọn ≤ 3 ảnh, thu nhỏ 1600 px, JPG 80; `ProofPhotoRepository.upload` gọi `POST /proof-photos`), `ApiClient.upload` (multipart, gửi tối đa 60 giây). Đã gắn: giao thành công (shop tự giao bắt buộc ≥ 1 ảnh, nút xác nhận khoá tới khi có ảnh), giao thất bại, kiểm hàng hoàn, báo lỗi kiện (không bắt buộc). Ảnh tải lên lúc bấm xác nhận, **chưa** vào hàng đợi ngoại tuyến (bước 4 dưới chưa làm): mất mạng thì báo lỗi, người dùng bấm lại. Repository giao hàng / hoàn hàng / đóng gói vẫn là dữ liệu giả, nên `photo_urls` mới chỉ kiểm ở mock; riêng tải ảnh gọi BE thật.
+
 1. Chụp ảnh (tối đa 3), **nén trước khi gửi** (VD cạnh dài ~1600 px, JPG chất lượng ~80) để gửi nhanh và đỡ tốn dung lượng. BE nhận JPG / PNG / WebP / HEIC, mỗi ảnh ≤ 10 MB.
 2. `POST /proof-photos` (`multipart/form-data`, field `files`) → `{ photos: [{ url, ... }] }`.
 3. Gửi `photo_urls: [url, ...]` kèm thao tác: `POST /shipments/:id/deliver` (shop tự giao: bắt buộc ≥ 1), `/shipments/:id/fail`, `POST /returns/:id/inspect`, `.../packing-plan/report-issue` (không bắt buộc).
@@ -169,6 +171,20 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 5. Xem lại ảnh: `GET /shipments/:id/events` (`photoUrls`), phiếu trả `inspectionPhotoUrls`, kế hoạch đóng gói `issues[].photoUrls`.
 
 Chi tiết và mã lỗi: `API_LIST.md` mục 30. Link ảnh là link Cloudinary công khai (ngẫu nhiên, khó đoán), không hết hạn — hiện thẳng bằng `Image.network`.
+
+### 9f. Các màn nối BE thật (13/11/2026)
+
+🟡 **App đã nối, chưa chạy với BE thật trên máy:** mỗi tính năng có `api_*_repository.dart` (thông báo, tồn kho, hoàn hàng, đóng gói, giao hàng, tổng quan); `lib/app/mock_providers.dart` chọn bản thật làm mặc định, `--dart-define=USE_MOCK_DATA=true` hoặc `mockDataOverrides` (test) thì dùng bản giả. Ghi chú khi thử:
+- Kho / hoàn hàng / đóng gói dùng kho đầu tiên đang hoạt động (`GET /warehouse/warehouses`), giống màn lấy hàng.
+- Kiểm hàng hoàn: dòng "Nhập lại kho" phải nhập / quét **ô nhập lại**; thu hồi thùng phải nhập **mã thùng** (BE bắt buộc cả hai).
+- Báo lỗi kiện gửi `resolution: replace` (lấy món thay trên kệ); chưa có lựa chọn "trả về lấy hàng".
+- Giao hàng: đơn Hỏa Tốc chỉ có "Shop tự giao" (người tạo vận đơn là shipper); vận đơn GHN chỉ xem, trạng thái do hãng cập nhật.
+- Tra cứu đơn của chủ shop lọc 100 đơn mới nhất trên máy (BE chưa có tìm kiếm theo chữ).
+- Lỗi tải hiện câu của BE + nút "Thử lại" (mất mạng / không có quyền có biểu tượng riêng).
+
+### 9e. Quyền trang theo vai trò (BE AOFP-283)
+
+🟡 **App đã nối 13/11/2026:** `features/auth/role_permissions.dart` gọi `GET /role-permissions/me` sau khi đăng nhập; thanh tab chỉ hiện trang Admin bật cho vai trò (`picking` → Việc của tôi, `inventory` → Kho, `picking`/`inventory` → Hoàn hàng, `packing`, `shipping`, `dashboard` → Tổng quan, `returns` → Duyệt hoàn; tối đa 4 tab + Thông báo). Lỗi / mất mạng → dùng quyền mặc định của vai trò (bản sao `DEFAULT_ROLE_FEATURES`). Admin đổi quyền thì người dùng phải đăng nhập lại mới thấy tab mới. 403 vẫn hiện câu báo của BE.
 
 ### 9b. Push FCM (BE xong 10/11/2026)
 
@@ -206,7 +222,7 @@ Chỉ chạy được trên **máy ảo Android** (Android Emulator). `flutter r
 1. Mở **Android Studio** → **Device Manager** → **+ (Create Virtual Device)** → chọn máy có biểu tượng **Play Store** ở cột Play Store (VD **Pixel 8**) → Next.
 2. Chọn bản hệ điều hành có chữ **Google Play** (VD API 35 "Google Play"), bấm tải nếu chưa có → Next → Finish. Không chọn bản "AOSP" / không có Google (không nhận push).
 3. Bấm ▶ để bật máy ảo. Đăng nhập tài khoản Google trong máy ảo **không bắt buộc**; push không đến thì đăng nhập rồi mở CH Play cho Google Play services tự cập nhật.
-4. Ở thư mục `mobile/`: `flutter pub get` rồi **`flutter run`** (không cần `--dart-define`: mặc định app gọi `http://10.0.2.2:3000/api` = BE trên chính máy tính — ⚠ sau khi sửa `env.dart` theo `FE_UPDATE_CHECKLIST.md` dòng 22; không cần mở tường lửa). Nhiều máy thì thêm `-d emulator-5554` (xem `flutter devices`).
+4. Ở thư mục `mobile/`: `flutter pub get` rồi **`flutter run`** (không cần `--dart-define`: mặc định app gọi `http://10.0.2.2:3000/api` = BE trên chính máy tính; không cần mở tường lửa). Nhiều máy thì thêm `-d emulator-5554` (xem `flutter devices`).
 5. Làm tiếp bước 8 phần điện thoại thật (đăng nhập Warehouse Staff → Cho phép thông báo) rồi bảng **Các bước thử**. Push hiện ở thanh thông báo của máy ảo (kéo từ trên xuống).
 
 Giới hạn máy ảo: quét mã bằng camera chỉ là camera giả → dùng ô **nhập tay** mã ô / SKU; máy cần RAM ≥ 8 GB (máy ảo chiếm ~2–3 GB). Demo trước hội đồng nên dùng điện thoại thật.
@@ -256,6 +272,8 @@ Cần: điện thoại Android có **CH Play / Google Play** (Huawei đời mớ
 
 ### 9d. Đăng nhập Google trên app (BE xong 11/11/2026)
 
+🟡 **App đã nối 13/11/2026, chưa thử trên máy thật:** `features/auth/google_sign_in_service.dart` (lấy `id_token`, `serverClientId` từ `--dart-define=GOOGLE_SERVER_CLIENT_ID`), `AuthRepository.loginWithGoogle` → `POST /auth/google/mobile`, `AuthController.loginWithGoogle` (vào màn "Chào mừng trở lại" như đăng nhập thường), nút ở `login_screen.dart` (huỷ hộp chọn → im lặng; lỗi BE hiện nguyên câu; tài khoản bật MFA → dặn dùng email + mật khẩu). Đăng xuất gọi `GoogleSignIn.signOut()`; gỡ máy khỏi push vẫn bằng `DELETE /notifications/devices/:token`. **Việc còn lại là bước A bên dưới** (OAuth client Android) rồi chạy với `--dart-define`. SHA-1 máy bạn: `keytool -list -v -keystore "%USERPROFILE%\.android\debug.keystore" -alias androiddebugkey -storepass android -keypass android` (chạy trong terminal, lấy dòng `SHA1`).
+
 BE: `POST /auth/google/mobile` (đường thật `/api/auth/google/mobile` — app ghép từ `API_BASE_URL` có `/api`) body `{ id_token }` → trả **cùng dạng `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`); xử lý y như đăng nhập mật khẩu. Chỉ tài khoản **đã có** trong hệ thống (không tự đăng ký). Lỗi: `AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` → "Email chưa có tài khoản, liên hệ Admin"; `AUTH_GOOGLE_ID_TOKEN_INVALID` → "Đăng nhập Google thất bại, thử lại"; `AUTH_ACCOUNT_INACTIVE`, `AUTH_PASSWORD_DEADLINE_LOCKED` (403) giống đăng nhập thường. Đăng xuất: gửi thêm `push_token` (FCM token đang dùng) trong body `POST /auth/logout` → BE gỡ máy khỏi push (thay cho `DELETE /notifications/devices/:token`, dùng 1 trong 2).
 
 **A. Google Cloud (Thuận làm 1 lần; mỗi bạn chạy `flutter run` gửi SHA-1 máy mình cho Thuận thêm vào):**
@@ -267,11 +285,11 @@ BE: `POST /auth/google/mobile` (đường thật `/api/auth/google/mobile` — a
 
 **B. App (Flutter) — nhóm mobile tự làm** (chi tiết từng bước + bảng thử: `FE_UPDATE_CHECKLIST.md` mục 16):
 - [ ] `pubspec.yaml`: `google_sign_in: ^7.2.0`.
-- [ ] Khởi tạo 1 lần: `await GoogleSignIn.instance.initialize(serverClientId: '<GOOGLE_CLIENT_ID của BE — client Web>')` (truyền qua `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, không ghi cứng secret — client id không phải secret).
-- [ ] Bấm nút: `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → `POST /auth/google/mobile { id_token }` → lưu token như đăng nhập thường (kể cả `must_change_password`).
-- [ ] Bắt `GoogleSignInException` mã `canceled` → im lặng (người dùng tự đóng). Nếu vừa chọn tài khoản đã báo `canceled` → thường do **sai SHA-1 / package** ở bước A.3.
-- [ ] Đăng xuất: `GoogleSignIn.instance.signOut()` + gửi `push_token` trong `/auth/logout`.
-- [ ] Mở khoá nút "Tiếp tục với Google (chờ BE)" ở `mobile/lib/features/auth/login_screen.dart`.
+- [x] (app đã làm 13/11) Khởi tạo 1 lần: `await GoogleSignIn.instance.initialize(serverClientId: '<GOOGLE_CLIENT_ID của BE — client Web>')` (truyền qua `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, không ghi cứng secret — client id không phải secret).
+- [x] (app đã làm 13/11) Bấm nút: `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → `POST /auth/google/mobile { id_token }` → lưu token như đăng nhập thường (kể cả `must_change_password`).
+- [x] (app đã làm 13/11) Bắt `GoogleSignInException` mã `canceled` → im lặng (người dùng tự đóng). Nếu vừa chọn tài khoản đã báo `canceled` → thường do **sai SHA-1 / package** ở bước A.3.
+- [x] (app đã làm 13/11, gỡ push bằng DELETE) Đăng xuất: `GoogleSignIn.instance.signOut()` + gửi `push_token` trong `/auth/logout`.
+- [x] (đã làm 13/11) Mở khoá nút "Tiếp tục với Google" ở `mobile/lib/features/auth/login_screen.dart`.
 
 **Thử:** tài khoản Google trùng email 1 user đang hoạt động → vào đúng màn theo role; email lạ → báo chưa có tài khoản; Admin vô hiệu hoá user đó → `AUTH_ACCOUNT_INACTIVE`.
 

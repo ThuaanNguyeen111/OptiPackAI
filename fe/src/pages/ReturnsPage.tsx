@@ -1,3 +1,4 @@
+import { useAbortPrevious } from '../hooks/useAbortPrevious'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -22,7 +23,7 @@ import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
-import { formatApiError } from '../lib/api'
+import { formatApiError, isRequestCanceled } from '../lib/api'
 import { cn } from '../lib/cn'
 import { returnStatusTone } from '../lib/stage-colors'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
@@ -128,26 +129,30 @@ export function ReturnsPage({
   const [actionNote, setActionNote] = useState('')
   const [toast, setToast] = useState<string | null>(null)
 
+  const nextSignal = useAbortPrevious()
+
   const load = useCallback(async () => {
+    const signal = nextSignal()
     setLoading(true)
     setError(null)
     try {
       const res = await listReturns({
         status: statusFilter === 'all' ? undefined : statusFilter,
         limit: 100,
-      })
+      }, { signal })
       setItems(res.items)
       setSelectedId((prev) => {
         if (prev && res.items.some((r) => r.id === prev)) return prev
         return res.items[0]?.id ?? null
       })
     } catch (err: unknown) {
+      if (isRequestCanceled(err)) return
       setError(formatApiError(err))
       setItems([])
     } finally {
-      setLoading(false)
+      if (!signal.aborted) setLoading(false)
     }
-  }, [statusFilter])
+  }, [statusFilter, nextSignal])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

@@ -40,7 +40,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   sqflite: ^2.4.2+1
   path: ^1.9.1
-  connectivity_plus: ^7.3.2
+  connectivity_plus: ^7.3.1
   mobile_scanner: ^7.5.0
   intl: ^0.20.3
   uuid: ^4.6.0
@@ -48,6 +48,10 @@ dependencies:
   firebase_core: ^4.0.0
   firebase_messaging: ^16.0.0
   flutter_local_notifications: ^20.1.0
+  # 13/11/2026 — ảnh bằng chứng (POST /proof-photos)
+  image_picker: ^1.2.0
+  # 13/11/2026 — đăng nhập Google (id_token → POST /auth/google/mobile)
+  google_sign_in: ^7.2.0
 
 dev_dependencies:
   flutter_test:

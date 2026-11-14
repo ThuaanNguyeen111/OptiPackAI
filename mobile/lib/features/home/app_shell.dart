@@ -5,6 +5,7 @@ import '../../app/mock_providers.dart';
 import '../../app/providers.dart';
 import '../../app/theme_mode.dart';
 import '../auth/auth_models.dart';
+import '../auth/role_permissions.dart';
 import '../notifications/notifications_screen.dart';
 import '../offline/sync_status_bar.dart';
 import '../overview/overview_screen.dart';
@@ -15,13 +16,25 @@ import '../stock/stock_screen.dart';
 import 'my_work_view.dart';
 
 class _TabSpec {
-  const _TabSpec(this.label, this.icon, this.selectedIcon, this.builder, {this.isNotifications = false});
+  const _TabSpec(
+    this.label,
+    this.icon,
+    this.selectedIcon,
+    this.builder, {
+    this.isNotifications = false,
+    this.needs = const {},
+  });
 
   final String label;
   final IconData icon;
   final IconData selectedIcon;
   final Widget Function() builder;
   final bool isNotifications;
+
+  /// Cần ít nhất 1 trang trong số này (rỗng = luôn hiện).
+  final Set<String> needs;
+
+  bool allowedBy(Set<String> features) => needs.isEmpty || needs.any(features.contains);
 }
 
 _TabSpec _notifications() => _TabSpec(
@@ -37,6 +50,7 @@ _TabSpec _myWork() => _TabSpec(
       Icons.checklist_outlined,
       Icons.checklist,
       () => const MyWorkView(),
+      needs: const {'picking'},
     );
 
 _TabSpec _stock() => _TabSpec(
@@ -44,6 +58,7 @@ _TabSpec _stock() => _TabSpec(
       Icons.warehouse_outlined,
       Icons.warehouse,
       () => const StockScreen(),
+      needs: const {'inventory'},
     );
 
 _TabSpec _warehouseReturns() => _TabSpec(
@@ -51,6 +66,7 @@ _TabSpec _warehouseReturns() => _TabSpec(
       Icons.assignment_return_outlined,
       Icons.assignment_return,
       () => const WarehouseReturnsScreen(),
+      needs: const {'picking', 'inventory'},
     );
 
 _TabSpec _packing() => _TabSpec(
@@ -58,6 +74,7 @@ _TabSpec _packing() => _TabSpec(
       Icons.inventory_2_outlined,
       Icons.inventory_2,
       () => const PackingQueueScreen(),
+      needs: const {'packing'},
     );
 
 _TabSpec _shipping() => _TabSpec(
@@ -65,6 +82,7 @@ _TabSpec _shipping() => _TabSpec(
       Icons.local_shipping_outlined,
       Icons.local_shipping,
       () => const ShippingScreen(),
+      needs: const {'shipping'},
     );
 
 _TabSpec _overview() => _TabSpec(
@@ -72,6 +90,7 @@ _TabSpec _overview() => _TabSpec(
       Icons.dashboard_outlined,
       Icons.dashboard,
       () => const OverviewScreen(),
+      needs: const {'dashboard'},
     );
 
 _TabSpec _returnsApproval() => _TabSpec(
@@ -79,18 +98,37 @@ _TabSpec _returnsApproval() => _TabSpec(
       Icons.fact_check_outlined,
       Icons.fact_check,
       () => const ReturnsApprovalScreen(),
+      needs: const {'returns'},
     );
 
-/// Các tab theo vai trò. Ẩn tab chỉ để gọn; **quyền thật do BE kiểm** (403 thì hiện thông báo).
-/// Tab "Việc của tôi" của kho là phần duy nhất đã nối BE thật; các tab còn lại đang dùng dữ liệu giả
+/// Thanh dưới tối đa 5 mục (4 tab việc + Thông báo).
+const _maxWorkTabs = 4;
+
+/// Các tab theo vai trò, lọc theo trang Admin bật cho vai trò đó (`GET /role-permissions/me`).
+/// Thứ tự: tab quen thuộc của vai trò trước, rồi tab của trang được bật thêm.
+/// Ẩn tab chỉ để gọn; **quyền thật do BE kiểm** (403 thì hiện thông báo).
+/// Tab "Việc của tôi" của kho là phần đã nối BE thật; các tab còn lại đang dùng dữ liệu giả
 /// (xem `app/mock_providers.dart`).
-List<_TabSpec> _tabsFor(UserRole role) => switch (role) {
-      UserRole.warehouseStaff => [_myWork(), _stock(), _warehouseReturns(), _notifications()],
-      UserRole.packagingStaff => [_packing(), _notifications()],
-      UserRole.shippingCoordinator => [_shipping(), _notifications()],
-      UserRole.storeOwner => [_overview(), _returnsApproval(), _notifications()],
-      UserRole.admin => [_overview(), _myWork(), _packing(), _shipping(), _notifications()],
-    };
+List<_TabSpec> _tabsFor(UserRole role, Set<String> features) {
+  final preferred = switch (role) {
+    UserRole.warehouseStaff => [_myWork(), _stock(), _warehouseReturns()],
+    UserRole.packagingStaff => [_packing()],
+    UserRole.shippingCoordinator => [_shipping()],
+    UserRole.storeOwner => [_overview(), _returnsApproval()],
+    UserRole.admin => [_overview(), _myWork(), _packing(), _shipping()],
+  };
+  final all = [_overview(), _myWork(), _stock(), _warehouseReturns(), _packing(), _shipping(), _returnsApproval()];
+  final tabs = <_TabSpec>[];
+  for (final t in [...preferred, ...all]) {
+    if (tabs.length >= _maxWorkTabs) break;
+    if (t.allowedBy(features) && tabs.every((x) => x.label != t.label)) tabs.add(t);
+  }
+  return [...tabs, _notifications()];
+}
+
+/// Dùng trong test: nhãn các tab sẽ hiện.
+List<String> tabLabelsFor(UserRole role, Set<String> features) =>
+    [for (final t in _tabsFor(role, features)) t.label];
 
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
@@ -147,7 +185,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       );
     }
 
-    final tabs = _tabsFor(user.role);
+    // Chưa tải xong quyền thì dùng mặc định của vai trò, để không nhấp nháy tab.
+    final features = ref.watch(myFeaturesProvider).valueOrNull ?? defaultFeaturesFor(user.role);
+    final tabs = _tabsFor(user.role, features);
     final index = _index.clamp(0, tabs.length - 1);
     final unread = ref.watch(unreadCountProvider).valueOrNull ?? 0;
 
