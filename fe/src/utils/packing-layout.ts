@@ -100,6 +100,8 @@ export type PackStepKind =
   | 'zipFold'
   | 'bagPrep'
   | 'shoeBox'
+  | 'wrap'
+  | 'tape'
   | 'place'
   | 'slip'
   | 'close'
@@ -114,6 +116,8 @@ export type PackStep = {
 }
 
 export type PackStepOptions = {
+  /** Món cần bọc xốp hơi + dán băng keo trước khi đặt vào thùng (phụ kiện dễ vỡ). */
+  wrapItem?: (profile: PackingItemProfile | undefined) => boolean
   /** Kiện là túi niêm phong. */
   mailer?: boolean
   /** Kiện gộp nhiều đơn: có bước đặt phiếu đóng gói. */
@@ -136,6 +140,7 @@ export function buildPackSteps(
       steps.push({ kind: 'zip', item })
       if (profile.zipBagFolded) steps.push({ kind: 'zipFold', item })
     }
+    if (options.wrapItem?.(profile)) steps.push({ kind: 'wrap', item }, { kind: 'tape', item })
     steps.push({ kind: 'place', item })
   })
   if (options.shared) steps.push({ kind: 'slip', item: null })
@@ -176,6 +181,10 @@ export function stepLabel(kind: PackStepKind, vi: boolean, mailer = false): stri
       return vi ? 'Nhồi giấy, cho vào túi chống bụi' : 'Stuff and put into the dust bag'
     case 'shoeBox':
       return vi ? 'Đóng hộp giày' : 'Box the shoes'
+    case 'wrap':
+      return vi ? 'Bọc xốp hơi quanh món' : 'Wrap in bubble wrap'
+    case 'tape':
+      return vi ? 'Dán băng keo cố định xốp' : 'Tape the wrap closed'
     case 'place':
       if (mailer) return vi ? 'Xếp lên chồng hàng' : 'Add to the stack'
       return vi ? 'Đặt vào thùng' : 'Place into the box'
@@ -201,9 +210,11 @@ export const STEP_SECONDS: Record<PackStepKind, number> = {
   zipFold: 1.2,
   bagPrep: 5,
   shoeBox: 9,
+  wrap: 5,
+  tape: 2.4,
   place: 1.5,
   slip: 1,
-  close: 1.8,
+  close: 3.4,
   bagIn: 3,
   seal: 2.2,
   label: 1,
@@ -254,7 +265,9 @@ export function isWorkAreaStep(kind: PackStepKind | undefined): boolean {
     kind === 'zip' ||
     kind === 'zipFold' ||
     kind === 'bagPrep' ||
-    kind === 'shoeBox'
+    kind === 'shoeBox' ||
+    kind === 'wrap' ||
+    kind === 'tape'
   )
 }
 

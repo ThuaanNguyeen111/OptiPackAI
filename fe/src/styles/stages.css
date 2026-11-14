@@ -234,6 +234,8 @@ html.dark .ship-status-bar button[aria-current='true'] {
 .owner-sidebar nav {
   scrollbar-width: none;
   -ms-overflow-style: none;
+  /* Không để trình duyệt tự kéo mục đang chọn vào khung nhìn → nhảy lên đầu. */
+  overflow-anchor: none;
 }
 
 .owner-sidebar::-webkit-scrollbar,

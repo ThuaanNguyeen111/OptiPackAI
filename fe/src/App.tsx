@@ -6,7 +6,6 @@ import {
   ProtectedRoute,
 } from './components/auth/ProtectedRoute'
 import { MfaDisabledNotice } from './components/auth/MfaDisabledNotice'
-import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
@@ -19,6 +18,12 @@ import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 
 // Mỗi trang là một gói riêng: màn đăng nhập không phải tải `three` và các trang nặng.
+const EmbedPackingPage = lazy(() =>
+  import('./pages/EmbedPackingPage').then((m) => ({ default: m.EmbedPackingPage })),
+)
+const EmbedGuidePage = lazy(() =>
+  import('./pages/EmbedGuidePage').then((m) => ({ default: m.EmbedGuidePage })),
+)
 const AdminMarketplacePage = lazy(() =>
   import('./pages/AdminMarketplacePage').then((m) => ({ default: m.AdminMarketplacePage })),
 )
@@ -131,6 +136,12 @@ function App() {
             <Route path="change-password" element={<ChangePasswordPage />} />
           </Route>
 
+          {/* Trang nhúng cho WebView của app mobile (khung 3D, không có sidebar). */}
+          <Route path="embed" element={<ProtectedRoute />}>
+            <Route path="packing/:groupId" element={<EmbedPackingPage />} />
+            <Route path="packing/:groupId/guide" element={<EmbedGuidePage />} />
+          </Route>
+
           <Route path="app" element={<ProtectedRoute />}>
             <Route element={<PortalRoot />}>
               <Route element={<AppLayout />}>
@@ -151,20 +162,21 @@ function App() {
                 <Route path="history" element={<HistoryPage />} />
                 <Route path="profile" element={<ProfilePage />} />
                 <Route path="settings" element={<ProfilePage />} />
-              </Route>
-              <Route path="admin" element={<AdminLayout />}>
-                <Route index element={<AdminPage />} />
-                <Route path="roles" element={<AdminRolesPage />} />
-                <Route path="marketplace" element={<AdminMarketplacePage />} />
-                <Route path="orders" element={<AdminOrdersPage />} />
-                <Route path="orders/:id" element={<AdminOrderDetailPage />} />
-                <Route path="order-sync" element={<OrderSyncSettingsPage />} />
-                <Route path="ai" element={<Navigate to="/app/admin" replace />} />
-                <Route path="packing-plans" element={<AdminPackingPlansPage />} />
-                <Route path="warehouse" element={<AdminWarehousePage />} />
-                <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
-                <Route path="returns" element={<ReturnsPage shell="admin" />} />
-                <Route path="history" element={<HistoryPage shell="admin" />} />
+                {/* Cùng 1 layout với các trang /app/*: sidebar không bị dựng lại nên giữ nguyên vị trí cuộn. */}
+                <Route path="admin">
+                  <Route index element={<AdminPage />} />
+                  <Route path="roles" element={<AdminRolesPage />} />
+                  <Route path="marketplace" element={<AdminMarketplacePage />} />
+                  <Route path="orders" element={<AdminOrdersPage />} />
+                  <Route path="orders/:id" element={<AdminOrderDetailPage />} />
+                  <Route path="order-sync" element={<OrderSyncSettingsPage />} />
+                  <Route path="ai" element={<Navigate to="/app/admin" replace />} />
+                  <Route path="packing-plans" element={<AdminPackingPlansPage />} />
+                  <Route path="warehouse" element={<AdminWarehousePage />} />
+                  <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
+                  <Route path="returns" element={<ReturnsPage shell="admin" />} />
+                  <Route path="history" element={<HistoryPage shell="admin" />} />
+                </Route>
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Route>

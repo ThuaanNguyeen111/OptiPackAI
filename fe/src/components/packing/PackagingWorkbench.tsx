@@ -79,6 +79,7 @@ import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 import { BoxComparisonTable } from './BoxComparisonTable'
 import { GuideRating, GuideTraceButton } from './GuideFeedback'
 import { GuideSteps } from './GuideSteps'
+import { MaterialTags } from './MaterialTags'
 import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
@@ -353,28 +354,6 @@ function boxViewerSub(plan: PackingPlan | null, parcelNo: number | null, vi: boo
   return vi
     ? `${String(count)} món · làm theo từng bước trong khung 3D`
     : `${String(count)} items · follow the steps in the 3D view`
-}
-
-function MaterialTags({
-  materials,
-}: {
-  materials: { name: string; quantity: number; code?: string | null }[]
-}): ReactNode {
-  if (materials.length === 0) return null
-  return (
-    <div className="flex flex-wrap gap-1">
-      {materials.map((row, index) => (
-        <Badge
-          key={`${row.code ?? row.name}-${String(index)}`}
-          tone="primary"
-          className="font-medium"
-        >
-          {row.name}
-          {row.quantity > 1 ? ` ×${String(row.quantity)}` : ''}
-        </Badge>
-      ))}
-    </div>
-  )
 }
 
 function weightPrefill(plan: PackingPlan): Record<number, string> {

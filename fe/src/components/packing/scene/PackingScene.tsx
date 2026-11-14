@@ -20,6 +20,8 @@ import {
 } from '../../../utils/packing-layout'
 import { MAILER_MODEL, boxModelFor, categoryColor, itemModelFor, type ItemModel } from '../product-models'
 import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock } from './model-rigs'
+import { BubbleSleeve, CloseMaterials, PrepareTray, WrapAnimation } from './MaterialsScene'
+import { materialCounts, needsBubbleSleeve } from '../../../utils/packing-materials'
 
 /** Lỗi tải 1 file GLB chỉ làm món đó thành khối màu, không làm hỏng cả cảnh. */
 class ModelBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
@@ -216,6 +218,7 @@ function PlacedItem({
   tint,
   area,
   floorY,
+  bubble,
 }: {
   placement: PackingPlacement
   profile: PackingItemProfile | undefined
@@ -227,6 +230,8 @@ function PlacedItem({
   tint?: string
   area: WorkArea
   floorY: number
+  /** Món dễ vỡ: bọc xốp hơi. */
+  bubble: boolean
 }): ReactNode {
   const { size, center } = placementToThree(placement, inner)
   const staged: Vec3 = [area.center[0], size[1] / 2 + 0.004 - floorY, area.center[1]]
@@ -291,6 +296,13 @@ function PlacedItem({
         ) : (
           <Block size={size} color={color} />
         )}
+        {bubble ? (
+          role === 'staged' && (kind === 'wrap' || kind === 'tape') ? (
+            <WrapAnimation size={size} index={index} mode={kind} />
+          ) : (
+            <BubbleSleeve size={size} />
+          )
+        ) : null}
         {tint && model && (role === 'placed' || role === 'placing') ? (
           <mesh>
             <boxGeometry args={size} />
@@ -301,6 +313,13 @@ function PlacedItem({
       </group>
     </group>
   )
+}
+
+/** Bước gập nắp: nửa đầu dành cho lấp vật tư chèn, nắp chỉ bắt đầu gập sau đó. */
+const LID_STARTS_AT = 0.45
+
+function lidProgress(elapsed: number): number {
+  return (elapsed / STEP_SECONDS.close - LID_STARTS_AT) / (1 - LID_STARTS_AT)
 }
 
 function CartonFromModel({
@@ -323,7 +342,7 @@ function CartonFromModel({
   }, [clock, index])
   useFrame((_, dt) => {
     const elapsed = clock.tick(dt)
-    rig.setClose(closing ? easeInOut(elapsed / STEP_SECONDS.close) : 0)
+    rig.setClose(closing ? easeInOut(lidProgress(elapsed)) : 0)
   })
   return (
     <group scale={rig.scale}>
@@ -360,7 +379,7 @@ function CartonFromCode({
     const elapsed = clock.tick(dt)
     const lid = lidRef.current
     if (!lid) return
-    const p = closing ? easeInOut(elapsed / STEP_SECONDS.close) : 0
+    const p = closing ? easeInOut(lidProgress(elapsed)) : 0
     lid.visible = p > 0.01
     lid.scale.set(1, 1, Math.max(0.001, p))
   })
@@ -497,6 +516,7 @@ export function PackingScene({
   mailer = false,
   tintOf,
   slipColors,
+  materials,
 }: {
   boxCode: string
   innerMm: PackingMm
@@ -511,7 +531,10 @@ export function PackingScene({
   tintOf?: (placement: PackingPlacement) => string | undefined
   /** Kiện gộp: mỗi đơn 1 phiếu đóng gói. */
   slipColors?: string[]
+  /** Vật tư của kiện (gối hơi, xốp hơi, tem…) để vẽ minh hoạ. */
+  materials?: { name: string; quantity: number; code?: string | null }[]
 }): ReactNode {
+  const counts = useMemo(() => materialCounts(materials), [materials])
   const inner = boxSize(innerMm)
   const outer = boxSize(outerMm)
   const floorY = Math.max(0, (outer[1] - inner[1]) / 2)
@@ -560,7 +583,19 @@ export function PackingScene({
           <Edges color="#94a3b8" />
         </mesh>
       </group>
+      {current?.kind === 'prepare' && counts.size > 0 ? <PrepareTray counts={counts} area={area} mailer={mailer} /> : null}
       {carton}
+      {closing && !mailer && counts.size > 0 ? (
+        <CloseMaterials
+          counts={counts}
+          placements={placements}
+          inner={innerMm}
+          innerSize={inner}
+          outerSize={outer}
+          floorY={floorY}
+          index={index}
+        />
+      ) : null}
       <group position={[0, floorY, 0]}>
         <MailerStack kind={current?.kind} index={index}>
         {showSlips && slipColors ? <PackingSlips colors={slipColors} inner={inner} top={stackTop} /> : null}
@@ -578,6 +613,7 @@ export function PackingScene({
               tint={tintOf?.(placement)}
               area={area}
               floorY={floorY}
+              bubble={needsBubbleSleeve(profileFor(profiles, placement.sku), counts.has('bubble_wrap'))}
             />
           )
         })}
