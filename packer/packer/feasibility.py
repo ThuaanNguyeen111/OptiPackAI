@@ -11,7 +11,8 @@ The model is deliberately STRICTER than the TypeScript validator, so every
   still >= the 80% the validator asks for;
 * stack load: each supporter is charged the FULL weight resting on the unit it
   carries (the validator splits it by contact area);
-* a fragile unit or one with no stack allowance has nothing touching its top face.
+* a fragile unit or one with no stack allowance has nothing touching its top face;
+* a rigid non-fragile unit never touches the top face of a garment.
 
 Consequently "infeasible" means infeasible under these stricter rules, which is
 why the backend labels the result `optimal_in_model`, not a global optimum.
@@ -42,6 +43,11 @@ def _fits(v_dx: int, v_dy: int, v_dz: int, box: BoxIn) -> bool:
 def _bears(unit: UnitIn) -> bool:
     """Can anything rest on this unit?"""
     return not unit.fragile and unit.max_stack_load_g is not None
+
+
+def _rigid_on_garment(top: UnitIn, below: UnitIn) -> bool:
+    """TS mayRestOn(): garments are the only units sent with min_support_pct < 100."""
+    return top.min_support_pct == 100 and not top.fragile and below.min_support_pct < 100
 
 
 def solve_combo(
@@ -132,6 +138,7 @@ def solve_combo(
             u.weight_g,
             u.fragile,
             u.max_stack_load_g,
+            u.min_support_pct,
             tuple((s.dx, s.dy, s.dz, s.folded) for s in u.variants),
         )
 
@@ -225,12 +232,11 @@ def solve_combo(
 
         m.add_bool_or(options)
 
-    # Nothing may touch the top face of a unit that bears nothing (validator rule).
+    # Nothing may touch the top face of a unit that bears nothing, and a rigid non-fragile
+    # unit may not touch the top of a garment (validator rules).
     for j in range(n):
-        if bearing[j]:
-            continue
         for i in range(n):
-            if i == j:
+            if i == j or (bearing[j] and not _rigid_on_garment(units[i], units[j])):
                 continue
             touch = m.new_bool_var(f"touch_{i}_{j}")
             m.add(z[i] == z[j] + dz[j]).only_enforce_if(touch)

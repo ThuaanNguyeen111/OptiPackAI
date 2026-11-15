@@ -75,6 +75,12 @@ describe('describePackingSteps', () => {
     expect(facts[2]?.rests_on).toEqual(['GIAY#1']);
   });
 
+  it('layer: sát đáy = 1, món khác = 1 + lớp cao nhất của món đỡ ngay dưới', () => {
+    const shirt2 = placement('AO#2', 4, [0, 0, 160], [250, 180, 40]);
+    const facts = describePackingSteps([shoe1, shoe2, shirt, shirt2], box);
+    expect(facts.map((f) => f.layer)).toEqual([1, 1, 2, 3]);
+  });
+
   it('mô tả vị trí theo mặt bằng thùng (trái/phải, trước/sau)', () => {
     const facts = describePackingSteps([shoe1, shoe2], box);
     expect(facts[0]?.position).toBe('góc trái – phía trước');

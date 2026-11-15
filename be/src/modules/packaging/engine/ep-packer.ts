@@ -1,4 +1,4 @@
-import { orientedDims } from './units';
+import { mayRestOn, orientedDims } from './units';
 import type { BoxSpec, PackingUnit, Placement } from './types';
 
 /**
@@ -34,6 +34,7 @@ interface Point {
 
 interface State {
   placed: Placement[];
+  units: PackingUnit[];
   /** Tải tối đa được đặt lên trên; null = không cho đặt gì (kể cả dễ vỡ). */
   limits: (number | null)[];
   loads: number[];
@@ -170,10 +171,11 @@ function compareKeys(a: number[], b: number[]): number {
 /** Kiểm 1 vị trí: không giao, đỡ đủ, tải chồng OK. Trả vật đỡ nếu hợp lệ. */
 function evaluate(
   candidate: Placement,
-  weight: number,
+  unit: PackingUnit,
   state: State,
   box: BoxSpec,
 ): { supporters: Supporter[]; deltas: Map<number, number> } | null {
+  const weight = unit.weight_g;
   const { length_mm: L, width_mm: W, height_mm: H } = box.inner;
   if (
     candidate.x + candidate.dx > L ||
@@ -184,6 +186,10 @@ function evaluate(
   for (const p of state.placed) if (intersects(candidate, p)) return null;
   const supporters = findSupport(candidate, state.placed);
   if (supporters === null) return null;
+  for (const s of supporters) {
+    const below = state.units[s.index];
+    if (below && !mayRestOn(unit, below)) return null;
+  }
   const deltas = new Map<number, number>();
   if (supporters.length > 0) {
     collectDeltas(supporters, weight, state, deltas);
@@ -195,7 +201,7 @@ function evaluate(
 /** Kéo món về phía -x rồi -y khi vẫn hợp lệ (gom khe hở, tạo điểm tốt hơn). */
 function compact(
   candidate: Placement,
-  weight: number,
+  unit: PackingUnit,
   state: State,
   box: BoxSpec,
 ): Placement {
@@ -229,7 +235,7 @@ function compact(
       }
       if (target < current[axis] && size > 0) {
         const slid: Placement = { ...current, [axis]: target };
-        if (evaluate(slid, weight, state, box)) {
+        if (evaluate(slid, unit, state, box)) {
           current = slid;
           moved = true;
         }
@@ -254,7 +260,7 @@ export function createEPPacker(
   checkDeadline: () => void,
 ): EPPacker {
   const { length_mm: L, width_mm: W, height_mm: H } = box.inner;
-  const state: State = { placed: [], limits: [], loads: [], supportersOf: [] };
+  const state: State = { placed: [], units: [], limits: [], loads: [], supportersOf: [] };
   let points: Point[] = [{ x: 0, y: 0, z: 0 }];
   let weightTotal = 0;
 
@@ -286,7 +292,7 @@ export function createEPPacker(
           orientation,
           ...(unit.folded === true && { folded: true }),
         };
-        if (!evaluate(candidate, unit.weight_g, state, box)) continue;
+        if (!evaluate(candidate, unit, state, box)) continue;
         const key = scoreKey(
           policy,
           candidate,
@@ -299,11 +305,12 @@ export function createEPPacker(
     }
 
     if (!best) return null;
-    const chosen = compact(best.placement, unit.weight_g, state, box);
-    const verdict = evaluate(chosen, unit.weight_g, state, box);
+    const chosen = compact(best.placement, unit, state, box);
+    const verdict = evaluate(chosen, unit, state, box);
     if (!verdict) return null; // không thể xảy ra (compact chỉ nhận vị trí hợp lệ) — phòng thủ
 
     state.placed.push(chosen);
+    state.units.push(unit);
     state.limits.push(unit.is_fragile ? null : unit.max_stack_load_g);
     state.loads.push(0);
     state.supportersOf.push(verdict.supporters);

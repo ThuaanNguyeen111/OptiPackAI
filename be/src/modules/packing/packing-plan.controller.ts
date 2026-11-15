@@ -47,6 +47,7 @@ import {
   UpdatePackingSettingsDto,
 } from './dto/packing-session.dto';
 import { Features } from '../role-permissions/feature-scope';
+import { placementLayers } from '../packaging/engine/packing-guide';
 
 interface DimsResponse {
   lengthMm: number;
@@ -232,6 +233,8 @@ export interface PackingPlanResponse {
       folded: boolean;
       /** AOFP-224 — đơn sở hữu món (kiện gộp); kiện 1 đơn = orderId của kiện. */
       orderId: string;
+      /** (16/11/2026) Lớp xếp: sát đáy = 1, món khác = 1 + lớp cao nhất của món đỡ ngay dưới. */
+      layer: number;
     }[];
     fillRatio: number;
     /** true = kiện nhập tay, không có tọa độ xếp thật (3D không dựng được). */
@@ -458,6 +461,7 @@ export function toPlanResponse(
         orientation: q.orientation,
         folded: q.folded,
         orderId: (q.order_id ?? p.order_id).toString(),
+        layer: placementLayers(p.placements).get(q.item_key) ?? 1,
       })),
       fillRatio: p.fill_ratio,
       manualLayout: p.manual_layout,

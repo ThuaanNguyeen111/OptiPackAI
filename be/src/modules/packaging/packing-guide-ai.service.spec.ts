@@ -35,6 +35,7 @@ function fact(step: number, sku: string): GuideStepFacts {
     position: 'góc trái – phía trước',
     orientation_hint: 'để nguyên chiều như trên kệ, mặt trên hướng lên',
     rests_on: [],
+    layer: 1,
     size_mm: { dx: 300, dy: 200, dz: 120 },
   };
 }

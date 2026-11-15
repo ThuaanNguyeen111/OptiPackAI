@@ -126,6 +126,7 @@ export type ViolationCode =
   | 'OVERLAP'
   | 'NO_SUPPORT'
   | 'STACK_LOAD_EXCEEDED'
+  | 'HARD_ON_SOFT'
   | 'BOX_LOAD_EXCEEDED';
 
 export interface Violation {
