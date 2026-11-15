@@ -2,7 +2,7 @@ import { PackagingWorkbench } from '../components/packing/PackagingWorkbench'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 
-/** Admin chốt kế hoạch / Packaging Staff chấp nhận hoặc từ chối — `/app/packing`. */
+/** Bàn đóng gói: duyệt / đóng / cân kiện (Admin + Packaging Staff). BE tự tính kế hoạch sau lấy hàng. */
 export function PackingPage() {
   const { locale } = usePortal()
   const vi = locale === 'vi'

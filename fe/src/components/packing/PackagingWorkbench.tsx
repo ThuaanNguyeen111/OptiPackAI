@@ -83,8 +83,8 @@ import { MaterialTags } from './MaterialTags'
 import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
- * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
- * Admin chốt kế hoạch ở `/app/admin/packing-plans` (không dùng trang này).
+ * Bàn đóng gói (Packaging Staff + Admin) — duyệt / điều chỉnh / từ chối / đóng kiện.
+ * BE tự tính và gán kế hoạch sau lấy hàng (không còn bước Admin chốt riêng).
  * Khung 3D dựng từ kế hoạch thật (placements + itemProfiles); chỉ xem, không ghi trạng thái lên BE.
  */
 
