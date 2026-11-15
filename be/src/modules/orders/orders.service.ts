@@ -23,6 +23,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
+import { describeError } from '../../common/utils/log-error.util';
+import { isAxiosError } from 'axios';
 
 // Lần sync ĐẦU TIÊN của 1 shop (last_polled_at = null) — kéo lịch sử tối đa N
 // ngày trước. 🔄 15/10/2026: N do Admin cấu hình (order_sync_settings, mặc định 30).
@@ -158,10 +160,7 @@ export class OrdersService {
         }
       }
     } catch (error) {
-      this.logger.error(
-        `Sync đơn ${platform} thất bại cho shop ${shopId} (bước GetOrders)`,
-        error,
-      );
+      this.logger.error(`Sync đơn ${platform} thất bại cho shop ${shopId} (bước GetOrders): ${describeError(error)}`);
       throw new AppException(
         ORD_ERROR_CODES.SYNC_FAILED,
         `Không lấy được danh sách đơn từ ${platform} cho shop ${shopId} — vui lòng thử lại.`,
@@ -192,8 +191,8 @@ export class OrdersService {
         // 1 đơn lỗi (vd field lạ chưa map được) KHÔNG được làm hỏng cả
         // batch — log lại order_id cụ thể, tiếp tục xử lý đơn tiếp theo.
         this.logger.error(
-          `Xử lý đơn ${platform} order_id=${String(rawOrder.order_id)} thất bại, bỏ qua đơn này, tiếp tục các đơn còn lại.`,
-          error,
+          `Xử lý đơn ${platform} order_id=${String(rawOrder.order_id)} thất bại, bỏ qua đơn này, tiếp tục các đơn còn lại: ${describeError(error)}`,
+          error instanceof Error && !isAxiosError(error) ? error.stack : undefined,
         );
       }
     }

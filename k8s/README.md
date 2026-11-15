@@ -64,14 +64,14 @@ Hoặc build thẳng từng cái:
 
 ```bash
 docker build -f be/Dockerfile         -t optipackai-be:local .
-docker build -f fe/Dockerfile         -t optipackai-fe:local         --build-arg VITE_API_URL=http://api.optipackai.local .
-docker build -f storefront/Dockerfile -t optipackai-storefront:local --build-arg NEXT_PUBLIC_API_URL=http://api.optipackai.local .
+docker build -f fe/Dockerfile         -t optipackai-fe:local         --build-arg VITE_API_URL=http://api.optipackai.local/api .
+docker build -f storefront/Dockerfile -t optipackai-storefront:local --build-arg NEXT_PUBLIC_API_URL=http://api.optipackai.local/api .
 docker build -f packer/Dockerfile     -t optipackai-packer:local .   # CP-SAT, service nội bộ (04/10/2026)
 ```
 
 > ⚠️ `VITE_API_URL` / `NEXT_PUBLIC_API_URL` bị **nhúng vào bundle lúc build**. Nếu định vào
-> bằng Ingress (`http://api.optipackai.local`) thì phải build với đúng URL đó; nếu định dùng
-> `port-forward` thì build với `http://localhost:3000`. Đổi URL = build lại image.
+> bằng Ingress (`http://api.optipackai.local/api`) thì phải build với đúng URL đó; nếu định dùng
+> `port-forward` thì build với `http://localhost:3000/api`. Đổi URL = build lại image.
 
 ---
 
@@ -97,6 +97,11 @@ Kiểm tra nhanh (chỉ in TÊN biến, không in giá trị):
 ```bash
 kubectl -n optipackai get secret optipackai-be-env -o jsonpath='{.data}' | tr ',' '\n' | cut -d'"' -f2
 ```
+
+Script cũng tạo Secret `optipackai-fcm` (file JSON service account Firebase cho push), mount vào
+`/etc/fcm/service-account.json`. Nó tìm file theo thứ tự: biến `FCM_FILE` → `fcm-service-account.json`
+nằm cạnh `ENV_FILE` (trên server: `/root/optipackai/fcm-service-account.json`) → `mobile/keys/*firebase-adminsdk*.json`.
+Không thấy file thì chỉ cảnh báo, backend vẫn chạy nhưng không gửi push.
 
 Khi sửa `.env` thì tạo lại rồi restart backend:
 

@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { RETURN_ERROR_CODES } from './returns.errors';
+import { Features } from '../role-permissions/feature-scope';
 
 function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
   return {
@@ -47,6 +48,8 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
     decidedBy: d.decided_by,
     receivedBy: d.received_by,
     inspectedBy: d.inspected_by,
+    // 10/11/2026 — ảnh hàng hoàn lúc kiểm (phiếu cũ: []).
+    inspectionPhotoUrls: d.inspection_photo_urls ?? [],
     closedAt: d.closed_at,
     version: d.__v,
     createdAt: d.created_at ?? null,
@@ -61,8 +64,9 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
  * thì hệ thống tự tạo phiếu ở bước "đã nhận".
  */
 @ApiTags('Returns')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('returns', 'shipping', 'picking', 'inventory')
 @Controller('returns')
 export class ReturnsController {
   constructor(private readonly returnsService: ReturnsService) {}

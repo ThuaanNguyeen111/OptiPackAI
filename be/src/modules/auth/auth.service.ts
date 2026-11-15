@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -37,6 +38,7 @@ import {
   TrustedDeviceDocument,
 } from './schemas/trusted-device.schema';
 import { MfaService } from './services/mfa.service';
+import { DeviceToken, DeviceTokenDocument } from '../notifications/schemas/device-token.schema';
 import { RequestMeta, TokenPair, TokenService } from './services/token.service';
 
 export interface LoginResult extends TokenPair {
@@ -120,6 +122,9 @@ export class AuthService {
     private readonly auditLogModel: Model<LoginAuditLogDocument>,
     @InjectModel(TrustedDevice.name)
     private readonly trustedDeviceModel: Model<TrustedDeviceDocument>,
+    // 10/11/2026 — gỡ token push khi đăng xuất. Optional: test cũ dựng AuthService không có model này.
+    @Optional() @InjectModel(DeviceToken.name)
+    private readonly deviceTokenModel?: Model<DeviceTokenDocument>,
   ) {}
 
   //!=============================================
@@ -311,7 +316,74 @@ export class AuthService {
     this.verifyOAuthState(state);
 
     const googleUserInfo = await this.getGoogleUserInfo(code, codeVerifier);
+    return this.completeGoogleLogin(googleUserInfo, meta);
+  }
 
+  /**
+   * 10/11/2026 — Đăng nhập Google trên app mobile (BE_MOBILE_CHECKLIST mục 12): app lấy
+   * `id_token` bằng google_sign_in (serverClientId = client Web của BE) rồi gửi lên.
+   * BE kiểm token với Google, áp ĐÚNG luật của web (chỉ tài khoản đã có, chặn tài khoản
+   * khoá / chưa kích hoạt / quá hạn đổi mật khẩu), trả cùng dạng `POST /auth/login`.
+   * Lỗi trả mã rõ ràng (app hiện thông báo), không redirect như luồng web.
+   */
+  async googleMobileLogin(idToken: string, meta: RequestMeta): Promise<LoginResult> {
+    const info = await this.verifyGoogleIdToken(idToken);
+    try {
+      return await this.completeGoogleLogin(info, meta);
+    } catch (error: unknown) {
+      if (error instanceof GoogleEmailNotVerifiedException) {
+        throw new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_EMAIL_NOT_VERIFIED, GOOGLE_OAUTH_MESSAGES.EMAIL_NOT_VERIFIED));
+      }
+      if (error instanceof GoogleAccountNotRegisteredException) {
+        throw new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_ACCOUNT_NOT_REGISTERED, GOOGLE_OAUTH_MESSAGES.ACCOUNT_NOT_REGISTERED));
+      }
+      if (error instanceof GoogleAccountInactiveException) {
+        throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, AUTH_MESSAGES.ACCOUNT_INACTIVE));
+      }
+      if (error instanceof GoogleAccountLockedException) {
+        throw new ForbiddenException(authError(AUTH_ERROR_CODES.PASSWORD_DEADLINE_LOCKED, AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE));
+      }
+      throw error;
+    }
+  }
+
+  /** Kiểm id_token qua endpoint tokeninfo của Google (Google tự kiểm chữ ký + hạn), rồi kiểm `aud` / `iss`. */
+  private async verifyGoogleIdToken(idToken: string): Promise<GoogleUserInfo> {
+    const invalid = (): UnauthorizedException =>
+      new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_ID_TOKEN_INVALID, 'Phiên đăng nhập Google không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập Google lại.'));
+    const clientId = requireEnv(this.configService.get<string>('google.clientId'), 'GOOGLE_CLIENT_ID');
+    const audiences = new Set(
+      [clientId, ...(this.configService.get<string>('google.extraAudiences') ?? '').split(',')].map((a) => a.trim()).filter(Boolean),
+    );
+    let res: Response;
+    try {
+      res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    } catch (error: unknown) {
+      this.logger.error(`Không gọi được Google tokeninfo: ${error instanceof Error ? error.message : String(error)}`);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_AUTH_FAILED, GOOGLE_OAUTH_MESSAGES.GOOGLE_AUTH_FAILED));
+    }
+    if (!res.ok) throw invalid(); // 400 = token sai chữ ký / hết hạn / sai định dạng
+    const data = (await res.json()) as Record<string, unknown>;
+    const aud = typeof data.aud === 'string' ? data.aud : '';
+    const iss = typeof data.iss === 'string' ? data.iss : '';
+    const exp = Number(data.exp);
+    if (!audiences.has(aud)) {
+      this.logger.warn(`id_token Google có aud không thuộc app OptiPack (aud=${aud}) — từ chối.`);
+      throw invalid();
+    }
+    if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') throw invalid();
+    if (!Number.isFinite(exp) || exp * 1000 <= Date.now()) throw invalid();
+    const info = parseGoogleUserInfo({
+      ...data,
+      // tokeninfo trả boolean dạng chuỗi "true" / "false"
+      email_verified: data.email_verified === true || data.email_verified === 'true',
+    });
+    if (!info) throw invalid();
+    return info;
+  }
+
+  /** Phần chung của đăng nhập Google web + mobile: chỉ tài khoản đã có, cùng luật khoá. */
+  private async completeGoogleLogin(googleUserInfo: GoogleUserInfo, meta: RequestMeta): Promise<LoginResult> {
     if (!googleUserInfo.email_verified) {
       throw new GoogleEmailNotVerifiedException(
         GOOGLE_OAUTH_MESSAGES.EMAIL_NOT_VERIFIED,
@@ -618,8 +690,16 @@ export class AuthService {
     );
   }
 
-  async logout(refreshToken: string): Promise<{ message: string }> {
+  async logout(refreshToken: string, userId?: string, pushToken?: string): Promise<{ message: string }> {
     await this.tokenService.revokeToken(refreshToken);
+    // 10/11/2026 — app mobile gửi kèm token push: gỡ máy để không nhận push của người vừa đăng xuất.
+    if (pushToken && userId && this.deviceTokenModel && Types.ObjectId.isValid(userId)) {
+      try {
+        await this.deviceTokenModel.deleteOne({ token: pushToken, user_id: new Types.ObjectId(userId) });
+      } catch (error: unknown) {
+        this.logger.warn(`Gỡ token push lúc đăng xuất thất bại: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     return { message: 'Đăng xuất thành công' };
   }
 

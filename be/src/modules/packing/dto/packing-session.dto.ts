@@ -11,12 +11,15 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { GUIDE_STYLE_PROMPT_MAX_LENGTH } from '../schemas/packing-settings.schema';
+import { IsProofPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 import {
   ADJUSTMENT_REASONS,
   BOX_SOURCE_REASONS,
@@ -197,6 +200,11 @@ export class ReportIssueDto extends VersionedDto {
   @IsMongoId({ message: 'bin_location_id không hợp lệ' })
   bin_location_id?: string;
 
+  @ApiProperty({ required: false, type: [String], description: '10/11/2026 — ảnh món lỗi (tối đa 3, URL từ POST /proof-photos). Không bắt buộc.' })
+  @IsOptional()
+  @IsProofPhotoUrls()
+  photo_urls?: string[];
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString({ message: 'note phải là chuỗi' })
@@ -343,4 +351,20 @@ export class UpdatePackingSettingsDto {
   @Min(0, { message: 'est_fee_per_extra_step_vnd tối thiểu 0' })
   @Max(1000000, { message: 'est_fee_per_extra_step_vnd tối đa 1000000' })
   est_fee_per_extra_step_vnd?: number;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    maxLength: GUIDE_STYLE_PROMPT_MAX_LENGTH,
+    description:
+      '(09/11/2026) Phần văn phong của system prompt AI viết hướng dẫn đóng gói. null = khôi phục mặc định. Phần lõi (số bước, SKU, khuôn JSON) cố định trong code.',
+  })
+  @IsOptional()
+  @ValidateIf((o: UpdatePackingSettingsDto) => o.guide_style_prompt !== null)
+  @IsString({ message: 'guide_style_prompt phải là chuỗi' })
+  @Matches(/\S/, { message: 'guide_style_prompt không được để trống — gửi null để khôi phục mặc định' })
+  @MaxLength(GUIDE_STYLE_PROMPT_MAX_LENGTH, {
+    message: `guide_style_prompt tối đa ${String(GUIDE_STYLE_PROMPT_MAX_LENGTH)} ký tự`,
+  })
+  guide_style_prompt?: string | null;
 }

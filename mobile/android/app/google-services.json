@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "447878591464",
+    "project_id": "optipack-f6d4a",
+    "storage_bucket": "optipack-f6d4a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:447878591464:android:b0a36b082167b0c9056a5d",
+        "android_client_info": {
+          "package_name": "vn.optipack.optipack_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDyM82q4OEIbWRPZ6CebscZa19Oa3qOXQ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -827,7 +827,7 @@ export class PackingSessionService {
               parcels,
               issues: [
                 ...data.issues,
-                { parcel_no: dto.parcel_no, item_key: dto.item_key, sku: placement.sku, issue: dto.issue, resolution: 'replaced', note, by, at: new Date() },
+                { parcel_no: dto.parcel_no, item_key: dto.item_key, sku: placement.sku, issue: dto.issue, resolution: 'replaced', note, by, at: new Date(), ...(dto.photo_urls?.length ? { photo_urls: dto.photo_urls } : {}) },
               ],
             },
             $inc: { version: 1 },
@@ -866,7 +866,7 @@ export class PackingSessionService {
             status: 'superseded',
             issues: [
               ...data.issues,
-              { parcel_no: dto.parcel_no, item_key: dto.item_key, sku: placement.sku, issue: dto.issue, resolution: 'back_to_picking', note, by, at: new Date() },
+              { parcel_no: dto.parcel_no, item_key: dto.item_key, sku: placement.sku, issue: dto.issue, resolution: 'back_to_picking', note, by, at: new Date(), ...(dto.photo_urls?.length ? { photo_urls: dto.photo_urls } : {}) },
             ],
           },
           $inc: { version: 1 },

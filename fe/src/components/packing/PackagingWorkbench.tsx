@@ -79,6 +79,8 @@ import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 import { BoxComparisonTable } from './BoxComparisonTable'
 import { GuideRating, GuideTraceButton } from './GuideFeedback'
 import { GuideSteps } from './GuideSteps'
+import { MaterialTags } from './MaterialTags'
+import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -354,28 +356,6 @@ function boxViewerSub(plan: PackingPlan | null, parcelNo: number | null, vi: boo
     : `${String(count)} items · follow the steps in the 3D view`
 }
 
-function MaterialTags({
-  materials,
-}: {
-  materials: { name: string; quantity: number; code?: string | null }[]
-}): ReactNode {
-  if (materials.length === 0) return null
-  return (
-    <div className="flex flex-wrap gap-1">
-      {materials.map((row, index) => (
-        <Badge
-          key={`${row.code ?? row.name}-${String(index)}`}
-          tone="primary"
-          className="font-medium"
-        >
-          {row.name}
-          {row.quantity > 1 ? ` ×${String(row.quantity)}` : ''}
-        </Badge>
-      ))}
-    </div>
-  )
-}
-
 function weightPrefill(plan: PackingPlan): Record<number, string> {
   const next: Record<number, string> = {}
   for (const parcel of plan.parcels) {
@@ -489,7 +469,7 @@ export function PackagingWorkbench() {
   const computingGroupId = plan?.status === 'computing' ? plan.orderGroupId : null
   useEffect(() => {
     if (!computingGroupId) return
-    const timer = window.setInterval(() => {
+    return setVisibleInterval(() => {
       void getPackingPlan(computingGroupId)
         .then((next) => {
           if (!next) return
@@ -499,7 +479,6 @@ export function PackagingWorkbench() {
         })
         .catch(() => undefined)
     }, 3000)
-    return () => window.clearInterval(timer)
   }, [computingGroupId])
 
   // Mở kiện chưa có câu hướng dẫn: xin 1 lần (AI hoặc câu mẫu). Kiện xếp tay thì không gọi (BE trả 409).
@@ -538,10 +517,10 @@ export function PackagingWorkbench() {
 
   useEffect(() => {
     const first = window.setTimeout(() => void loadBlocked(), 0)
-    const interval = window.setInterval(() => void loadBlocked(), 15000)
+    const stopPolling = setVisibleInterval(() => void loadBlocked(), 15000)
     return () => {
       window.clearTimeout(first)
-      window.clearInterval(interval)
+      stopPolling()
     }
   }, [loadBlocked])
 
@@ -665,9 +644,10 @@ export function PackagingWorkbench() {
       return () => window.clearTimeout(clear)
     }
     let cancelled = false
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setRemoteSearching(true)
-      void listOrderGroups({ q: query })
+      void listOrderGroups({ q: query }, { signal: controller.signal })
         .then((rows) => {
           if (!cancelled) setRemoteGroups(rows)
         })
@@ -680,6 +660,7 @@ export function PackagingWorkbench() {
     }, 400)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
   }, [queueQuery, localVisibleGroups.length])

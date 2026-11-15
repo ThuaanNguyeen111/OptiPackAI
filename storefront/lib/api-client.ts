@@ -1,6 +1,6 @@
 import type { AdminCategory, AdminExpressOrder, DeliveryOptionView, AdminProduct, Category, Customer, SaveAdminCategory, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api'
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message) }

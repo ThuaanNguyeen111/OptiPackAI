@@ -1950,6 +1950,7 @@ export class PackingPlanService {
       fill_ratio: parcel.fill_ratio,
       materials: parcel.materials.map((m) => ({ name: m.name, quantity: m.quantity, unit: m.unit })),
       examples: picked.map((p) => p.example),
+      style_prompt: (await this.settingsService.get()).guideStylePrompt,
     });
     await this.recordGuideLog(plan, parcelNo, guide, picked.map((p) => p.ref));
     const index = plan.parcels.findIndex((p) => p.parcel_no === parcelNo);

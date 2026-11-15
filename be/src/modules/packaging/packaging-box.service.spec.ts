@@ -130,6 +130,19 @@ describe('PackagingBoxService', () => {
     expect(materialsService.stockInById).toHaveBeenCalledWith(id, 50, 'u1', ' PO-1 ');
   });
 
+  // 11/11/2026 — route stock-in nhập từ NCC: bắt ảnh phiếu, ghi qua receiveFromSupplier.
+  it('stock-in từ NCC: thiếu ảnh phiếu → PKG_PURCHASE_PHOTO_REQUIRED; có ảnh → receiveFromSupplier đúng thùng', async () => {
+    const id = new Types.ObjectId();
+    const box = { _id: id, code: 'M', kind: 'box' };
+    boxModel.findOne.mockResolvedValue(box);
+    const receiveFromSupplier = jest.fn().mockResolvedValue({ ...box, qty_new: 55 });
+    Object.assign(materialsService, { receiveFromSupplier });
+    await expect(service.stockInFromSupplier(id.toString(), { quantity: 50 }, 'u1')).rejects.toMatchObject({ errorCode: 'PKG_PURCHASE_PHOTO_REQUIRED' });
+    const dto = { quantity: 50, document_photo_urls: ['https://res.cloudinary.com/demo/image/upload/v1/optipack/receipts/a.jpg'] };
+    await service.stockInFromSupplier(id.toString(), dto, 'u1');
+    expect(receiveFromSupplier).toHaveBeenCalledWith(box, dto, 'u1');
+  });
+
   it('còn trống = tồn − số kiện của kế hoạch chưa đóng đang giữ chỗ; loại trừ nhóm đang tính lại', async () => {
     const groupId = new Types.ObjectId().toString();
     boxModel.find.mockReturnValue({

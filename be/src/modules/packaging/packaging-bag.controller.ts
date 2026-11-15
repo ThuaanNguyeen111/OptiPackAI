@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 export interface PackagingBagResponse {
   id: string;
@@ -40,6 +41,7 @@ function toBagResponse(doc: PackagingBagDocument): PackagingBagResponse {
 
 @ApiTags('Packaging Bags')
 @ApiBearerAuth('JWT-auth')
+@Features('packaging_materials', 'packaging_rules', 'packing', 'picking', 'inventory')
 @Controller('packaging/bags')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackagingBagController {
@@ -70,7 +72,7 @@ export class PackagingBagController {
 
   @Post(':id/stock-in')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Nhập thêm túi zip vào kho (tăng tồn, ghi sổ vật tư). Tồn bị trừ lúc niêm phong kiện.' })
+  @ApiOperation({ summary: 'Nhập thêm túi zip vào kho (tăng tồn, ghi sổ vật tư). Tồn bị trừ lúc niêm phong kiện. 11/11/2026: bắt buộc `document_photo_urls` + đối chiếu OCR như stock-in thùng.' })
   async stockIn(
     @Param('id') id: string,
     @Body() dto: StockInBagDto,

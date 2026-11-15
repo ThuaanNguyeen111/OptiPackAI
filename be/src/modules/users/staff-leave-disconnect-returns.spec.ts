@@ -80,9 +80,10 @@ describe('Nghỉ phép nhân viên', () => {
     const userFind = jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([{ _id: staffId }]) }) }));
     const groupModel = {
       aggregate: jest.fn().mockResolvedValue([]),
-      findByIdAndUpdate: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), assigned_staff_id: staffId }),
+      findByIdAndUpdate: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), assigned_staff_id: staffId, order_count: 1 }),
+      findById: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve(null) }) })),
     };
-    const service = new StaffAssignmentService(groupModel as never, { find: userFind } as never);
+    const service = new StaffAssignmentService(groupModel as never, { find: userFind } as never, { notify: jest.fn().mockResolvedValue({}) } as never);
     await service.autoAssign(new Types.ObjectId().toString());
     const filter = (userFind.mock.calls[0] as unknown as [Record<string, unknown>])[0];
     expect(filter).toMatchObject({ role: UserRole.WAREHOUSE_STAFF, is_active: true });
@@ -91,7 +92,7 @@ describe('Nghỉ phép nhân viên', () => {
 
   it('giao tay cho người đang nghỉ → 409 ORD_GROUP_STAFF_ON_LEAVE', async () => {
     const staff = { _id: new Types.ObjectId(), name: 'An', is_active: true, role: UserRole.WAREHOUSE_STAFF, on_leave: true, on_leave_until: null };
-    const service = new StaffAssignmentService({} as never, { findById: jest.fn().mockResolvedValue(staff) } as never);
+    const service = new StaffAssignmentService({} as never, { findById: jest.fn().mockResolvedValue(staff) } as never, {} as never);
     await expect(service.manualAssign(new Types.ObjectId().toString(), staff._id.toString())).rejects.toMatchObject({
       errorCode: STAFF_ASSIGNMENT_ERROR_CODES.STAFF_ON_LEAVE,
     });

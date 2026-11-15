@@ -14,6 +14,8 @@ import { WarehouseService } from './warehouse.service';
 import { WarehouseController } from './warehouse.controller';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
 import { CategoriesModule } from '../categories/categories.module';
+import { SkuNormalizedBackfillService } from './sku-normalized-backfill.service';
+import { ReceiptOcrModule } from '../receipt-ocr/receipt-ocr.module';
 
 @Module({
   imports: [
@@ -30,10 +32,11 @@ import { CategoriesModule } from '../categories/categories.module';
       { name: StockReceipt.name, schema: StockReceiptSchema }, // 15/10/2026 — phiếu nhập
     ]),
     CategoriesModule, // K2 — kiểm tra danh mục/size khi tạo kệ, đăng ký ô
+    ReceiptOcrModule, // 11/11/2026 — ảnh phiếu NCC + OCR đối chiếu
     OrderGroupsModule, // export OrderGroupsService — dùng getPackableItemsForGroup() cho picking-list
   ],
   controllers: [WarehouseController],
-  providers: [WarehouseService],
+  providers: [WarehouseService, SkuNormalizedBackfillService], // 10/11/2026 (BE-5) — bổ sung seller_sku_normalized lúc khởi động
   exports: [WarehouseService],
 })
 export class WarehouseModule {}

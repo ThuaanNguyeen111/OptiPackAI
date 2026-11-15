@@ -26,7 +26,9 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import {
   ChangePasswordDto,
   ForgotPasswordDto,
+  GoogleMobileLoginDto,
   LoginDto,
+  LogoutDto,
   RefreshTokenDto,
   ResetPasswordDto,
   VerifyMfaSetupDto,
@@ -202,8 +204,23 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('logout')
-  async logout(@Body() dto: RefreshTokenDto): Promise<{ message: string }> {
-    return this.authService.logout(dto.refresh_token);
+  async logout(@Body() dto: LogoutDto, @CurrentUser() user: AuthenticatedUser): Promise<{ message: string }> {
+    // 10/11/2026 — app mobile gửi kèm `push_token` để BE gỡ máy khỏi danh sách nhận push.
+    return this.authService.logout(dto.refresh_token, user.userId, dto.push_token);
+  }
+
+  //!=============================================
+  // GOOGLE — APP MOBILE (10/11/2026, BE_MOBILE_CHECKLIST mục 12)
+  //!=============================================
+  @ApiOperation({
+    summary:
+      'Đăng nhập Google trên app mobile: gửi id_token từ google_sign_in (serverClientId = client Web của BE). Chỉ tài khoản đã có; trả cùng dạng POST /auth/login. Lỗi: AUTH_GOOGLE_ID_TOKEN_INVALID, AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED, AUTH_GOOGLE_EMAIL_NOT_VERIFIED, AUTH_ACCOUNT_INACTIVE, AUTH_PASSWORD_DEADLINE_LOCKED.',
+  })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('google/mobile')
+  async googleMobile(@Body() dto: GoogleMobileLoginDto, @Req() req: Request): Promise<LoginResult> {
+    return this.authService.googleMobileLogin(dto.id_token, this.extractMeta(req));
   }
 
   //!=============================================

@@ -51,7 +51,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   {
     collection: 'stock_receipts',
-    fields: ['warehouse_id'],
+    fields: ['warehouse_id', 'ocr_scan_id'], // 11/11/2026 — ocr_scan_id: luôn ghi ObjectId
     arrayPath: { array: 'lines', fields: ['assignment_id', 'bin_location_id', 'lot_id'] },
   },
   {
@@ -100,6 +100,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
     collection: 'notifications',
     fields: ['recipient_user_id', 'related_entity_id'],
   },
+  { collection: 'device_tokens', fields: ['user_id'] }, // 10/11/2026 — thiết bị nhận push
   { collection: 'stock_reservations', fields: ['order_group_id', 'warehouse_id'] }, // warehouse_id: 21/10/2026
   { collection: 'stock_reservation_totals', fields: ['warehouse_id'] }, // 21/10/2026
   {
@@ -121,7 +122,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   // 10/10/2026 — các collection của thi_dev (đóng gói 3D, cài đặt, storefront) khai `Types.ObjectId`
   // (bị hiểu là Mixed) cho tới lúc gộp main; nay đã đổi sang SchemaTypes.ObjectId.
   { collection: 'packaging_material_rules', fields: ['updated_by'] },
-  { collection: 'packaging_movements', fields: ['packing_plan_id'] },
+  { collection: 'packaging_movements', fields: ['packing_plan_id', 'ocr_scan_id'] }, // 11/11/2026 — ocr_scan_id
   {
     collection: 'packing_plans',
     fields: [
@@ -170,6 +171,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   { collection: 'packing_guide_examples', fields: ['plan_id', 'rated_by'] },
   { collection: 'packing_settings', fields: ['updated_by'] },
   { collection: 'order_sync_settings', fields: ['updated_by'] }, // 15/10/2026
+  { collection: 'role_permissions', fields: ['updated_by'] }, // 12/11/2026 — phân quyền trang
   { collection: 'shipping_settings', fields: ['updated_by'] },
   { collection: 'product_master', fields: ['profile_confirmed_by'] },
   { collection: 'storefront_categories', fields: ['parent_id'] },

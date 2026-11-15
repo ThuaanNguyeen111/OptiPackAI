@@ -1,3 +1,4 @@
+import type { OcrStatus } from '../api/receipt-evidence.api'
 /** Khớp response camelCase từ `warehouse.controller.ts`. */
 
 export type WarehouseRecord = {
@@ -259,9 +260,20 @@ export type StockReceiptRecord = {
   createdBy: string
   createdAt: string
   lines: StockReceiptLine[]
+  // 11/11/2026 — ảnh phiếu NCC + đối chiếu số AI đọc trên phiếu
+  documentPhotoUrls: string[]
+  ocrStatus: OcrStatus
+  ocrChecks: {
+    lineIndex: number
+    label: string
+    ocrText: string
+    ocrQuantity: number
+    quantity: number
+    mismatchReason: string | null
+  }[]
 }
 
-export type CreateStockReceiptInput = {
+export type CreateStockReceiptInput = ReceiptEvidenceHeader & {
   received_at?: string
   lot_code?: string
   supplier?: string
@@ -274,7 +286,15 @@ export type CreateStockReceiptInput = {
     shop_id?: string
     seller_sku?: string
     quantity: number
+    ocr_line_index?: number
+    mismatch_reason?: string
   }[]
+}
+
+/** Phần phiếu NCC ở đầu body phiếu nhập (dòng phiếu mang `ocr_line_index` / `mismatch_reason`). */
+type ReceiptEvidenceHeader = {
+  document_photo_urls: string[]
+  ocr_scan_id?: string
 }
 
 export type CategoryRecord = {

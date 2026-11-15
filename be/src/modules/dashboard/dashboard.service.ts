@@ -36,6 +36,13 @@ import {
 } from './utils/dashboard-metrics.util';
 
 const HOUR_MS = 60 * 60 * 1000;
+/**
+ * 10/11/2026 — Lưu tạm kết quả `summary` 5 giây (BE_MOBILE_CHECKLIST mục 8): nhiều máy / app tự
+ * tải lại trong 5 giây chỉ tính 1 lần. Lưu trong bộ nhớ của tiến trình (không qua Redis): giữ
+ * nguyên kiểu Date, gộp luôn các request đến cùng lúc vào 1 lượt tính, Redis lỗi cũng không ảnh hưởng.
+ */
+export const DASHBOARD_CACHE_TTL_MS = 5_000;
+const DASHBOARD_CACHE_MAX_KEYS = 50;
 /** Đơn hỏa tốc "sắp quá hạn" khi còn ≤ chừng này (cùng mốc cảnh báo của cron SLA). */
 const EXPRESS_DUE_SOON_MS = HOUR_MS;
 /** Danh sách "top" trong khối kho (SKU thiếu, SKU hết, vật tư dưới mức đặt lại). */
@@ -187,6 +194,31 @@ export class DashboardService {
     @InjectModel(PackagingMaterial.name) private readonly materialModel: Model<PackagingMaterialDocument>,
     private readonly packingReport: PackingReportService,
   ) {}
+
+  private readonly summaryCache = new Map<string, { expiresAt: number; value: Promise<DashboardSummary> }>();
+
+  /** `summary` có lưu tạm DASHBOARD_CACHE_TTL_MS theo đúng bộ tham số (from, to, platform). Lỗi thì không lưu. */
+  cachedSummary(fromIso?: string, toIso?: string, platformRaw?: string): Promise<DashboardSummary> {
+    const nowMs = Date.now();
+    const key = [fromIso ?? '', toIso ?? '', platformRaw ?? ''].join('|');
+    const hit = this.summaryCache.get(key);
+    if (hit && hit.expiresAt > nowMs) return hit.value;
+
+    if (this.summaryCache.size >= DASHBOARD_CACHE_MAX_KEYS) {
+      for (const [k, entry] of this.summaryCache) {
+        if (entry.expiresAt <= nowMs) this.summaryCache.delete(k);
+      }
+      if (this.summaryCache.size >= DASHBOARD_CACHE_MAX_KEYS) this.summaryCache.clear();
+    }
+
+    const value = this.summary(fromIso, toIso, platformRaw, new Date(nowMs));
+    const entry = { expiresAt: nowMs + DASHBOARD_CACHE_TTL_MS, value };
+    this.summaryCache.set(key, entry);
+    value.catch(() => {
+      if (this.summaryCache.get(key) === entry) this.summaryCache.delete(key);
+    });
+    return value;
+  }
 
   async summary(fromIso?: string, toIso?: string, platformRaw?: string, now: Date = new Date()): Promise<DashboardSummary> {
     const range = resolveRange(fromIso, toIso, now);

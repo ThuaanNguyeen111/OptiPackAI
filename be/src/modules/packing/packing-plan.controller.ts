@@ -46,6 +46,7 @@ import {
   UnscanItemDto,
   UpdatePackingSettingsDto,
 } from './dto/packing-session.dto';
+import { Features } from '../role-permissions/feature-scope';
 
 interface DimsResponse {
   lengthMm: number;
@@ -309,6 +310,8 @@ export interface PackingPlanResponse {
     note: string | null;
     by: string;
     at: Date;
+    /** 10/11/2026 — ảnh món lỗi. */
+    photoUrls: string[];
   }[];
   activity: { kind: string; parcelNo: number | null; detail: string; reason: string | null; by: string | null; at: Date }[];
   session: {
@@ -566,6 +569,7 @@ export function toPlanResponse(
       note: i.note,
       by: i.by.toString(),
       at: i.at,
+      photoUrls: i.photo_urls ?? [],
     })),
     activity: plan.activity.map((a) => ({
       kind: a.kind,
@@ -650,6 +654,7 @@ export function toPlanResponse(
  */
 @ApiTags('Packing plan')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'shipping', 'order_groups')
 @Controller('order-groups/:groupId/packing-plan')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingPlanController {

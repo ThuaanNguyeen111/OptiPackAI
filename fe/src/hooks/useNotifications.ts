@@ -7,6 +7,7 @@ import {
 } from '../api/notifications.api'
 import { getAccessToken } from '../lib/auth-storage'
 import type { AppNotification } from '../types/notifications'
+import { setVisibleInterval } from '../utils/visible-interval'
 
 /** BE throttle mặc định 20 req/phút — poll chỉ unread-count, list khi mở chuông. */
 const POLL_MS = 45_000
@@ -56,12 +57,12 @@ export function useNotifications(enabled: boolean) {
     const kickoff = window.setTimeout(() => {
       void refreshCount()
     }, 0)
-    const id = window.setInterval(() => {
+    const stopPolling = setVisibleInterval(() => {
       void refreshCount()
     }, POLL_MS)
     return () => {
       window.clearTimeout(kickoff)
-      window.clearInterval(id)
+      stopPolling()
     }
   }, [enabled, refreshCount])
 

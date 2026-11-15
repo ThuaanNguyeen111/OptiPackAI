@@ -10,6 +10,10 @@ import {
 } from './dto/packaging-material.dto';
 import { MaterialCondition, MaterialMovementType } from './schemas/packaging-movement.schema';
 import { PACKAGING_MATERIAL_ERROR_CODES as E } from './packaging-materials.errors';
+import { ReceiptOcrService } from '../receipt-ocr/receipt-ocr.service';
+import { materialIntakeFields, NOT_CHECKED, requireMaterialPhotos, type MaterialIntakeFields } from '../receipt-ocr/receipt-ocr.util';
+import type { SupplierReceiptEvidenceDto } from '../receipt-ocr/dto/supplier-receipt-evidence.dto';
+import type { OcrStatus } from '../receipt-ocr/schemas/receipt-ocr-scan.schema';
 
 export interface ConsumptionResult {
   consumed: { materialCode: string; condition: 'new' | 'reused'; quantity: number; savingVnd: number }[];
@@ -110,6 +114,8 @@ export class PackagingMaterialsService {
     @InjectConnection() private readonly connection: Connection,
     // 08/11/2026 — báo khi sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo. @Optional để spec cũ không vỡ.
     @Optional() private readonly stockAlerts?: PackagingStockAlertService,
+    // 11/11/2026 — ảnh phiếu NCC + OCR đối chiếu. @Optional để spec cũ không vỡ.
+    @Optional() private readonly receiptOcr?: ReceiptOcrService,
   ) {}
 
   // ------------------------------------------------------------ danh mục
@@ -191,17 +197,33 @@ export class PackagingMaterialsService {
   }
 
   async purchase(code: string, dto: PurchasePackagingDto, actorId: string): Promise<PackagingMaterialDocument> {
+    requireMaterialPhotos(dto.document_photo_urls);
     const m = await this.get(code);
     if (!m.is_active) this.fail(E.INACTIVE, `Vật liệu "${code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT);
-    return this.runTx(async (session) => {
-      const updated = await this.materialModel.findOneAndUpdate({ code }, { $inc: { qty_new: dto.quantity } }, { returnDocument: 'after', session });
-      await this.record(code, 'new', 'purchase', dto.quantity, 0, null, null, dto.note ?? null, actorId, session);
-      return updated ?? m;
-    });
+    return (await this.receiveFromSupplier(m, dto, actorId)) ?? m;
   }
 
-  async listMovements(code?: string, limit = 100): Promise<PackagingMovementDocument[]> {
-    return this.movementModel.find(code ? { material_code: code } : {}).sort({ created_at: -1 }).limit(Math.min(500, Math.max(1, limit)));
+  /**
+   * 11/11/2026 — nhập hàng MỚI từ NCC (mua vật liệu, stock-in thùng / vật tư): bắt ảnh phiếu,
+   * đối chiếu số AI đọc trên phiếu, `$inc qty_new` + 1 dòng sổ cùng transaction, báo khi lệch.
+   * null = vật liệu vừa bị xoá.
+   */
+  async receiveFromSupplier(
+    material: { _id: Types.ObjectId; code: string },
+    dto: SupplierReceiptEvidenceDto & { quantity: number; note?: string },
+    actorId: string,
+  ): Promise<PackagingMaterialDocument | null> {
+    const intake = this.receiptOcr
+      ? await this.receiptOcr.prepareMaterialIntake(material.code, dto.quantity, dto)
+      : { fields: materialIntakeFields(requireMaterialPhotos(dto.document_photo_urls), dto.supplier, NOT_CHECKED), mismatch: null };
+    const updated = await this.writeStockIn(material._id, dto.quantity, actorId, dto.note, intake.fields);
+    if (updated && intake.mismatch && this.receiptOcr) await this.receiptOcr.notifyMaterialMismatch(material.code, intake.mismatch);
+    return updated;
+  }
+
+  async listMovements(code?: string, limit = 100, ocrStatus?: OcrStatus): Promise<PackagingMovementDocument[]> {
+    const filter = { ...(code ? { material_code: code } : {}), ...(ocrStatus ? { ocr_status: ocrStatus } : {}) };
+    return this.movementModel.find(filter).sort({ created_at: -1 }).limit(Math.min(500, Math.max(1, limit)));
   }
 
   /** Số liệu cho Dashboard: tiết kiệm, tỷ lệ dùng lại, tỷ lệ làm theo gợi ý đóng gói. */
@@ -415,15 +437,21 @@ export class PackagingMaterialsService {
     };
   }
 
-  /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */
+  /** Nhập thêm hàng MỚI theo _id, không phiếu NCC — chỉ script seed dùng (route dùng receiveFromSupplier). */
   async stockInById(id: Types.ObjectId, quantity: number, actorId: string | null, note?: string): Promise<PackagingMaterialDocument | null> {
+    return this.writeStockIn(id, quantity, actorId, note, null);
+  }
+
+  private async writeStockIn(
+    id: Types.ObjectId, quantity: number, actorId: string | null, note: string | undefined, evidence: MaterialIntakeFields | null,
+  ): Promise<PackagingMaterialDocument | null> {
     return this.runTx(async (session) => {
       const updated = await this.materialModel.findOneAndUpdate({ _id: id }, { $inc: { qty_new: quantity } }, { returnDocument: 'after', session });
       if (!updated) return null;
       await this.movementModel.create([{
         material_code: updated.code, condition: 'new', type: 'purchase', delta: quantity, saving_vnd: 0,
         ref_type: null, ref_id: null, note: note?.trim() ? note.trim() : null, actor_id: actorId ?? 'system',
-        balance_after: usableStock(updated), created_at: new Date(),
+        balance_after: usableStock(updated), created_at: new Date(), ...evidence,
       }], { session });
       return updated;
     });

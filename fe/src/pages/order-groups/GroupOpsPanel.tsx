@@ -105,8 +105,9 @@ export function GroupOpsPanel({
       return () => window.clearTimeout(clear)
     }
     let cancelled = false
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void listOrderGroups({ q, limit: 30 })
+      void listOrderGroups({ q, limit: 30 }, { signal: controller.signal })
         .then((rows) => {
           if (!cancelled) setMergeHits(rows)
         })
@@ -116,6 +117,7 @@ export function GroupOpsPanel({
     }, 300)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
   }, [mergeQuery, canRegroupGroups])

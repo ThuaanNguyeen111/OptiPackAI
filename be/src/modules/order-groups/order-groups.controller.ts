@@ -30,6 +30,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { OrderGroupDocument } from './schemas/order-group.schema';
+import { Features } from '../role-permissions/feature-scope';
 
 // Response tối thiểu — cùng nguyên tắc "không trả thẳng Document ra
 // ngoài" đã áp dụng ở orders.controller.ts (tránh lộ __v raw của
@@ -245,6 +246,7 @@ export async function buildOrderGroupResponses(
  */
 @ApiTags('Order Groups')
 @ApiBearerAuth('JWT-auth')
+@Features('order_groups', 'picking', 'packing', 'shipping')
 @Controller('order-groups')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrderGroupsController {

@@ -29,6 +29,7 @@ import type {
   WarehouseRecord,
   WarehouseZoneRecord,
 } from '../types/warehouse-admin'
+import { toOcrStatus, type OcrStatus } from './receipt-evidence.api'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
@@ -818,15 +819,35 @@ function mapStockReceipt(raw: unknown): StockReceiptRecord | null {
         },
       ]
     }),
+    documentPhotoUrls: Array.isArray(row.documentPhotoUrls)
+      ? row.documentPhotoUrls.filter((u): u is string => typeof u === 'string')
+      : [],
+    ocrStatus: toOcrStatus(row.ocrStatus) ?? 'not_checked',
+    ocrChecks: (Array.isArray(row.ocrChecks) ? row.ocrChecks : []).flatMap((item) => {
+      const c = asRecord(item)
+      if (!c) return []
+      return [
+        {
+          lineIndex: pickNumber(c.lineIndex),
+          label: pickString(c.label),
+          ocrText: pickString(c.ocrText),
+          ocrQuantity: pickNumber(c.ocrQuantity),
+          quantity: pickNumber(c.quantity),
+          mismatchReason: pickString(c.mismatchReason) || null,
+        },
+      ]
+    }),
   }
 }
 
 export async function listStockReceipts(
   warehouseId: string,
   limit = 50,
+  ocrStatus?: OcrStatus,
 ): Promise<StockReceiptRecord[]> {
+  const filter = ocrStatus ? `&ocr_status=${ocrStatus}` : ''
   const res = await apiRequest<unknown>(
-    `/warehouse/warehouses/${warehouseId}/receipts?limit=${limit}`,
+    `/warehouse/warehouses/${warehouseId}/receipts?limit=${limit}${filter}`,
     { auth: true },
   )
   if (!Array.isArray(res)) return []

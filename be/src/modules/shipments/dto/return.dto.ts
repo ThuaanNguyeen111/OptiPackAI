@@ -5,6 +5,7 @@ import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min, ValidateNested,
 } from 'class-validator';
 import { InspectionResult, ReturnReason, ReturnType } from '../enums/return.enums';
+import { IsProofPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 
 export class ReturnItemDto {
   @ApiProperty({ example: 'ATD-M-01' }) @IsString() @MaxLength(100) seller_sku!: string;
@@ -72,4 +73,8 @@ export class InspectReturnDto {
   @ApiPropertyOptional({ type: [PackagingInspectionLineDto], description: 'G4 — kiểm luôn thùng/xốp đi kèm hàng hoàn' })
   @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => PackagingInspectionLineDto)
   packaging?: PackagingInspectionLineDto[];
+
+  @ApiPropertyOptional({ type: [String], description: '10/11/2026 — ảnh hàng hoàn lúc kiểm (tối đa 3, URL từ POST /proof-photos). Không bắt buộc.' })
+  @IsOptional() @IsProofPhotoUrls()
+  photo_urls?: string[];
 }

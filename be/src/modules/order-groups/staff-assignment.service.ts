@@ -8,6 +8,8 @@ import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { STAFF_ASSIGNMENT_ERROR_CODES } from './staff-assignment.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
 
 /**
  * 🔄 ĐÃ ĐỔI (21/10/2026): "việc" của người LẤY HÀNG = nhóm còn ở bước lấy hàng.
@@ -42,6 +44,7 @@ export class StaffAssignmentService {
   constructor(
     @InjectModel(OrderGroup.name) private readonly orderGroupModel: Model<OrderGroupDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async listStaffWithWorkload(
@@ -197,6 +200,8 @@ export class StaffAssignmentService {
     staffId: Types.ObjectId,
     type: 'auto' | 'manual',
   ): Promise<OrderGroupDocument> {
+    // 10/11/2026 — đọc người đang nhận việc để gán lại đúng người cũ thì không báo lại.
+    const previous = await this.orderGroupModel.findById(groupId).select('assigned_staff_id').lean();
     const updated = await this.orderGroupModel.findByIdAndUpdate(
       groupId,
       { $set: { assigned_staff_id: staffId, assigned_at: new Date(), assignment_type: type } },
@@ -211,6 +216,31 @@ export class StaffAssignmentService {
       );
     }
     this.logger.log(`Order Group ${groupId} được gán cho nhân viên ${staffId.toString()} (${type}).`);
+    if (previous?.assigned_staff_id?.toString() !== staffId.toString()) await this.notifyPickingAssigned(updated, staffId);
     return updated;
+  }
+
+  /**
+   * 10/11/2026 — Báo nhân viên kho được giao lấy hàng (push đích danh, Thuận chốt), giống
+   * `packing_assigned` bên đóng gói. Lỗi gửi thông báo không làm hỏng việc gán.
+   */
+  private async notifyPickingAssigned(group: OrderGroupDocument, staffId: Types.ObjectId): Promise<void> {
+    const express = group.order_priority === 'express';
+    const deadline = express && group.packaging_deadline
+      ? ` Hạn đóng gói ${group.packaging_deadline.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}.`
+      : '';
+    try {
+      await this.notificationsService.notify({
+        recipientUserId: staffId.toString(),
+        type: NotificationType.PICKING_ASSIGNED,
+        severity: express ? 'warning' : 'info',
+        title: express ? 'Đơn Hỏa Tốc: bạn được giao lấy hàng' : 'Bạn được giao lấy hàng một nhóm đơn',
+        message: `Nhóm gồm ${String(group.order_count)} đơn đang chờ bạn lấy hàng.${deadline}`,
+        relatedEntityType: 'order_group',
+        relatedEntityId: group._id.toString(),
+      });
+    } catch (error: unknown) {
+      this.logger.warn(`Gửi thông báo giao việc lấy hàng thất bại: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }

@@ -7,6 +7,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { orderSyncPolicy } from './order-sync-policy';
+import { describeError } from '../../common/utils/log-error.util';
 
 // BỔ SUNG (AOFP-XX, 2026-09-16) — chống spam Notification khi sync lỗi LIÊN TỤC.
 // 🔄 15/10/2026: khoảng cách (mặc định 20 phút), chu kỳ đồng bộ (mặc định 5 phút)
@@ -122,10 +123,7 @@ export class LazadaOrderSyncScheduler {
             // 1 shop lỗi (vd token hết hạn, sàn tạm downtime) KHÔNG được
             // làm hỏng lượt sync của các shop khác.
             failed += 1;
-            this.logger.error(
-              `Auto-sync ${platform} shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`,
-              error,
-            );
+            this.logger.error(`Auto-sync ${platform} shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác: ${describeError(error)}`);
 
             const cooldownKey = `${platform}:${shop.shop_id}`;
             const lastNotified =

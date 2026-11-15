@@ -479,6 +479,7 @@ export class ReturnsService {
           disposition: l.result === InspectionResult.QUARANTINE ? 'pending' : null,
         })),
         inspected_by: actorId,
+        inspection_photo_urls: dto.photo_urls ?? [],
         closed_at: new Date(),
         packaging_inspection: packagingOutcomes.map((o) => ({
           material_code: o.line.material_code,

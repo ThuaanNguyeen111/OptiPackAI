@@ -119,13 +119,18 @@ kế hoạch backup — không phải chuyện thêm một Deployment là xong.
 - Bản cũ chỉ có đúng 1 job backend — FE/storefront/Docker/k8s không được kiểm tra gì.
 - Thêm `concurrency.cancel-in-progress` để push liên tiếp không xếp hàng chờ.
 
-### `.github/workflows/release.yml` — đẩy image lên GHCR
+### Build image + deploy (cùng `.github/workflows/ci.yml`)
 
-Chạy khi push `main`, khi gắn tag `v*`, hoặc bấm tay (`workflow_dispatch`, cho phép nhập
-`api_url` để build đúng URL backend). Tag image: tên nhánh, semver, sha ngắn, `latest`.
+Một lượt chạy, một sơ đồ: các job kiểm tra → **Build image** (4 image tuần tự, image nào mã
+nguồn không đổi thì chỉ gắn tag mới) → **Deploy lên server**.
 
-**Cố ý không tự động `kubectl apply` lên cụm nào** — CI chỉ tạo image, việc deploy do người
-chạy, tránh CI tự đụng vào môi trường thật khi chưa có quy trình duyệt.
+- PR: kiểm tra + build thử image, không push, không deploy.
+- Push `main`: push image lên ghcr (`sha-<commit>`, `latest`) rồi SSH vào k3s apply, nạp lại
+  Secret từ `/root/optipackai/be.env` và `fcm-service-account.json` trên server.
+- Tag `v*`: push image có tag phiên bản, không deploy.
+- Bấm tay (`workflow_dispatch`) được nhập `api_url` để build đúng URL backend.
+
+Trang Summary của lượt chạy ghi commit vừa deploy và bảng pod.
 
 ---
 

@@ -1,9 +1,12 @@
 import {
+  Body,
   Controller,
+  Delete,
   HttpStatus,
   Get,
   Param,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +18,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { NotificationsService, type NotificationView } from './notifications.service';
+import { PushService } from './push/push.service';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 import { AppException } from '../../common/exceptions/app-exception';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -25,7 +30,28 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly pushService: PushService,
+  ) {}
+
+  /** 10/11/2026 — App mobile đăng ký máy nhận push (gọi sau khi đăng nhập và khi Firebase đổi token). */
+  @Post('devices')
+  @ApiOperation({
+    summary:
+      'Đăng ký thiết bị nhận push FCM của người đang đăng nhập. Cùng token gửi lại = cập nhật (token đổi chủ nếu máy đăng nhập tài khoản khác). Tối đa 10 máy/người.',
+  })
+  async registerDevice(@CurrentUser() user: AuthenticatedUser, @Body() dto: RegisterDeviceDto): Promise<{ registered: true; push_enabled: boolean }> {
+    await this.pushService.registerDevice(user.userId, { token: dto.token, platform: dto.platform, appVersion: dto.app_version });
+    return { registered: true, push_enabled: this.pushService.isConfigured() };
+  }
+
+  /** 10/11/2026 — Gỡ máy khi đăng xuất. Chỉ gỡ được token của chính mình. */
+  @Delete('devices/:token')
+  @ApiOperation({ summary: 'Gỡ thiết bị nhận push (gọi khi đăng xuất). Token không thuộc người gọi → removed: false.' })
+  async unregisterDevice(@CurrentUser() user: AuthenticatedUser, @Param('token') token: string): Promise<{ removed: boolean }> {
+    return { removed: await this.pushService.unregisterDevice(user.userId, token) };
+  }
 
   @Get()
   @ApiQuery({ name: 'is_read', required: false, type: Boolean })

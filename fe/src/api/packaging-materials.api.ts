@@ -1,4 +1,6 @@
 import { apiRequest } from '../lib/api'
+import { mapIntakeEvidence, type IntakeEvidence, type ReceiptEvidencePayload } from './receipt-evidence.api'
+import type { StockStatus } from './packaging-catalog.api'
 
 export type PackagingMaterialsSavings = {
   totalSavingVnd: number
@@ -44,8 +46,10 @@ export type PackagingMaterialStock = {
   qtyNew: number
   qtyReused: number
   qtyInternal: number
-  /** Ngưỡng cảnh báo; null nếu BE chưa trả (túi niêm phong). */
+  /** Ngưỡng cảnh báo; null nếu BE bản cũ chưa trả. */
   reorderLevel: number | null
+  /** BE tính trên tồn dùng được (mới + tái sử dụng); null nếu BE bản cũ chưa trả. */
+  stockStatus: StockStatus | null
   isActive: boolean
 }
 
@@ -60,7 +64,7 @@ export type PackagingMaterialMovement = {
   refId: string | null
   note: string | null
   createdAt: string | null
-}
+} & IntakeEvidence
 
 export type CreatePackagingMaterialInput = {
   code: string
@@ -90,6 +94,10 @@ function pickNullableNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function pickStockStatus(value: unknown): StockStatus | null {
+  return value === 'in_stock' || value === 'low_stock' || value === 'out_of_stock' ? value : null
+}
+
 function pickString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -114,6 +122,7 @@ function mapMaterial(raw: unknown): PackagingMaterialStock | null {
     qtyReused: pickNumber(row.qtyReused, row.qty_reused),
     qtyInternal: pickNumber(row.qtyInternal, row.qty_internal),
     reorderLevel: pickNullableNumber(row.reorderLevel ?? row.reorder_level),
+    stockStatus: pickStockStatus(row.stockStatus ?? row.stock_status),
     isActive: row.isActive !== false && row.is_active !== false,
   }
 }
@@ -173,6 +182,7 @@ export async function listPackagingMaterialMovements(
         refId: pickString(row.refId ?? row.ref_id),
         note: pickString(row.note),
         createdAt: pickString(row.createdAt ?? row.created_at),
+        ...mapIntakeEvidence(row),
       },
     ]
   })
@@ -259,14 +269,15 @@ export async function reactivatePackagingMaterial(
 export async function purchasePackagingMaterial(
   code: string,
   quantity: number,
-  note?: string,
+  note: string | undefined,
+  evidence: ReceiptEvidencePayload,
 ): Promise<PackagingMaterialStock> {
   const res = await apiRequest<unknown>(
     `/packaging-materials/${encodeURIComponent(code)}/purchase`,
     {
       method: 'POST',
       auth: true,
-      body: { quantity, note: note?.trim() || undefined },
+      body: { ...evidence, quantity, note: note?.trim() || undefined },
     },
   )
   const item = mapMaterial(res)

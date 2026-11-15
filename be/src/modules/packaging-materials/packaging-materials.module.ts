@@ -6,6 +6,7 @@ import { PackagingMaterialsService } from './packaging-materials.service';
 import { PackagingMaterialsController } from './packaging-materials.controller';
 import { PackagingStockAlertService } from './packaging-stock-alert.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ReceiptOcrModule } from '../receipt-ocr/receipt-ocr.module';
 
 // G4 (27/09/2026). KHÔNG import module nào khác (chỉ đọc schema gợi ý đóng gói)
 // -> order-groups và shipments import được mà không sinh phụ thuộc vòng.
@@ -17,6 +18,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       { name: PackagingMovement.name, schema: PackagingMovementSchema },
     ]),
     NotificationsModule,
+    ReceiptOcrModule, // 11/11/2026 — ảnh phiếu NCC + OCR khi mua vật liệu
   ],
   controllers: [PackagingMaterialsController],
   providers: [PackagingMaterialsService, PackagingStockAlertService],

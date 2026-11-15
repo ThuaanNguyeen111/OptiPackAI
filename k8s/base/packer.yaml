@@ -31,8 +31,8 @@ spec:
           resources:
             # CP-SAT dùng tới 8 luồng cho mỗi lời giải; giới hạn 2 CPU vẫn đủ
             # (chậm hơn chứ không sai — kết quả xác định theo thời gian quy ước).
-            requests: { cpu: 250m, memory: 256Mi }
-            limits: { cpu: '2', memory: 1Gi }
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: '2', memory: 1536Mi }
 ---
 apiVersion: v1
 kind: Service

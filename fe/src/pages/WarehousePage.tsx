@@ -81,6 +81,7 @@ import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehou
 import { formatDateTime, formatLotReceived } from '../utils/format'
 import { formatDimsCm, formatKg } from '../utils/units'
 import { newClientEventId } from '../utils/client-event-id'
+import { setVisibleInterval } from '../utils/visible-interval'
 
 type QueueTab =
   | 'to_pick'
@@ -187,6 +188,46 @@ function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
   if (!known) return status
   return vi ? known.vi : known.en
+}
+
+type ExpressClock = { label: string; tone: 'ok' | 'soon' | 'late' }
+
+function formatRemain(ms: number, vi: boolean): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 60) return vi ? `${minutes} phút` : `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (rest === 0) return vi ? `${hours} giờ` : `${hours}h`
+  return vi ? `${hours} giờ ${rest} phút` : `${hours}h ${rest}m`
+}
+
+/** Đơn hỏa tốc: đếm tới hạn đóng gói. Còn ≤ 15 phút thì vàng, quá hạn thì đỏ. */
+function packDeadlineClock(
+  group: OrderGroup | null | undefined,
+  nowMs: number,
+  vi: boolean,
+): ExpressClock | null {
+  if (!group || group.orderPriority !== 'express' || !group.packagingDeadline) return null
+  if (group.fulfillmentStatus === 'canceled') return null
+  const remainMs = new Date(group.packagingDeadline).getTime() - nowMs
+  if (!Number.isFinite(remainMs)) return null
+  const late = remainMs <= 0
+  const soon = !late && remainMs <= 15 * 60 * 1000
+  const amount = formatRemain(Math.abs(remainMs), vi)
+  const label = late
+    ? vi
+      ? `Quá hạn đóng ${amount}`
+      : `${amount} past pack deadline`
+    : vi
+      ? `Còn ${amount} để đóng`
+      : `${amount} left to pack`
+  return { label, tone: late ? 'late' : soon ? 'soon' : 'ok' }
+}
+
+function expressClockClass(tone: ExpressClock['tone']): string {
+  if (tone === 'late') return 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300'
+  if (tone === 'soon') return 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'
+  return 'border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-200'
 }
 
 function shortId(id: string): string {
@@ -565,6 +606,8 @@ export function WarehousePage() {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => setVisibleInterval(() => setNowMs(Date.now()), 30_000), [])
 
   const [missingOpen, setMissingOpen] = useState(false)
   const [missingQty, setMissingQty] = useState(1)
@@ -1780,6 +1823,19 @@ export function WarehousePage() {
                           {vi ? 'Hỏa tốc' : 'Express'}
                         </span>
                       ) : null}
+                      {(() => {
+                        const clock = packDeadlineClock(group, nowMs, vi)
+                        return clock ? (
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold tabular-nums',
+                              expressClockClass(clock.tone),
+                            )}
+                          >
+                            {clock.label}
+                          </span>
+                        ) : null
+                      })()}
                       {group?.isOverdue ? (
                         <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300">
                           {vi ? 'Quá hạn' : 'Overdue'}

@@ -7,6 +7,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { DocumentsService } from './documents.service';
 import { BinLabelsQueryDto, SkuLabelsQueryDto } from './dto/document-query.dto';
+import { Features } from '../role-permissions/feature-scope';
 
 function sendPdf(res: Response, buffer: Buffer, filename: string): void {
   res.set({
@@ -20,6 +21,7 @@ function sendPdf(res: Response, buffer: Buffer, filename: string): void {
 /** Chứng từ in (PDF). Chỉ đọc. */
 @ApiTags('Documents')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'shipping', 'order_groups')
 @Controller('documents')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DocumentsController {

@@ -66,3 +66,21 @@ kubectl -n "$NAMESPACE" create secret generic "$SECRET_NAME" \
 echo "Đã tạo/cập nhật Secret $SECRET_NAME trong namespace $NAMESPACE."
 echo "Các key có trong Secret (không in giá trị):"
 kubectl -n "$NAMESPACE" get secret "$SECRET_NAME" -o go-template='{{range $k, $v := .data}}  {{$k}}{{"\n"}}{{end}}'
+
+# ---- Secret "optipackai-fcm": file JSON service account Firebase (push) ----
+# be.yaml mount Secret này vào /etc/fcm (optional: thiếu thì pod vẫn chạy, chỉ tắt push).
+# Tìm file: FCM_FILE nếu có -> fcm-service-account.json cạnh ENV_FILE (server) -> mobile/keys/ (máy dev).
+FCM_FILE="${FCM_FILE:-}"
+if [ -z "$FCM_FILE" ]; then
+  for f in "$(dirname "$ENV_FILE")/fcm-service-account.json" mobile/keys/*firebase-adminsdk*.json; do
+    [ -f "$f" ] && { FCM_FILE="$f"; break; }
+  done
+fi
+if [ -n "$FCM_FILE" ] && [ -f "$FCM_FILE" ]; then
+  kubectl -n "$NAMESPACE" create secret generic optipackai-fcm \
+    --from-file=service-account.json="$FCM_FILE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "Đã tạo/cập nhật Secret optipackai-fcm từ $(basename "$FCM_FILE")."
+else
+  echo "CẢNH BÁO: không thấy file service account Firebase -> bỏ qua Secret optipackai-fcm, push sẽ tắt." >&2
+fi

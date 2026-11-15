@@ -75,6 +75,7 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { addBusinessHours } from './utils/add-business-hours.util';
+import { groupIdSuffixFilters } from './utils/group-id-search.util';
 import { StaffAssignmentService } from './staff-assignment.service';
 // Đọc TRỰC TIẾP schema PackingPlan (module packing/) — cùng pattern cross-module
 // đã dùng cho Order/ProductMaster/SkuBinAssignment ở trên, tránh vòng lặp import
@@ -1329,7 +1330,8 @@ export class OrderGroupsService {
       or.push({ _id: new Types.ObjectId(lower) });
     } else if (/^[0-9a-f]{4,23}$/.test(lower)) {
       // Chỉ chữ số hex đã kiểm ở trên → an toàn khi ghép vào regex.
-      or.push({ $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: `${lower}$` } } });
+      // 🔄 10/11/2026 — tìm qua id_reversed có index (trước: $toString _id, quét cả bảng).
+      or.push(...groupIdSuffixFilters(lower));
     }
     const codes = [...new Set([search, search.toUpperCase()])];
     const groupIds = await this.orderModel.distinct('consolidated_group_id', {
@@ -1447,9 +1449,9 @@ export class OrderGroupsService {
   ): Promise<Map<string, GroupOrderCounts>> {
     const result = new Map<string, GroupOrderCounts>();
     if (groupIds.length === 0) return result;
-    // KHÔNG thêm `is_consolidated: true` vào $match dù index consolidated_group_id là
-    // partial theo field đó: nhóm 1 đơn có consolidated_group_id nhưng is_consolidated
-    // vẫn false (xem getOrCreateGroupForOrder) — thêm điều kiện sẽ đếm thiếu.
+    // KHÔNG thêm `is_consolidated: true` vào $match: nhóm 1 đơn có consolidated_group_id
+    // nhưng is_consolidated vẫn false (xem getOrCreateGroupForOrder) — thêm điều kiện sẽ
+    // đếm thiếu. 🔄 10/11/2026 (BE-3): index consolidated_group_id nay không còn partial.
     const rows = await this.orderModel.aggregate<{
       _id: Types.ObjectId;
       active: number;

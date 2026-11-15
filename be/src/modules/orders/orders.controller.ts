@@ -14,6 +14,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 // Hình dạng response public — KHÔNG trả thẳng OrderDocument ra ngoài
 // (tránh lộ field nội bộ như __v, Mongoose internals). Cùng nguyên tắc
@@ -85,6 +86,7 @@ interface OrderDetailResponse extends OrderResponse {
 
 @ApiTags('Orders')
 @ApiBearerAuth('JWT-auth')
+@Features('orders', 'order_groups', 'picking', 'packing', 'shipping')
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrdersController {

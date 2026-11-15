@@ -5,6 +5,7 @@ import {
   GROUP_FULFILLMENT_STATUS_VALUES,
   GroupFulfillmentStatus,
 } from '../enums/group-fulfillment-status.enum';
+import { reverseHexId } from '../utils/group-id-search.util';
 
 /**
  * ===================================================================
@@ -244,6 +245,14 @@ export class OrderGroup {
   @Prop({ type: Date, default: null })
   order_counts_refreshed_at?: Date | null;
 
+  /**
+   * 10/11/2026 — mã nhóm (`_id` dạng hex) viết NGƯỢC, để tìm theo ĐUÔI mã bằng index
+   * (xem order-groups/utils/group-id-search.util.ts). Tự ghi khi tạo nhóm (hook validate
+   * bên dưới); nhóm cũ bổ sung bằng scripts/backfill-order-group-id-reversed.ts.
+   */
+  @Prop({ type: String, default: null })
+  id_reversed?: string | null;
+
   // 10/10/2026 — ĐÃ BỎ 4 field lazada_pack_status / lazada_pack_attempted_at /
   // lazada_pack_error / lazada_pack_items (bỏ chức năng báo "đã đóng gói" lên Lazada).
   // Nhóm đơn cũ có thể còn các field này trong DB — không xoá dữ liệu, schema chỉ
@@ -260,6 +269,14 @@ export class OrderGroup {
 
 export type OrderGroupDocument = HydratedDocument<OrderGroup>;
 export const OrderGroupSchema = SchemaFactory.createForClass(OrderGroup);
+
+// 10/11/2026 — ghi id_reversed cho nhóm mới (mọi nhóm đều tạo qua Model.create → chạy validate).
+OrderGroupSchema.pre('validate', function () {
+  this.id_reversed ??= reverseHexId(this._id.toHexString());
+});
+// Tìm theo đuôi mã: regex neo đầu `^…` trên id_reversed dùng được index. Không partial:
+// nhánh dự phòng tìm `id_reversed: null` (nhóm chưa backfill) cũng đi qua index này.
+OrderGroupSchema.index({ id_reversed: 1 });
 
 // Rule #3 (ESR — Equality trước, Sort/Range sau): phục vụ
 // GET /order-groups?platform=xxx&status=yyy, sort theo created_at.

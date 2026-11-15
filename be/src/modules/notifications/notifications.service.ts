@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -12,6 +12,9 @@ import { MailService } from '../mail/mail.service';
 import { AppException } from '../../common/exceptions/app-exception';
 import { NOTIFICATION_ERROR_CODES } from './notifications.errors';
 import { formatKg } from '../../common/utils/measure-format.util';
+import { PushService } from './push/push.service';
+import { shouldPush } from './push/push-policy';
+import { clip } from './push/fcm.util';
 
 interface CreateNotificationInput {
   recipientUserId?: string;
@@ -88,6 +91,8 @@ export class NotificationsService {
     private readonly notificationModel: Model<NotificationDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly mailService: MailService,
+    // 10/11/2026 — push FCM (BE_MOBILE_CHECKLIST mục 3). Optional: test cũ dựng service không có push.
+    @Optional() private readonly pushService?: PushService,
   ) {}
 
   /** 07/10/2026 — chuỗi id 24 ký tự hex -> ObjectId; còn lại -> null (ghi cảnh báo). */
@@ -138,8 +143,44 @@ export class NotificationsService {
     // chính. Xác định người nhận email: đích danh 1 user, hoặc TẤT CẢ
     // user thuộc role (broadcast).
     void this.sendEmailAsync(notification, input);
+    // 10/11/2026 — push tới điện thoại cho loại việc gấp / có hạn chót (push-policy.ts), không chờ.
+    void this.sendPushAsync(notification, input);
 
     return notification;
+  }
+
+  private async sendPushAsync(notification: NotificationDocument, input: CreateNotificationInput): Promise<void> {
+    const push = this.pushService;
+    if (!push?.isConfigured()) return;
+    const directId = notification.recipient_user_id;
+    if (!shouldPush(input.type, directId !== null)) return;
+    if (directId === null && notification.recipient_role === null) return;
+    try {
+      const users = await this.userModel
+        .find(directId !== null ? { _id: directId, is_active: true } : { role: notification.recipient_role, is_active: true })
+        .select('_id')
+        .lean();
+      const sent = await push.sendToUsers(
+        users.map((u) => u._id),
+        {
+          title: clip(input.title, 100),
+          body: clip(input.message, 240),
+          data: {
+            notification_id: notification._id.toString(),
+            type: input.type,
+            severity: input.severity,
+            related_entity_type: notification.related_entity_type ?? '',
+            related_entity_id: notification.related_entity_id?.toString() ?? '',
+          },
+          highPriority: input.severity !== 'info',
+        },
+      );
+      if (sent > 0) {
+        await this.notificationModel.updateOne({ _id: notification._id }, { $addToSet: { channels_sent: 'push' } });
+      }
+    } catch (error: unknown) {
+      this.logger.warn(`Gửi push thất bại cho notification ${notification._id.toString()}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async sendEmailAsync(

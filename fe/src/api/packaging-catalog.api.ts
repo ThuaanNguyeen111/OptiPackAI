@@ -1,4 +1,5 @@
 import { apiRequest } from '../lib/api'
+import { mapIntakeEvidence, type IntakeEvidence, type ReceiptEvidencePayload } from './receipt-evidence.api'
 
 /**
  * Danh mục thùng / túi zip / vật tư chèn mà engine đóng gói đọc.
@@ -40,7 +41,7 @@ export type CatalogMovement = {
   orderGroupId: string | null
   note: string | null
   createdAt: string | null
-}
+} & IntakeEvidence
 
 export type PackagingBag = {
   id: string
@@ -151,6 +152,7 @@ function mapMovement(raw: unknown): CatalogMovement | null {
     orderGroupId: str(row.orderGroupId ?? row.order_group_id),
     note: str(row.note),
     createdAt: str(row.createdAt ?? row.created_at),
+    ...mapIntakeEvidence(row),
   }
 }
 
@@ -280,14 +282,15 @@ export async function updatePackagingBox(
 export async function stockInPackagingBox(
   id: string,
   quantity: number,
-  note?: string,
+  note: string | undefined,
+  evidence: ReceiptEvidencePayload,
 ): Promise<PackagingBox> {
   const res = await apiRequest<unknown>(
     `/packaging/boxes/${encodeURIComponent(id)}/stock-in`,
     {
       method: 'POST',
       auth: true,
-      body: { quantity, note: note?.trim() || undefined },
+      body: { ...evidence, quantity, note: note?.trim() || undefined },
     },
   )
   const item = mapBox(res)
@@ -396,14 +399,15 @@ export async function updatePackagingBag(
 export async function stockInPackagingBag(
   id: string,
   quantity: number,
-  note?: string,
+  note: string | undefined,
+  evidence: ReceiptEvidencePayload,
 ): Promise<PackagingBag> {
   const res = await apiRequest<unknown>(
     `/packaging/bags/${encodeURIComponent(id)}/stock-in`,
     {
       method: 'POST',
       auth: true,
-      body: { quantity, note: note?.trim() || undefined },
+      body: { ...evidence, quantity, note: note?.trim() || undefined },
     },
   )
   const item = mapBag(res)
@@ -515,14 +519,15 @@ export async function updateCushionMaterial(
 export async function stockInCushionMaterial(
   id: string,
   quantity: number,
-  note?: string,
+  note: string | undefined,
+  evidence: ReceiptEvidencePayload,
 ): Promise<CushionMaterial> {
   const res = await apiRequest<unknown>(
     `/packaging/materials/${encodeURIComponent(id)}/stock-in`,
     {
       method: 'POST',
       auth: true,
-      body: { quantity, note: note?.trim() || undefined },
+      body: { ...evidence, quantity, note: note?.trim() || undefined },
     },
   )
   const item = mapCushion(res)

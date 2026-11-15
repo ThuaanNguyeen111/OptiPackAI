@@ -209,7 +209,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       warehouse_id: new Types.ObjectId(warehouseId),
       platform: 'lazada',
       shop_id: 'shop-1',
-      seller_sku: /^SKU-TRUNG$/i,
+      seller_sku_normalized: 'SKU-TRUNG', // 10/11/2026 (BE-5) — so mã chuẩn hoá có index
     });
   });
 
@@ -449,7 +449,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       warehouse_id: wh,
       platform: 'lazada',
       shop_id: 'shop-1',
-      seller_sku: /^AO$/i,
+      seller_sku_normalized: 'AO',
     });
     expect(update.$inc.quantity_on_hand).toBe(3); // 2 + 1 gộp theo SKU
     // Gộp main (K3): ghi sổ tồn loại pick_cancel cho phần trả về kệ.

@@ -25,6 +25,8 @@ import {
 import { AppException } from '../../common/exceptions/app-exception';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
 import { DEFAULT_MATERIAL_RULES, type MaterialPlanning, type MaterialRule, type MaterialSpec } from './engine';
+import { requireMaterialPhotos } from '../receipt-ocr/receipt-ocr.util';
+import type { StockInPackagingMaterialDto } from './dto/packaging-material.dto';
 
 /** Vật tư vừa bị trừ tồn lúc pack — dùng để báo sắp hết. */
 export interface ConsumedMaterial {
@@ -201,6 +203,15 @@ export class PackagingMaterialService {
   async stockIn(id: string, quantity: number, userId: string | null, note?: string): Promise<PackagingMaterialDocument> {
     const material = await this.findById(id);
     const updated = await this.materialsService.stockInById(material._id, quantity, userId, note);
+    if (!updated) throw this.notFound(id);
+    return updated;
+  }
+
+  /** 11/11/2026 — route stock-in: nhập từ NCC kèm ảnh phiếu + đối chiếu OCR. */
+  async stockInFromSupplier(id: string, dto: StockInPackagingMaterialDto, userId: string): Promise<PackagingMaterialDocument> {
+    requireMaterialPhotos(dto.document_photo_urls);
+    const material = await this.findById(id);
+    const updated = await this.materialsService.receiveFromSupplier(material, dto, userId);
     if (!updated) throw this.notFound(id);
     return updated;
   }

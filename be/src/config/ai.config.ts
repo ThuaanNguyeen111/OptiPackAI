@@ -35,5 +35,7 @@ export default registerAs('ai', () => {
         timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 20000,
       }
     : null;
-  return { provider };
+  // 11/11/2026 — model đọc ảnh phiếu NCC (OCR), cùng key/endpoint Groq.
+  const visionModel = nonEmpty(process.env.AI_VISION_MODEL) ?? 'qwen/qwen3.8-27b';
+  return { provider, visionModel };
 });

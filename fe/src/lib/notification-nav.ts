@@ -15,6 +15,13 @@ export function resolveNotificationPath(
   if (type === 'marketplace_confirm_required') {
     return entityId ? `/app/orders/${entityId}` : '/app/orders'
   }
+  // 11/11/2026 — nhập kho / nhập vật tư lệch số với phiếu NCC (entity: stock_receipt | packaging_material).
+  if (type === 'stock_receipt_mismatch') {
+    if (notif.relatedEntityType === 'packaging_material') {
+      return role === UserRole.ADMIN ? '/app/admin/packaging-materials' : '/app/packaging-materials'
+    }
+    return '/app/inventory?view=receipts'
+  }
   if (type === 'cancel_confirmation_required') {
     return entityId ? `/app/orders/${entityId}` : '/app/orders'
   }
@@ -80,6 +87,13 @@ export function resolveNotificationPath(
     }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.SHIPPING_COORDINATOR) return '/app/shipping'
+    return '/app/order-groups'
+  }
+  // 10/11/2026 (BE) — nhân viên kho vừa được giao một nhóm đơn: mở thẳng màn lấy hàng của nhóm đó.
+  if (type === 'picking_assigned') {
+    if (role === UserRole.WAREHOUSE_STAFF || role === UserRole.ADMIN) {
+      return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'
+    }
     return '/app/order-groups'
   }
   if (type === 'missing_item') {

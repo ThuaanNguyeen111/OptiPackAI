@@ -392,6 +392,8 @@ export async function deliverShipment(
   id: string,
   expectedVersion: number,
   note?: string,
+  /** (13/11/2026) Link ảnh từ POST /proof-photos. Vận đơn shop tự giao: BE bắt ≥ 1 ảnh (SHP_PROOF_PHOTO_REQUIRED). */
+  photoUrls: string[] = [],
 ): Promise<Shipment> {
   return requireShipment(
     await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/deliver`, {
@@ -400,6 +402,7 @@ export async function deliverShipment(
       body: {
         expected_version: expectedVersion,
         ...(note?.trim() ? { note: note.trim() } : {}),
+        ...(photoUrls.length > 0 ? { photo_urls: photoUrls } : {}),
       },
     }),
   )
@@ -412,6 +415,8 @@ export async function failShipment(
   note?: string,
   /** (14/10/2026) Khách hẹn giao lại lúc nào (ISO 8601) — tuỳ chọn. */
   rescheduleAt?: string,
+  /** (13/11/2026) Ảnh hiện trường, không bắt buộc. */
+  photoUrls: string[] = [],
 ): Promise<Shipment> {
   return requireShipment(
     await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/fail`, {
@@ -422,6 +427,7 @@ export async function failShipment(
         reason_code: reasonCode,
         ...(note?.trim() ? { note: note.trim() } : {}),
         ...(rescheduleAt ? { reschedule_at: rescheduleAt } : {}),
+        ...(photoUrls.length > 0 ? { photo_urls: photoUrls } : {}),
       },
     }),
   )

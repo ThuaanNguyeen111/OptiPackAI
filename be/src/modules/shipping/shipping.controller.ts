@@ -32,6 +32,7 @@ import {
 import type { ShippingCarrierDocument } from './schemas/shipping-carrier.schema';
 import { ShippingService, type GroupQuote, type PackagingOptionsResult, type ShippingSettingsView } from './shipping.service';
 import type { RecipientPreview, ToLocationInput } from './live-carrier.service';
+import { Features } from '../role-permissions/feature-scope';
 
 /** Query địa chỉ → ToLocationInput (bỏ field không gửi). */
 function toLocationOf(q: ToLocationDto): ToLocationInput | null {
@@ -89,6 +90,7 @@ function toCarrierResponse(doc: ShippingCarrierDocument): CarrierResponse {
 
 @ApiTags('Shipping')
 @ApiBearerAuth('JWT-auth')
+@Features('shipping', 'packing', 'picking', 'order_groups')
 @Controller('shipping')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ShippingController {

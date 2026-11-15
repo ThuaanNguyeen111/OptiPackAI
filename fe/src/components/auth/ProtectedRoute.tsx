@@ -1,9 +1,10 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
 import { canAccessPath, homePath } from '../../lib/rbac'
+import { UserRole } from '../../types/auth'
 
 export function ProtectedRoute() {
-  const { session, ready } = useAuth()
+  const { session, ready, features } = useAuth()
   const location = useLocation()
 
   if (!ready) return null
@@ -13,8 +14,10 @@ export function ProtectedRoute() {
   if (session.mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />
   }
-  if (!canAccessPath(session.role, location.pathname)) {
-    return <Navigate to={homePath(session.role)} replace />
+  // Chờ quyền trang (Admin không cần) — tránh đẩy nhầm về trang khác lúc đang tải.
+  if (features === null && session.role !== UserRole.ADMIN) return null
+  if (!canAccessPath(session.role, location.pathname, features)) {
+    return <Navigate to={homePath(session.role, features)} replace />
   }
   return <Outlet />
 }

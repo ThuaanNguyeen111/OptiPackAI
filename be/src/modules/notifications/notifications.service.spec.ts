@@ -191,3 +191,59 @@ describe('NotificationsService — notify() ghi Number + 2 template mới', () =
     expect(result.message).toContain('Sai kích thước');
   });
 });
+
+//!=============================================
+// 10/11/2026 — notify() gửi push theo bảng loại push (BE_MOBILE_CHECKLIST mục 3).
+//!=============================================
+describe('NotificationsService — notify() gửi push', () => {
+  const notificationId = new Types.ObjectId();
+  const staffId = new Types.ObjectId();
+  let notificationModel: { create: jest.Mock; updateOne: jest.Mock };
+  let userFind: jest.Mock;
+  let push: { isConfigured: jest.Mock; sendToUsers: jest.Mock };
+  const flush = (): Promise<void> => new Promise((r) => setImmediate(r));
+
+  const build = (doc: Record<string, unknown>): NotificationsService => {
+    notificationModel = {
+      create: jest.fn().mockResolvedValue({ _id: notificationId, related_entity_type: 'order_group', related_entity_id: null, ...doc }),
+      updateOne: jest.fn().mockResolvedValue({}),
+    };
+    userFind = jest.fn().mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ _id: staffId }]) }) });
+    push = { isConfigured: jest.fn().mockReturnValue(true), sendToUsers: jest.fn().mockResolvedValue(1) };
+    return new NotificationsService(
+      notificationModel as never,
+      { find: userFind } as never,
+      { sendNotificationEmail: jest.fn().mockResolvedValue(undefined) } as never,
+      push as never,
+    );
+  };
+
+  it('loại có push, gửi đích danh → push tới máy người đó, data có id + loại + đối tượng, ghi channels_sent push', async () => {
+    const service = build({ recipient_user_id: staffId, recipient_role: null });
+    await service.notify({ recipientUserId: staffId.toString(), type: 'packing_assigned' as never, severity: 'info', title: 'T', message: 'M', relatedEntityType: 'order_group' });
+    await flush();
+    expect(push.sendToUsers).toHaveBeenCalledTimes(1);
+    const [ids, content] = push.sendToUsers.mock.calls[0] as [Types.ObjectId[], { data: Record<string, string>; highPriority: boolean }];
+    expect(ids).toEqual([staffId]);
+    expect(content.data).toMatchObject({ notification_id: notificationId.toString(), type: 'packing_assigned', related_entity_type: 'order_group' });
+    expect(content.highPriority).toBe(false);
+    expect(notificationModel.updateOne).toHaveBeenCalledWith({ _id: notificationId }, { $addToSet: { channels_sent: 'push' } });
+  });
+
+  it('loại chỉ trong app (sync_failed) → không push', async () => {
+    const service = build({ recipient_user_id: null, recipient_role: UserRole.ADMIN });
+    await service.notify({ recipientRole: UserRole.ADMIN, type: 'sync_failed' as never, severity: 'warning', title: 'T', message: 'M' });
+    await flush();
+    expect(push.sendToUsers).not.toHaveBeenCalled();
+  });
+
+  it('push lỗi → notify() vẫn trả thông báo in-app bình thường', async () => {
+    const service = build({ recipient_user_id: null, recipient_role: UserRole.STORE_OWNER });
+    push.sendToUsers.mockRejectedValue(new Error('fcm down'));
+    await expect(
+      service.notify({ recipientRole: UserRole.STORE_OWNER, type: 'return_requested' as never, severity: 'warning', title: 'T', message: 'M' }),
+    ).resolves.toBeDefined();
+    await flush();
+    expect(notificationModel.updateOne).not.toHaveBeenCalledWith({ _id: notificationId }, { $addToSet: { channels_sent: 'push' } });
+  });
+});

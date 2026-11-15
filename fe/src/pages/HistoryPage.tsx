@@ -1,3 +1,4 @@
+import { useAbortPrevious } from '../hooks/useAbortPrevious'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Clock, Download, Loader2, RefreshCw } from 'lucide-react'
@@ -15,7 +16,7 @@ import { fetchUsers } from '../api/users.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
-import { formatApiError } from '../lib/api'
+import { formatApiError, isRequestCanceled } from '../lib/api'
 import type { AdminUser } from '../types/admin'
 import { UserRole } from '../types/auth'
 import { formatDateTime } from '../utils/format'
@@ -131,22 +132,26 @@ export function HistoryPage({
     }
   }, [category, from, to, sku, orderCode, mine, actorId, canFilterActor])
 
+  const nextSignal = useAbortPrevious()
+
   const load = useCallback(async () => {
+    const signal = nextSignal()
     setLoading(true)
     setError(null)
     try {
-      const res = await listHistory(query)
+      const res = await listHistory(query, { signal })
       setItems(res.items)
       setNextBefore(res.nextBefore)
       if (res.categories.length > 0) setCategories(res.categories)
     } catch (err: unknown) {
+      if (isRequestCanceled(err)) return
       setError(formatApiError(err))
       setItems([])
       setNextBefore(null)
     } finally {
-      setLoading(false)
+      if (!signal.aborted) setLoading(false)
     }
-  }, [query])
+  }, [query, nextSignal])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

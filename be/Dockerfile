@@ -62,6 +62,10 @@ COPY --from=prod-deps /repo/package.json /repo/package.json
 COPY --from=builder /repo/be/dist ./dist
 COPY --from=builder /repo/be/assets ./assets
 COPY be/package.json ./package.json
+# Sàn giả lập AURELLE (k8s/base/aurelle.yaml) chạy chung image này: tsc không
+# chép file tĩnh của Developer Console, và cần thư mục ghi được cho apps.json.
+COPY be/scripts/aurelle-portal/index.html be/scripts/aurelle-portal/style.css be/scripts/aurelle-portal/portal.js ./dist/scripts/aurelle-portal/
+RUN mkdir -p dist/.aurelle-local && chown nestjs:nodejs dist/.aurelle-local
 
 USER nestjs
 

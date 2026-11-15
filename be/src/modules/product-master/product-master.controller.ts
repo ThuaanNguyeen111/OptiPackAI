@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { resolveOuterRequirement, type OuterRequirement } from '../../common/enums/outer-requirement.enum';
+import { Features } from '../role-permissions/feature-scope';
 
 export interface ProductMasterResponse {
   id: string;
@@ -100,6 +101,7 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
  */
 @ApiTags('Product Master')
 @ApiBearerAuth('JWT-auth')
+@Features('inventory', 'picking', 'packing', 'orders', 'order_groups', 'packaging_rules')
 @Controller('product-master')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProductMasterController {

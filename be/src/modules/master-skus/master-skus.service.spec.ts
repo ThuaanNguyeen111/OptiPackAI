@@ -11,7 +11,7 @@ describe('MasterSkusService — K4a', () => {
   let colorModel: { findOne: jest.Mock; findOneAndUpdate: jest.Mock };
   let skuModel: { create: jest.Mock; findOne: jest.Mock; findOneAndUpdate: jest.Mock; countDocuments: jest.Mock; updateOne: jest.Mock };
   let mappingModel: { findOne: jest.Mock; create: jest.Mock; updateMany: jest.Mock; countDocuments: jest.Mock };
-  let productMasterModel: { findOne: jest.Mock };
+  let productMasterModel: { findOne: jest.Mock; find: jest.Mock };
   let categoriesService: { getActiveLevel2: jest.Mock };
   let assignmentModel: { find: jest.Mock; findOne: jest.Mock; updateOne: jest.Mock; updateMany: jest.Mock; deleteOne: jest.Mock; aggregate: jest.Mock };
   let movementModel: { create: jest.Mock };
@@ -27,7 +27,11 @@ describe('MasterSkusService — K4a', () => {
     colorModel = { findOne: jest.fn().mockResolvedValue({ code: 'DEN', is_active: true }), findOneAndUpdate: jest.fn() };
     skuModel = { create: jest.fn().mockImplementation((docs: Record<string, unknown>[]) => Promise.resolve(docs)), findOne: jest.fn(), findOneAndUpdate: jest.fn(), countDocuments: jest.fn(), updateOne: jest.fn() };
     mappingModel = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([{}]), updateMany: jest.fn().mockResolvedValue({ modifiedCount: 2 }), countDocuments: jest.fn() };
-    productMasterModel = { findOne: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: 'pm' }) }) }) };
+    productMasterModel = {
+      findOne: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: 'pm' }) }) }),
+      // 10/11/2026 — autoMapForMaster: chưa có SKU sàn nào cùng mã (mặc định).
+      find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }),
+    };
     assignmentModel = {
       find: jest.fn().mockReturnValue({ session: jest.fn().mockResolvedValue([]) }),
       findOne: jest.fn().mockReturnValue({ session: jest.fn().mockResolvedValue(null) }),
@@ -49,6 +53,8 @@ describe('MasterSkusService — K4a', () => {
     it('hợp lệ -> hệ thống TỰ ghép mã ATHUN-005-DEN-M', async () => {
       const doc = await service.create(dto, 'admin-1');
       expect(doc.master_sku).toBe('ATHUN-005-DEN-M');
+      // 10/11/2026 — tạo xong thì tìm SKU sàn trùng mã để tự nối (cả bản viết thường).
+      expect(productMasterModel.find).toHaveBeenCalledWith({ seller_sku: { $in: ['ATHUN-005-DEN-M', 'athun-005-den-m'] } });
     });
 
     it('size không thuộc thang size danh mục -> 400 MSKU_SIZE_NOT_IN_SCALE', async () => {

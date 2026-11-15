@@ -22,6 +22,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
+import { describeError } from '../../common/utils/log-error.util';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -123,7 +124,7 @@ export class TikiOrderSyncService {
           if (result.consolidated) newlyConsolidated += 1;
         }
       } catch (error) {
-        this.logger.error(`Tiki shop ${shopId}: xử lý đơn ${code} thất bại, bỏ qua đơn này.`, error);
+        this.logger.error(`Tiki shop ${shopId}: xử lý đơn ${code} thất bại, bỏ qua đơn này: ${describeError(error)}`);
       }
     }
 

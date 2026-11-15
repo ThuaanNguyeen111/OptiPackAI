@@ -1,6 +1,6 @@
 import { Model } from 'mongoose';
 import { MarketplaceSkuMappingDocument } from './schemas/marketplace-sku-mapping.schema';
-import { normalizeSellerSku } from './master-skus.service';
+import { normalizeSellerSku } from './seller-sku.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 /**
@@ -37,7 +37,20 @@ export async function resolveMasterSkus(
   return out;
 }
 
-/** Khớp seller_sku không phân biệt hoa/thường (tránh lệch chuỗi lúc gán ô vs đơn sàn). */
+/**
+ * 10/11/2026 (BE-5) — điều kiện khớp SKU sàn không phân biệt hoa/thường CÓ INDEX:
+ * so `seller_sku_normalized` (trim + viết hoa) thay cho regex `^sku$/i`.
+ * Chỉ dùng cho collection `sku_bin_assignments` (field này chỉ có ở đó).
+ */
+export function sellerSkuMatch(sellerSku: string): { seller_sku_normalized: string } {
+  return { seller_sku_normalized: normalizeSellerSku(sellerSku) };
+}
+
+/**
+ * Khớp seller_sku không phân biệt hoa/thường bằng regex — KHÔNG dùng được index.
+ * 🔄 10/11/2026: `sku_bin_assignments` dùng `sellerSkuMatch`; hàm này chỉ còn cho
+ * collection chưa có field chuẩn hoá (VD danh sách lô `stock_lots`).
+ */
 export function sellerSkuEqualsIgnoreCase(sellerSku: string): RegExp {
   const escaped = sellerSku.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`^${escaped}$`, 'i');
@@ -82,7 +95,7 @@ export function stockFilterFor(
   const unpooled: Record<string, unknown> = {
     platform,
     shop_id: shopId,
-    seller_sku: sellerSkuEqualsIgnoreCase(sellerSku),
+    ...sellerSkuMatch(sellerSku),
     master_sku: null, // null khớp cả dòng cũ không có field
   };
   if (!masterSku) return unpooled;
@@ -107,32 +120,25 @@ export function stockAssignmentOrBranches(
   const mapped = sellerSkus.filter((s) => masters.has(s));
   const masterValues = [...new Set(masters.values())];
 
+  // 🔄 10/11/2026 (BE-5): 1 nhánh `$in` theo mã chuẩn hoá (có index) thay cho
+  // 1 nhánh exact + 1 nhánh regex cho TỪNG SKU (không phân biệt hoa/thường vẫn giữ).
   if (unmapped.length > 0) {
     branches.push({
       platform,
       shop_id: shopId,
-      seller_sku: { $in: unmapped },
+      seller_sku_normalized: { $in: [...new Set(unmapped.map(normalizeSellerSku))] },
       master_sku: null,
     });
-    // Case-insensitive: từng SKU (tránh lệch hoa/thường so với $in exact).
-    for (const sku of unmapped) {
-      branches.push({
-        platform,
-        shop_id: shopId,
-        seller_sku: sellerSkuEqualsIgnoreCase(sku),
-        master_sku: null,
-      });
-    }
   }
   if (masterValues.length > 0) {
     branches.push({ master_sku: { $in: masterValues } });
   }
   // Fallback unpooled cho SKU đã nối (Admin nhập tồn trước khi gắn nhãn master).
-  for (const sku of mapped) {
+  if (mapped.length > 0) {
     branches.push({
       platform,
       shop_id: shopId,
-      seller_sku: sellerSkuEqualsIgnoreCase(sku),
+      seller_sku_normalized: { $in: [...new Set(mapped.map(normalizeSellerSku))] },
       master_sku: null,
     });
   }

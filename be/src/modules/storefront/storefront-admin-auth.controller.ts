@@ -15,7 +15,7 @@ export class StorefrontAdminAuthController {
   constructor(private readonly auth: StorefrontAdminAuthService, private readonly config: ConfigService) {}
 
   private cookieOptions(): CookieOptions {
-    return { httpOnly: true, secure: this.config.get<string>('NODE_ENV') === 'production', sameSite: 'lax', path: '/storefront/admin' };
+    return { httpOnly: true, secure: this.config.get<string>('NODE_ENV') === 'production', sameSite: 'lax', path: '/api/storefront/admin' };
   }
 
   @Post('login') @HttpCode(200) @Throttle({ default: { limit: 5, ttl: 60000 } })

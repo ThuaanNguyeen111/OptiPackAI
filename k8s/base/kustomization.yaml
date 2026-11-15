@@ -9,6 +9,7 @@ resources:
   - be.yaml
   - fe.yaml
   - storefront.yaml
+  - aurelle.yaml
   - ingress.yaml
 labels:
   - includeSelectors: false

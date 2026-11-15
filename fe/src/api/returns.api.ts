@@ -145,14 +145,14 @@ export async function listReturns(params: {
   order_group_id?: string
   page?: number
   limit?: number
-} = {}): Promise<ReturnListResult> {
+} = {}, opts: { signal?: AbortSignal } = {}): Promise<ReturnListResult> {
   const query = toQuery({
     status: params.status,
     order_group_id: params.order_group_id,
     page: params.page != null ? String(params.page) : undefined,
     limit: params.limit != null ? String(params.limit) : undefined,
   })
-  const res = await apiRequest<unknown>(`/returns${query}`, { auth: true })
+  const res = await apiRequest<unknown>(`/returns${query}`, { auth: true, signal: opts.signal })
   const row = asRecord(res)
   const rawItems = Array.isArray(res)
     ? res
@@ -224,6 +224,8 @@ export async function inspectReturn(
     expected_version: number
     lines: InspectReturnLineInput[]
     packaging?: PackagingInspectInput[]
+    /** (13/11/2026) Ảnh tình trạng hàng từ POST /proof-photos, không bắt buộc. */
+    photo_urls?: string[]
   },
 ): Promise<ReturnRequest> {
   return requireReturn(
@@ -235,6 +237,7 @@ export async function inspectReturn(
         ...(input.packaging && input.packaging.length > 0
           ? { packaging: input.packaging }
           : {}),
+        ...(input.photo_urls && input.photo_urls.length > 0 ? { photo_urls: input.photo_urls } : {}),
       },
       auth: true,
     }),

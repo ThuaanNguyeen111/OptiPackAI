@@ -1,5 +1,6 @@
 import {
   sellerSkuEqualsIgnoreCase,
+  sellerSkuMatch,
   stockAssignmentOrBranches,
   stockFilterFor,
   stockUpsertFilterFor,
@@ -12,14 +13,26 @@ describe('stock-key.util — khớp tồn unpooled / normalize', () => {
     expect(re.test('KA-D1-P03-T01-4')).toBe(false);
   });
 
-  it('stockFilterFor chưa nối: lọc shop + seller_sku ignore-case', () => {
-    const filter = stockFilterFor(undefined, 'lazada', '201171264532', 'KA-D1-P03-T01-3');
-    expect(filter).toMatchObject({
+  it('stockFilterFor chưa nối: lọc shop + mã SKU chuẩn hoá (có index), không còn regex', () => {
+    const filter = stockFilterFor(undefined, 'lazada', '201171264532', ' ka-d1-p03-t01-3 ');
+    expect(filter).toEqual({
       platform: 'lazada',
       shop_id: '201171264532',
+      seller_sku_normalized: 'KA-D1-P03-T01-3',
       master_sku: null,
     });
-    expect(filter.seller_sku).toBeInstanceOf(RegExp);
+  });
+
+  it('stockAssignmentOrBranches: SKU chưa nối gom 1 nhánh $in mã chuẩn hoá (thay nhánh regex từng SKU)', () => {
+    const branches = stockAssignmentOrBranches('lazada', 's1', ['ao-1', 'AO-1', 'QUAN-2'], new Map());
+    expect(branches).toEqual([
+      { platform: 'lazada', shop_id: 's1', seller_sku_normalized: { $in: ['AO-1', 'QUAN-2'] }, master_sku: null },
+    ]);
+    expect(JSON.stringify(branches)).not.toContain('$regex');
+  });
+
+  it('sellerSkuMatch: trim + viết hoa', () => {
+    expect(sellerSkuMatch('  ab-c ')).toEqual({ seller_sku_normalized: 'AB-C' });
   });
 
   it('stockFilterFor đã nối: $or master_sku + unpooled cùng shop', () => {
