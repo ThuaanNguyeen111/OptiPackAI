@@ -98,7 +98,7 @@ services:
       args:
         # Trình duyệt gọi backend qua cổng publish trên máy host, KHÔNG phải
         # tên service "be" (tên service chỉ resolve được bên trong mạng docker).
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
     image: optipackai-fe:local
     container_name: optipackai-fe
     restart: unless-stopped
@@ -114,7 +114,7 @@ services:
       context: .
       dockerfile: storefront/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000/api}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
     image: optipackai-storefront:local
     container_name: optipackai-storefront
     restart: unless-stopped

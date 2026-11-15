@@ -8,7 +8,7 @@ import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
 // Trang nhúng (WebView trong app mobile) dùng địa chỉ API do app truyền vào.
 export const API_BASE_URL =
-  embedApiBase() || import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+  embedApiBase() || import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 /** JwtStrategy đọc Redis trước Mongo — Redis chậm/treo thì fetch không bao giờ settle. */
 const REQUEST_TIMEOUT_MS = 12_000

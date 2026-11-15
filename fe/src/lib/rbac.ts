@@ -46,7 +46,7 @@ export const FEATURE_LABELS: Record<Feature, { vi: string; en: string }> = {
   inventory: { vi: 'Tình trạng kho', en: 'Warehouse inventory' },
   packing: { vi: 'Đóng gói', en: 'Packing station' },
   shipping: { vi: 'Vận chuyển', en: 'Shipping' },
-  packaging_rules: { vi: 'Quy tắc bao bì', en: 'Packaging rules' },
+  packaging_rules: { vi: 'Cài đặt đóng gói & AI', en: 'Packing & AI settings' },
   packaging_materials: { vi: 'Vật liệu đóng gói', en: 'Packaging materials' },
   staff: { vi: 'Nhân viên', en: 'Staff directory' },
   analytics: { vi: 'Báo cáo', en: 'Analytics' },

@@ -26,7 +26,7 @@ on:
       api_url:
         description: 'URL backend mà trình duyệt gọi (nhúng vào bundle FE/storefront lúc build)'
         required: true
-        default: 'https://optipack.io.vn/api'
+        default: 'https://api.optipack.io.vn'
 
 # Nhánh PR: push liên tiếp thì huỷ lượt cũ. main: KHÔNG huỷ (đang deploy dở mà huỷ là hỏng).
 concurrency:
@@ -38,7 +38,7 @@ env:
   HUSKY: 0
   # ghcr bắt buộc chữ thường — hạ chữ bằng ${IMAGE_PREFIX,,} lúc dùng.
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/optipackai
-  API_URL: ${{ inputs.api_url || 'https://optipack.io.vn/api' }}
+  API_URL: ${{ inputs.api_url || 'https://api.optipack.io.vn' }}
 
 jobs:
   be:

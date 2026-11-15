@@ -13,10 +13,13 @@ export class HistoryQueryDto {
   @ApiPropertyOptional({ description: 'Đến thời điểm (ISO 8601, không tính). Mặc định: bây giờ.' })
   @IsOptional() @IsISO8601() to?: string;
 
-  @ApiPropertyOptional({ description: 'Con trỏ trang sau: lấy `nextBefore` của trang trước.' })
+  @ApiPropertyOptional({ description: '(Cũ) con trỏ trang sau: lấy `nextBefore` của trang trước. Nên dùng `page`.' })
   @IsOptional() @IsISO8601() before?: string;
 
-  @ApiPropertyOptional({ example: 50, description: '1–100, mặc định 50' })
+  @ApiPropertyOptional({ example: 1, description: 'Số trang, bắt đầu từ 1 (mặc định 1). page × limit tối đa 5.000.' })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page?: number;
+
+  @ApiPropertyOptional({ example: 50, description: 'Số dòng mỗi trang, 1–100, mặc định 50' })
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
 
   @ApiPropertyOptional({ description: 'Chỉ thao tác của 1 người (id người dùng)' })

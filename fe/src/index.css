@@ -181,3 +181,15 @@ html.light {
     text-decoration: none;
   }
 }
+
+/* Chrome cắt dấu chồng tiếng Việt (Ẫ, Ỗ, Ữ → Â, Ô, Ư) trong ô nhập một dòng khi line-height
+   thấp hơn chiều cao ô. Bỏ padding dọc + line-height bằng chiều cao thì hiện đủ dấu.
+   Để ngoài @layer cho thắng text-sm / py-* của utility. */
+input:where(:not([type]), [type='text'], [type='search'], [type='email'], [type='tel'], [type='url'], [type='number'], [type='password']):is(.h-8, .h-9, .h-10, .h-11, .h-12) {
+  padding-block: 0;
+}
+input:where(:not([type]), [type='text'], [type='search'], [type='email'], [type='tel'], [type='url'], [type='number'], [type='password']).h-8 { line-height: calc(var(--spacing) * 8); }
+input:where(:not([type]), [type='text'], [type='search'], [type='email'], [type='tel'], [type='url'], [type='number'], [type='password']).h-9 { line-height: calc(var(--spacing) * 9); }
+input:where(:not([type]), [type='text'], [type='search'], [type='email'], [type='tel'], [type='url'], [type='number'], [type='password']).h-10 { line-height: calc(var(--spacing) * 10); }
+input:where(:not([type]), [type='text'], [type='search'], [type='email'], [type='tel'], [type='url'], [type='number'], [type='password']).h-11 { line-height: calc(var(--spacing) * 11); }
+input:where(:not([type]), [type='text'], [type='search'], [type='email'], [type='tel'], [type='url'], [type='number'], [type='password']).h-12 { line-height: calc(var(--spacing) * 12); }

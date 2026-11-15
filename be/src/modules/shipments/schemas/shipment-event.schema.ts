@@ -63,3 +63,5 @@ export class ShipmentEvent {
 export type ShipmentEventDocument = HydratedDocument<ShipmentEvent>;
 export const ShipmentEventSchema = SchemaFactory.createForClass(ShipmentEvent);
 ShipmentEventSchema.index({ shipment_id: 1, occurred_at: 1 });
+// 13/11/2026 — GET /history: cửa sổ occurred_at, sắp mới → cũ + đếm tổng.
+ShipmentEventSchema.index({ occurred_at: -1 });

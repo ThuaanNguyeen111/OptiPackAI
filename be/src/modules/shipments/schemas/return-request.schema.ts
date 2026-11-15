@@ -108,3 +108,7 @@ ReturnRequestSchema.index(
   { platform: 1, external_ref: 1 },
   { unique: true, partialFilterExpression: { external_ref: { $type: 'string' } } },
 );
+
+// 13/11/2026 — GET /history: phiếu tạo trong cửa sổ + dòng hàng cách ly xử lý trong cửa sổ (lấy + đếm).
+ReturnRequestSchema.index({ created_at: -1 });
+ReturnRequestSchema.index({ 'inspection.disposed_at': -1 });

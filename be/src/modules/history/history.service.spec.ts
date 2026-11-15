@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { HistoryService } from './history.service';
@@ -13,8 +13,13 @@ function chain(rows: unknown[]) {
   };
   return self;
 }
-function model(rows: unknown[] = []) {
-  return { find: jest.fn(() => chain(rows)) };
+/** countDocuments = số dòng giả; aggregate (đếm mốc nhiều dòng/document) trả `aggregated`. */
+function model(rows: unknown[] = [], aggregated: unknown[] = []) {
+  return {
+    find: jest.fn(() => chain(rows)),
+    countDocuments: jest.fn(() => ({ exec: () => Promise.resolve(rows.length) })),
+    aggregate: jest.fn(() => ({ exec: () => Promise.resolve(aggregated) })),
+  };
 }
 
 const user = (role: UserRole) => ({ userId: new Types.ObjectId().toHexString(), email: 'a@b.c', role, mustChangePassword: false });
@@ -66,6 +71,29 @@ describe('HistoryService (23/10/2026)', () => {
       summary: 'Lấy 2 AOPOLO-010-DEN-L từ ô KA-D1-T01-T01-1 cho nhóm đơn …g1',
       actor: { name: 'Hải Phượng', role: 'Nhân viên kho' },
     });
+  });
+
+  it('phân trang theo số trang: trang 2 cắt đúng đoạn, total cộng countDocuments + aggregate mọi nguồn', async () => {
+    const now = Date.now();
+    const act = (i: number) => ({
+      _id: new Types.ObjectId(), occurred_at: new Date(now - i * 1000), category: 'orders', action: `a${String(i)}`, summary: `s${String(i)}`,
+      actor_id: null, order_group_id: null, entity_type: 'order_group', entity_id: null, entity_code: null, from_status: null, to_status: null, skus: [], quantity: null, note: null,
+    });
+    const { service, models } = build({ activity: [1, 2, 3, 4, 5].map(act) });
+    models.plan.aggregate.mockReturnValue({ exec: () => Promise.resolve([{ n: 7 }]) });
+    const res = await service.list(user(UserRole.ADMIN), { page: 2, limit: 2 });
+    expect(res.items.map((i) => i.action)).toEqual(['a3', 'a4']);
+    expect(res).toMatchObject({ page: 2, limit: 2, total: 12 });
+    // Đếm dùng đúng bộ lọc của truy vấn lấy dòng.
+    expect(models.activity.countDocuments.mock.calls[0]).toEqual(models.activity.find.mock.calls[0]);
+    const filter = (models.activity.countDocuments.mock.calls[0] as unknown[] | undefined)?.[0];
+    expect(filter).toMatchObject({ category: { $in: expect.arrayContaining(['orders', 'auth']) as unknown } });
+  });
+
+  it('trang quá sâu (page × limit > 5.000) → 400, không chạy truy vấn', async () => {
+    const { service, models } = build();
+    await expect(service.list(user(UserRole.ADMIN), { page: 51, limit: 100 })).rejects.toBeInstanceOf(BadRequestException);
+    expect(models.activity.find).not.toHaveBeenCalled();
   });
 
   it('vận chuyển: câu mô tả có hãng, dịch vụ, mã vận đơn và người nhận', async () => {

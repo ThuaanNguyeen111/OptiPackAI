@@ -1,6 +1,6 @@
-/// Cấu hình lúc build: `flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000/api`.
+/// Cấu hình lúc build: `flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000`.
 ///
-/// BE đặt tiền tố `/api` cho mọi route (`app.setGlobalPrefix('api')`), nên địa chỉ phải kết thúc bằng `/api`.
+/// BE không có tiền tố `/api` (chạy ở gốc, production là `https://api.optipack.io.vn`).
 /// Mặc định trỏ tới máy dev khi chạy trên **Android emulator** (`10.0.2.2` là máy chủ của emulator).
 /// Máy thật phải dùng IP LAN của máy chạy backend, không dùng `localhost`.
 class Env {
@@ -8,7 +8,7 @@ class Env {
 
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:3000/api',
+    defaultValue: 'http://10.0.2.2:3000',
   );
 
   /// `--dart-define=USE_MOCK_DATA=true`: các màn dùng dữ liệu giả, không cần BE (trình diễn giao diện).

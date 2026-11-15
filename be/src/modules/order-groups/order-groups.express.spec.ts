@@ -3,6 +3,21 @@ import { EXPRESS_PINNED_EXCLUDED_STATUSES, OrderGroupsService, expressGroupField
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import { deliveryOptionOf } from '../orders/mappers/lazada-order.mapper';
 import { expressConsolidationKey } from '../orders/utils/consolidation-key.util';
+import { OrderGroupRegroupService } from './order-group-regroup.service';
+/** 13/11/2026 — liên kết/tách/gộp đã dời sang OrderGroupRegroupService; dựng nó từ đúng các mock của core. */
+/* eslint-disable @typescript-eslint/dot-notation -- đọc field private của core (TS chỉ cho qua ngoặc vuông) */
+function regroupFor(core: OrderGroupsService): OrderGroupRegroupService {
+  return new OrderGroupRegroupService(
+    core['orderGroupModel'],
+    core['orderModel'],
+    core['pickEventModel'],
+    core['connection'],
+    core,
+    core['activityLogModel'],
+  );
+}
+/* eslint-enable @typescript-eslint/dot-notation */
+
 
 //!=============================================
 // 29/10/2026 — Đơn GIAO HỎA TỐC từ AURELLE: nhóm riêng, hạn đóng gói = giờ hẹn − 2 giờ,
@@ -64,7 +79,7 @@ describe('Đơn hỏa tốc AURELLE → nhóm đơn', () => {
     const b = new Types.ObjectId();
     const findById = jest.fn((id: Types.ObjectId) => Promise.resolve({ _id: id, platform: 'aurelle', shop_id: 'S1', __v: 0, requires_self_delivery: String(id) === String(b) }));
     const service = makeService({ findById });
-    await expect(service.mergeGroups(a.toString(), b.toString(), 0, 'gộp thử', 'u1')).rejects.toMatchObject({ errorCode: ORD_GROUP_ERROR_CODES.MERGE_EXPRESS });
+    await expect(regroupFor(service).mergeGroups(a.toString(), b.toString(), 0, 'gộp thử', 'u1')).rejects.toMatchObject({ errorCode: ORD_GROUP_ERROR_CODES.MERGE_EXPRESS });
   });
 
   it('đổi mức ưu tiên nhóm hỏa tốc khách đã trả phí → 409 ORD_GROUP_PRIORITY_LOCKED', async () => {

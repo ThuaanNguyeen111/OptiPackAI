@@ -18,8 +18,7 @@ export default registerAs('storefront', () => ({
     // chuỗi rỗng lọt qua `??` → website bỏ qua mọi webhook: đơn mới, trả hàng, SKU mới).
     url: process.env.AURELLE_WEBHOOK_URL?.trim()
       ? process.env.AURELLE_WEBHOOK_URL.trim()
-      : // 13/11/2026 — BE đã bật tiền tố /api (main.ts setGlobalPrefix), thiếu /api thì website gửi webhook vào 404.
-        `http://localhost:${process.env.PORT ?? '3000'}/api/marketplace/webhooks/aurelle`,
+      : `http://localhost:${process.env.PORT ?? '3000'}/marketplace/webhooks/aurelle`,
     appKey: process.env.AURELLE_APP_KEY,
     appSecret: process.env.AURELLE_APP_SECRET,
     sellerId: process.env.AURELLE_SELLER_ID ?? '200000000101',

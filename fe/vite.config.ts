@@ -14,7 +14,11 @@ export default defineConfig({
     host: true,
     // WebView gọi API cùng origin với web (`<web>/api`) rồi Vite chuyển sang BE → không cần sửa CORS của BE.
     proxy: {
-      '/api': { target: process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:3000', changeOrigin: true },
+      '/api': {
+        target: process.env.VITE_DEV_API_TARGET || 'http://127.0.0.1:3000',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api/, ''),
+      },
     },
   },
   resolve: {

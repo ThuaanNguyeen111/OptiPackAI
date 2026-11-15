@@ -591,3 +591,5 @@ PackingPlanSchema.index({ assigned_packer_id: 1, is_active: 1, status: 1 });
 PackingPlanSchema.index({ status: 1, rejection_due_at: 1 });
 // Báo cáo feedback: kế hoạch từng bị từ chối theo thời điểm.
 PackingPlanSchema.index({ rejected_at: -1 });
+// 13/11/2026 — GET /history: updated_at ≥ from, sắp updated_at mới → cũ + aggregate đếm mốc.
+PackingPlanSchema.index({ updated_at: -1 });

@@ -81,6 +81,8 @@ InventoryMovementSchema.index({ warehouse_id: 1, seller_sku: 1, created_at: -1 }
 // 10/10/2026 — kiểm tra "ô/khu đã từng có nhập–xuất chưa" trước khi xoá hẳn
 // (DELETE .../permanent): lọc theo bin_location_id $in, không có warehouse_id đứng đầu.
 InventoryMovementSchema.index({ bin_location_id: 1 });
+// 13/11/2026 — GET /history: lọc type $in + cửa sổ created_at, sắp mới → cũ, countDocuments cùng bộ lọc.
+InventoryMovementSchema.index({ type: 1, created_at: -1 });
 // 08/11/2026 — chống ghi trùng: unique CÓ ĐIỀU KIỆN (chỉ dòng có mã), dòng cũ/không mã không bị ràng buộc.
 InventoryMovementSchema.index(
   { client_event_id: 1 },

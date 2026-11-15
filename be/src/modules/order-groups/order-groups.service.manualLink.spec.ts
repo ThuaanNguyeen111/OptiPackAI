@@ -2,6 +2,21 @@ import { Types } from 'mongoose';
 import { OrderGroupsService } from './order-groups.service';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
+import { OrderGroupRegroupService } from './order-group-regroup.service';
+/** 13/11/2026 — liên kết/tách/gộp đã dời sang OrderGroupRegroupService; dựng nó từ đúng các mock của core. */
+/* eslint-disable @typescript-eslint/dot-notation -- đọc field private của core (TS chỉ cho qua ngoặc vuông) */
+function regroupFor(core: OrderGroupsService): OrderGroupRegroupService {
+  return new OrderGroupRegroupService(
+    core['orderGroupModel'],
+    core['orderModel'],
+    core['pickEventModel'],
+    core['connection'],
+    core,
+    core['activityLogModel'],
+  );
+}
+/* eslint-enable @typescript-eslint/dot-notation */
+
 
 //!=============================================
 // 13/10/2026 — LIÊN KẾT TAY nhóm đơn (Coordinator). Dùng khi recipient_key không
@@ -69,7 +84,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
   });
 
   it('liên kết 2 nhóm chưa có liên kết → cùng 1 manual_link_id mới, trong 1 transaction', async () => {
-    await service.linkGroupsManually(
+    await regroupFor(service).linkGroupsManually(
       idA.toString(),
       idB.toString(),
       ' Cùng khách ',
@@ -95,7 +110,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
   it('target đã thuộc 1 bộ liên kết → nhóm mới nối vào ĐÚNG bộ đó', async () => {
     const existing = new Types.ObjectId();
     groups[idB.toString()] = group(idB, { manual_link_id: existing });
-    await service.linkGroupsManually(
+    await regroupFor(service).linkGroupsManually(
       idA.toString(),
       idB.toString(),
       undefined,
@@ -114,7 +129,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
     const setB = new Types.ObjectId();
     groups[idA.toString()] = group(idA, { manual_link_id: setA });
     groups[idB.toString()] = group(idB, { manual_link_id: setB });
-    await service.linkGroupsManually(
+    await regroupFor(service).linkGroupsManually(
       idA.toString(),
       idB.toString(),
       undefined,
@@ -130,7 +145,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
 
   it('liên kết với chính nó → 400 ORD_GROUP_LINK_SELF', async () => {
     await expect(
-      service.linkGroupsManually(
+      regroupFor(service).linkGroupsManually(
         idA.toString(),
         idA.toString(),
         undefined,
@@ -146,7 +161,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
       fulfillment_status: GroupFulfillmentStatus.SHIPPED,
     });
     await expect(
-      service.linkGroupsManually(
+      regroupFor(service).linkGroupsManually(
         idA.toString(),
         idB.toString(),
         undefined,
@@ -164,7 +179,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
       recipient_key: 'rk',
       manual_link_id: linkId,
     });
-    await service.findLinkedGroups(idA.toString());
+    await regroupFor(service).findLinkedGroups(idA.toString());
     expect(orderGroupModel.find).toHaveBeenCalledWith(
       expect.objectContaining({
         $or: [{ recipient_key: 'rk' }, { manual_link_id: linkId }],
@@ -175,7 +190,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
   it('bỏ liên kết: bộ chỉ còn 1 nhóm → xoá liên kết của nhóm còn lại', async () => {
     const linkId = new Types.ObjectId();
     groups[idA.toString()] = group(idA, { manual_link_id: linkId });
-    await service.unlinkGroupManually(idA.toString());
+    await regroupFor(service).unlinkGroupManually(idA.toString());
     expect(orderGroupModel.updateOne).toHaveBeenCalledWith(
       { _id: idA },
       { $set: expect.objectContaining({ manual_link_id: null }) as unknown },
@@ -190,7 +205,7 @@ describe('OrderGroupsService — liên kết tay (13/10/2026)', () => {
 
   it('bỏ liên kết khi nhóm không có liên kết tay → 409 ORD_GROUP_NOT_MANUALLY_LINKED', async () => {
     await expect(
-      service.unlinkGroupManually(idA.toString()),
+      regroupFor(service).unlinkGroupManually(idA.toString()),
     ).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.NOT_MANUALLY_LINKED,
     });

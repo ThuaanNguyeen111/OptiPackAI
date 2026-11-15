@@ -9,11 +9,11 @@ Việc cần làm và quy ước nối BE nằm ở [`GUIDE_DOC/MOBILE_UPDATE_CH
 ```bash
 cd mobile
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000/api     # Android emulator
-flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000/api # máy thật: IP LAN của máy chạy BE
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000     # Android emulator
+flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000 # máy thật: IP LAN của máy chạy BE
 ```
 
-- Mặc định `API_BASE_URL` là `http://10.0.2.2:3000/api` (BE đặt tiền tố `/api` cho mọi route; địa chỉ máy chủ nhìn từ Android emulator). Máy thật **không** dùng `localhost`.
+- Mặc định `API_BASE_URL` là `http://10.0.2.2:3000` (địa chỉ máy chủ nhìn từ Android emulator). Máy thật **không** dùng `localhost`.
 - Nút **Tiếp tục với Google** cần thêm `--dart-define=GOOGLE_SERVER_CLIENT_ID=<GOOGLE_CLIENT_ID của BE>.apps.googleusercontent.com` và OAuth client Android (package + SHA-1) — xem `MOBILE_UPDATE_CHECKLIST.md` mục 9d. Thiếu thì bấm nút sẽ báo chưa cấu hình, đăng nhập email + mật khẩu vẫn dùng bình thường.
 - Trình diễn giao diện không cần BE: thêm `--dart-define=USE_MOCK_DATA=true` (các màn dùng dữ liệu giả, có biểu ngữ vàng "Dữ liệu mẫu"). Đăng nhập và lấy hàng vẫn gọi BE thật.
 - Bản debug cho gọi `http://`. Bản release phải dùng `https://`.

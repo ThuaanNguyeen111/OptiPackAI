@@ -7,8 +7,8 @@ import 'package:optipack_mobile/features/proof/proof_photo_repository.dart';
 import 'package:optipack_mobile/features/shipping/shipping_repository.dart';
 
 void main() {
-  test('địa chỉ BE mặc định có tiền tố /api', () {
-    expect(Env.apiBaseUrl, endsWith('/api'));
+  test('địa chỉ BE mặc định không có tiền tố /api', () {
+    expect(Env.apiBaseUrl, isNot(endsWith('/api')));
   });
 
   group('quyền trang theo vai trò', () {

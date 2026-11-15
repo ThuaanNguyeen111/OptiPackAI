@@ -73,3 +73,4 @@ packer/.venv/
 fe/.impeccable/
 # Backup do script dọn dữ liệu tạo ra (có thể chứa dữ liệu thật, không commit)
 be/backups/
+graphify-out/

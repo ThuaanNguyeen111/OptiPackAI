@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AiProviderConfig } from '../../config/ai.config';
+import { AiSettingsService } from '../ai-settings/ai-settings.service';
 import type { BoxSpec, GuideMaterial, GuideStepFacts, GuideText } from './engine';
 import { buildTemplateGuide, cutBoxNote } from './engine';
 
@@ -60,7 +60,7 @@ export const MAX_GUIDE_EXAMPLES = 2;
 const MAX_INSTRUCTION_LENGTH = 400;
 
 /** Phần lõi CỐ ĐỊNH — parseGuide() dựa vào các luật này (số bước, thứ tự, SKU). */
-const CORE_HEAD = [
+export const GUIDE_PROMPT_CORE_HEAD = [
   'Bạn viết hướng dẫn đóng gói cho nhân viên kho một shop thời trang (giày dép, quần áo) tại Việt Nam.',
   'Thuật toán đã quyết định sẵn thùng, thứ tự, vị trí và cách xoay từng món. Nhiệm vụ của bạn CHỈ là diễn đạt lại thành câu tiếng Việt ngắn, rõ, dễ làm theo.',
   'Quy tắc bắt buộc:',
@@ -87,12 +87,12 @@ export const DEFAULT_GUIDE_STYLE_PROMPT = [
 ].join('\n');
 
 /** Đặt CUỐI để khuôn JSON luôn thắng phần văn phong do người dùng viết. */
-const CORE_TAIL =
+export const GUIDE_PROMPT_CORE_TAIL =
   'Chỉ trả về JSON dạng {"summary": string, "steps": [{"step": number, "instruction": string, "tip": string}]}, không kèm chữ nào khác.';
 
 /** System prompt gửi model = lõi + văn phong + khuôn JSON. */
 export function buildGuideSystemPrompt(style: string = DEFAULT_GUIDE_STYLE_PROMPT): string {
-  return [CORE_HEAD, style, CORE_TAIL].join('\n');
+  return [GUIDE_PROMPT_CORE_HEAD, style, GUIDE_PROMPT_CORE_TAIL].join('\n');
 }
 
 // Không dùng kiểu hợp (string|null) để tương thích nhiều model;
@@ -150,7 +150,7 @@ function payloadOf(
 export class PackingGuideAiService {
   private readonly logger = new Logger(PackingGuideAiService.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly aiSettings: AiSettingsService) {}
 
   async writeGuide(input: PackingGuideInput): Promise<PackingGuideResult> {
     const started = Date.now();
@@ -173,7 +173,7 @@ export class PackingGuideAiService {
     if (input.box.kind === 'mailer') {
       return { ...template, source: 'template', model: null, fallback_reason: 'mailer_template', trace: trace(null, 0) };
     }
-    const provider = this.configService.get<AiProviderConfig | null>('ai.provider', null);
+    const provider = await this.aiSettings.getProvider();
     if (!provider) {
       return { ...template, source: 'template', model: null, fallback_reason: 'no_api_key', trace: trace(null, 0) };
     }

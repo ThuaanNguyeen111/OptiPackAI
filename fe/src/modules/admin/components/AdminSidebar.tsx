@@ -61,8 +61,7 @@ const navItems: NavItem[] = [
   { to: '/app/admin/packaging-materials', end: false, labelVi: 'Vật liệu đóng gói', labelEn: 'Packaging materials', icon: Box, section: 'warehouse' },
   { to: '/app/packing', end: false, labelVi: 'Đóng gói', labelEn: 'Packing station', icon: Boxes, section: 'warehouse' },
   { to: '/app/shipping', end: false, labelVi: 'Vận chuyển', labelEn: 'Shipping', icon: Truck, section: 'warehouse' },
-  // BE 18/10: tự tính/tự gán sau lấy hàng — không còn bước Admin «chốt kế hoạch».
-  { to: '/app/packaging-rules', end: false, labelVi: 'Quy tắc bao bì', labelEn: 'Packaging rules', icon: SlidersHorizontal, section: 'ai' },
+  { to: '/app/packaging-rules', end: false, labelVi: 'Cài đặt đóng gói & AI', labelEn: 'Packing & AI settings', icon: Box, section: 'ai' },
   { to: '/app/analytics', end: false, labelVi: 'Báo cáo', labelEn: 'Analytics', icon: BarChart3, section: 'reports' },
   { to: '/app/admin/history', end: false, labelVi: 'Lịch sử thao tác', labelEn: 'Activity history', icon: Clock, section: 'reports' },
 ]

@@ -2,6 +2,32 @@ import { Types } from 'mongoose';
 import { OrderGroupsService } from './order-groups.service';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
+import { OrderGroupPickingService } from './order-group-picking.service';
+
+/** 13/11/2026 — lấy hàng đã dời sang OrderGroupPickingService; dựng nó từ đúng các mock của core. */
+/* eslint-disable @typescript-eslint/dot-notation -- đọc field private của core (TS chỉ cho qua ngoặc vuông) */
+function pickingFor(core: OrderGroupsService): OrderGroupPickingService {
+  const picking = new OrderGroupPickingService(
+    core['orderGroupModel'],
+    core['orderModel'],
+    core['skuBinAssignmentModel'],
+    core['pickEventModel'],
+    core['userModel'],
+    core['notificationsService'],
+    core['connection'],
+    core['inventoryMovementModel'],
+    core['mappingModel'],
+    core['stockReservationService'],
+    core,
+    undefined,
+    core['statusOutboxModel'],
+    core['activityLogModel'],
+  );
+  // Sổ lô của core (nếu spec có bật) dùng chung cho picking.
+  return Object.assign(picking, { lots: core['lots'] });
+}
+/* eslint-enable @typescript-eslint/dot-notation */
+
 
 //!=============================================
 // pickItem/confirmPicked/decidePartial — luồng lấy hàng.
@@ -133,7 +159,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     mockOrderedItems([{ sku: 'SKU-THAT-CUA-DON', quantity: 1 }]);
 
     await expect(
-      service.pickItem(groupId, warehouseId, 'SKU-QUET-NHAM', 1, 'barcode'),
+      pickingFor(service).pickItem(groupId, warehouseId, 'SKU-QUET-NHAM', 1, 'barcode'),
     ).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.ITEM_NOT_IN_GROUP,
     });
@@ -149,7 +175,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    const result = await service.pickItem(
+    const result = await pickingFor(service).pickItem(
       groupId,
       warehouseId,
       'SKU-DUNG',
@@ -180,14 +206,14 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     pickEventModel.create.mockResolvedValue([{}]);
 
     mockGroup({ last_picked_at: null });
-    await service.pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
     expect(outbox.updateOne).toHaveBeenCalledTimes(1);
     const [filter, , options] = outbox.updateOne.mock.calls[0] as [{ idempotency_key: string }, unknown, { session: unknown }];
     expect(filter.idempotency_key).toBe(`grp:${groupId}:processing:first_pick`);
     expect(options.session).toBeDefined();
 
     mockGroup({ last_picked_at: new Date() });
-    await service.pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
     expect(outbox.updateOne).toHaveBeenCalledTimes(1); // đã quét trước đó → không báo lại
   });
 
@@ -200,7 +226,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    await service.pickItem(groupId, warehouseId, 'SKU-TRUNG', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, warehouseId, 'SKU-TRUNG', 1, 'barcode');
 
     const [filter] = skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [
       Record<string, unknown>,
@@ -259,7 +285,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: binOld._id, quantity_on_hand: 3 });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    await fifoService.pickItem(groupId, warehouseId, 'SKU-LO', 2, 'barcode');
+    await pickingFor(fifoService).pickItem(groupId, warehouseId, 'SKU-LO', 2, 'barcode');
 
     const [filter] = skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>];
     expect(String(filter._id)).toBe(binOld._id.toString());
@@ -277,7 +303,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
     });
 
-    await expect(service.confirmPicked(groupId, 3)).rejects.toMatchObject({
+    await expect(pickingFor(service).confirmPicked(groupId, 3)).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.INVALID_TRANSITION,
     });
     expect(orderGroupModel.findOneAndUpdate).not.toHaveBeenCalled();
@@ -289,7 +315,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     mockPickedEvents([{ seller_sku: 'AO', scanned_quantity: 2 }]);
 
     await expect(
-      service.pickItem(groupId, warehouseId, 'AO', 1, 'manual'),
+      pickingFor(service).pickItem(groupId, warehouseId, 'AO', 1, 'manual'),
     ).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.PICK_EXCEEDS_ORDERED,
     });
@@ -300,7 +326,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     mockGroup({ fulfillment_status: GroupFulfillmentStatus.PICKED });
 
     await expect(
-      service.pickItem(groupId, warehouseId, 'AO', 1, 'barcode'),
+      pickingFor(service).pickItem(groupId, warehouseId, 'AO', 1, 'barcode'),
     ).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.PICK_NOT_ALLOWED,
     });
@@ -313,7 +339,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       remaining_stock_after: 5,
     });
 
-    const result = await service.pickItem(
+    const result = await pickingFor(service).pickItem(
       groupId,
       warehouseId,
       'AO',
@@ -335,7 +361,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     ]);
     mockPickedEvents([{ seller_sku: 'AO', scanned_quantity: 2 }]);
 
-    await expect(service.confirmPicked(groupId, 3)).rejects.toMatchObject({
+    await expect(pickingFor(service).confirmPicked(groupId, 3)).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.PICK_INCOMPLETE,
       details: {
         missing: [{ sku: 'QUAN', orderedQuantity: 1, pickedQuantity: 0 }],
@@ -405,7 +431,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     orderGroupModel.findOneAndUpdate.mockResolvedValue({ pick_round: 1 });
     mockOldRoundEvents([]);
 
-    await service.decidePartial(groupId, false, 3);
+    await pickingFor(service).decidePartial(groupId, false, 3);
 
     const [filter, update] = orderGroupModel.findOneAndUpdate.mock.calls[0] as [
       { __v: number },
@@ -438,7 +464,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       { _id: idB, seller_sku: 'AO', scanned_quantity: 1, warehouse_id: wh },
     ]);
 
-    await service.decidePartial(groupId, false, 3);
+    await pickingFor(service).decidePartial(groupId, false, 3);
 
     expect(skuBinAssignmentModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
     const [filter, update] = skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [
@@ -480,7 +506,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       },
     ]);
 
-    await service.decidePartial(groupId, false, 3);
+    await pickingFor(service).decidePartial(groupId, false, 3);
 
     expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
@@ -494,7 +520,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    await service.pickItem(groupId, warehouseId, 'AO', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, warehouseId, 'AO', 1, 'barcode');
 
     const [docs] = pickEventModel.create.mock.calls[0] as [
       { warehouse_id: Types.ObjectId }[],
@@ -509,7 +535,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 4, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'lazada', shop_id: 'shop-1', seller_sku: 'ABC-123' });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
 
     expect((skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0]).toMatchObject({ platform: 'lazada', shop_id: 'shop-1' });
   });
@@ -524,7 +550,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 9, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'tiki', shop_id: 't1', seller_sku: 'X', master_sku: 'ATHUN-005-DEN-M' });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
 
     const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
     // Đã nối: $or [tồn gộp master_sku | unpooled đúng shop] — vẫn lấy được hàng Admin nhập trước sync-stock.
@@ -544,7 +570,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     mockGroup({ warehouse_id: new Types.ObjectId() });
     mockOrderedItems([{ sku: 'ABC-123', quantity: 3 }]);
     (pickEventModel as unknown as { exists: jest.Mock }).exists = jest.fn().mockResolvedValue({ _id: new Types.ObjectId() });
-    await expect(service.pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode')).rejects.toMatchObject({ errorCode: 'ORD_GROUP_WRONG_WAREHOUSE' });
+    await expect(pickingFor(service).pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode')).rejects.toMatchObject({ errorCode: 'ORD_GROUP_WRONG_WAREHOUSE' });
     expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
@@ -555,7 +581,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 2, warehouse_id: new Types.ObjectId(warehouseId), bin_location_id: new Types.ObjectId(), platform: 'lazada', shop_id: 'shop-1', seller_sku: 'ABC-123' });
     pickEventModel.create.mockResolvedValue([{}]);
 
-    await service.pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode');
+    await pickingFor(service).pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode');
 
     const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
     expect(filter.warehouse_id).toBeInstanceOf(Types.ObjectId);

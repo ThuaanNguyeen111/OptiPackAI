@@ -4,7 +4,7 @@ import {
   type PackagingMaterialsSavings,
 } from '../api/packaging-materials.api'
 import { getPackingReport } from '../api/packing-plan.api'
-import { PackingReportsPanel, PackingSettingsForm } from '../components/packing/PackingSettingsReports'
+import { PackingReportsPanel } from '../components/packing/PackingSettingsReports'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
@@ -48,7 +48,6 @@ export function AnalyticsReportPage() {
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <PackingReportsPanel vi={vi} />
-          <PackingSettingsForm vi={vi} canEdit />
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-ink">
               {vi ? 'Báo cáo đóng gói' : 'Packing report'}
