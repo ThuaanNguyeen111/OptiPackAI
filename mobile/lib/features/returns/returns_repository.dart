@@ -1,7 +1,24 @@
+import '../shipping/shipping_repository.dart';
+
 /// Hàng hoàn. **Đang là dữ liệu giả.** BE đã có: `GET /returns`, `POST /returns/:id/receive`,
 /// `POST /returns/:id/inspect`, `POST /returns/:id/approve|reject`, `POST /shipments/:id/receive-return`.
-/// Ảnh tình trạng hàng: **BE chưa có API upload** (chờ BE).
-enum ReturnStatus { requested, awaitingReceipt, received, closed, rejected }
+/// Ảnh tình trạng hàng: tải lên `POST /proof-photos`, gửi `photo_urls` kèm inspect (không bắt buộc).
+enum ReturnStatus {
+  requested('requested'),
+  awaitingReceipt('awaiting_receipt'),
+  received('received'),
+  closed('closed'),
+  rejected('rejected'),
+  canceled('canceled');
+
+  const ReturnStatus(this.code);
+
+  /// Giá trị `status` của BE.
+  final String code;
+
+  static ReturnStatus? fromCode(String code) =>
+      ReturnStatus.values.where((s) => s.code == code).firstOrNull;
+}
 
 enum InspectResult {
   restock('restock', 'Nhập lại kho'),
@@ -41,6 +58,7 @@ class ReturnRequest {
     required this.createdAt,
     this.type = 'return_refund',
     this.source = 'marketplace',
+    this.version = 0,
   });
 
   final String id;
@@ -52,6 +70,9 @@ class ReturnRequest {
   final DateTime createdAt;
   final String type;
   final String source;
+
+  /// `__v` của phiếu: gửi làm `expected_version`, lệch → 409 `RMA_STATE_CONFLICT`.
+  final int version;
 
   bool get isFailedDelivery => source == 'failed_delivery';
 
@@ -65,20 +86,27 @@ class ReturnRequest {
         createdAt: createdAt,
         type: type,
         source: source,
+        version: version,
       );
 }
 
 /// Kết quả kiểm một dòng hàng hoàn.
 class InspectLine {
-  const InspectLine({required this.sku, required this.quantity, required this.result});
+  const InspectLine({required this.sku, required this.quantity, required this.result, this.binCode});
   final String sku;
   final int quantity;
   final InspectResult result;
+
+  /// Ô nhập lại (bắt buộc khi [result] là nhập lại kho).
+  final String? binCode;
 }
 
 class PackagingCheck {
-  const PackagingCheck({required this.grade, required this.oldLabelRemoved});
+  const PackagingCheck({required this.grade, required this.oldLabelRemoved, this.materialCode = ''});
   final PackagingGrade grade;
+
+  /// Mã thùng / vật tư thu hồi (VD `BOX-M`), BE bắt buộc.
+  final String materialCode;
 
   /// Bắt buộc `true` khi hạng A: nhãn cũ có tên/SĐT khách (dữ liệu cá nhân).
   final bool oldLabelRemoved;
@@ -94,8 +122,16 @@ class ReturnsException implements Exception {
 
 abstract class ReturnsRepository {
   Future<List<ReturnRequest>> list(ReturnStatus status);
+
+  /// Vận đơn giao thất bại đang hoàn về kho (`GET /shipments?status=returning_to_warehouse`).
+  Future<List<ShipmentView>> returningShipments();
+
+  /// Kho nhận kiện giao thất bại quay về (`POST /shipments/:id/receive-return`): vận đơn → đã về kho,
+  /// BE tự tạo phiếu hoàn để kiểm hàng.
+  Future<void> receiveShipmentReturn(String shipmentId);
+
   Future<void> receive(String id);
-  Future<void> inspect(String id, List<InspectLine> lines, PackagingCheck? packaging);
+  Future<void> inspect(String id, List<InspectLine> lines, PackagingCheck? packaging, {List<String> photoUrls = const []});
   Future<void> approve(String id);
   Future<void> reject(String id, String reason);
 }
@@ -176,6 +212,51 @@ class MockReturnsRepository implements ReturnsRepository {
     return [for (final r in _items) if (r.status == status) r];
   }
 
+  /// Kiện giao thất bại đang hoàn về kho (giả lập).
+  late List<ShipmentView> _returning = [
+    const ShipmentView(
+      id: 'ship-ret-1',
+      code: 'SHP-261109-000042',
+      groupShortId: '2b9d4e7a11',
+      recipientName: 'Trần Quốc Cường',
+      status: ShipmentStatus.returningToWarehouse,
+      carrierName: 'Shop tự giao (Hỏa Tốc)',
+      trackingCode: 'SHP-261109-000042',
+      selfDelivery: true,
+    ),
+  ];
+
+  @override
+  Future<List<ShipmentView>> returningShipments() async {
+    await _latency();
+    return List.unmodifiable(_returning);
+  }
+
+  @override
+  Future<void> receiveShipmentReturn(String shipmentId) async {
+    await _latency();
+    final found = _returning.where((s) => s.id == shipmentId);
+    if (found.isEmpty) {
+      throw const ReturnsException('Vận đơn không còn ở trạng thái đang hoàn về kho.', code: 'SHP_INVALID_TRANSITION');
+    }
+    final s = found.first;
+    _returning = [for (final r in _returning) if (r.id != shipmentId) r];
+    // BE tự tạo phiếu hoàn (giao thất bại) để kho kiểm hàng.
+    _items = [
+      ..._items,
+      ReturnRequest(
+        id: 'rma-fd-${s.id}',
+        code: 'RMA-FD-${s.code}',
+        status: ReturnStatus.received,
+        orderCode: s.groupShortId,
+        reason: 'Giao thất bại — kiện hoàn về kho',
+        items: const [ReturnItem(sku: 'AOPOLO-030-BE-L', quantity: 1)],
+        createdAt: DateTime.now(),
+        source: 'failed_delivery',
+      ),
+    ];
+  }
+
   @override
   Future<void> receive(String id) async {
     await _latency();
@@ -187,7 +268,7 @@ class MockReturnsRepository implements ReturnsRepository {
   }
 
   @override
-  Future<void> inspect(String id, List<InspectLine> lines, PackagingCheck? packaging) async {
+  Future<void> inspect(String id, List<InspectLine> lines, PackagingCheck? packaging, {List<String> photoUrls = const []}) async {
     await _latency();
     final r = _get(id);
     if (r.status != ReturnStatus.received) {

@@ -34,3 +34,19 @@ Cột "Thông tin trong file" đọc từ phần `asset` của file GLB. Cột "
 | `glasses.glb` | | |
 
 Không ghi đè các file này bằng model của màn đóng gói. Trang giới thiệu dùng tỉ lệ co chỉnh riêng cho từng file trong `fe/src/utils/packing-scene.ts`.
+
+## Model vật tư đóng gói (`materials/`)
+
+Tự dựng bằng Blender 5.2 từ script `fe/blender/make_packing_materials.py`, không dùng asset ngoài. Đơn vị mét, trục Y hướng lên, đáy nằm ở y = 0. Chạy lại script để dựng lại cả 9 file.
+
+| File | Dùng cho (`materials[].type` của BE) | Kích thước thật | Ghi chú |
+| --- | --- | --- | --- |
+| `materials/bubble_wrap.glb` | `bubble_wrap` — xốp hơi bọc hàng | 300 × 200 mm | Màng trong có bong bóng; vật liệu trong suốt |
+| `materials/air_pillow.glb` | `air_pillow` — gối hơi lấp trống | 120 × 80 × 26 mm | 3 khoang phồng, có van; vật liệu trong suốt |
+| `materials/fragile_label.glb` | `fragile_tape` — tem cảnh báo hàng dễ vỡ | 80 × 50 mm | Tem đỏ, ly vỡ, chữ FRAGILE / HANDLE WITH CARE; nằm phẳng, mặt hướng lên |
+| `materials/foam_corner.glb` | `foam_corner` — góc xốp | 50 × 50 × 50 mm | 3 vách dày 8 mm, mở ở góc trong |
+| `materials/corrugated_divider.glb` | `corrugated_divider` — vách ngăn carton sóng | 300 × 200 × 4 mm | Lộ lớp sóng ở một dải mép |
+| `materials/kraft_paper.glb` | `kraft_paper` — giấy kraft vò độn | đường kính khoảng 100 mm | Bóng giấy vò |
+| `materials/tissue_paper.glb` | `tissue_paper` — giấy lót | 250 × 180 mm | Chồng 3 tờ gợn sóng |
+| `materials/tape_roll.glb` | Băng keo dán thùng (không có trong danh mục vật tư) | ⌀ 76 × 48 mm | Cuộn băng keo, lõi giấy |
+| `materials/accessory_case.glb` | `productCategory = accessory` (hộp kính / đồ nhỏ dễ vỡ) | 160 × 60 × 80 mm | Hộp cứng có nắp, khoá gài, bản lề; bọc xốp hơi + dán băng keo trước khi đặt vào thùng |

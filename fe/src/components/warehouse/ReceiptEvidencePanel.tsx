@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { AlertTriangle, Camera, Check, CheckCircle2, Images, Info, Loader2, RefreshCw, ScanText, X } from 'lucide-react'
+import { CameraCapture } from '../proof/CameraCapture'
+import { canUseCamera } from '../proof/camera'
 import { listReceiptPhotos, scanReceipt, uploadReceiptPhotos, type StoredReceiptPhoto } from '../../api/receipt-evidence.api'
 import { formatApiError } from '../../lib/api'
 import { cn } from '../../lib/cn'
@@ -43,6 +45,9 @@ export function ReceiptEvidencePanel({
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
+  /** (13/11/2026) Ảnh chụp bằng webcam, gom tới khi bấm "Dùng ảnh" rồi mới tải + đọc phiếu. */
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const [shots, setShots] = useState<File[]>([])
   const line = selectedLine(value)
   const diff = line && quantity > 0 ? quantity - line.quantity : 0
   const problem = busy ? null : receiptEvidenceProblem(value, quantity, vi)
@@ -63,7 +68,7 @@ export function ReceiptEvidencePanel({
     }
   }
 
-  async function pick(files: FileList | null) {
+  async function pick(files: FileList | File[] | null) {
     if (!files || files.length === 0) return
     const images = Array.from(files).filter((f) => f.type.startsWith('image/'))
     if (images.length === 0) {
@@ -191,16 +196,57 @@ export function ReceiptEvidencePanel({
           }}
         />
       ) : (
-        <button
-          type="button"
-          disabled={busy !== null}
-          onClick={() => setLibraryOpen(true)}
-          className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-hairline bg-surface-1 px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
-        >
-          <Images className="h-3.5 w-3.5" />
-          {t('Chọn ảnh đã tải lên hệ thống', 'Pick an already uploaded photo')}
-        </button>
+        <div className="flex gap-1.5">
+          {canUseCamera() ? (
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => {
+                setLibraryOpen(false)
+                setShots([])
+                setCameraOpen(true)
+              }}
+              className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-hairline bg-surface-1 px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+            >
+              <Camera className="h-3.5 w-3.5" />
+              {t('Chụp bằng camera', 'Use camera')}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => setLibraryOpen(true)}
+            className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-hairline bg-surface-1 px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50"
+          >
+            <Images className="h-3.5 w-3.5" />
+            {t('Ảnh đã tải lên', 'Uploaded photos')}
+          </button>
+        </div>
       )}
+
+      {cameraOpen ? (
+        <CameraCapture
+          vi={vi}
+          onCapture={(file) => {
+            const next = [...shots, file].slice(0, MAX_PHOTOS)
+            setShots(next)
+            // Đủ số ảnh tối đa thì dùng luôn.
+            if (next.length >= MAX_PHOTOS) {
+              setCameraOpen(false)
+              void pick(next)
+            }
+          }}
+          onClose={() => {
+            setCameraOpen(false)
+            if (shots.length > 0) void pick(shots)
+          }}
+          hint={
+            vi
+              ? `Đã chụp ${String(shots.length)}/${String(MAX_PHOTOS)} ảnh. Bấm "Xong" để tải lên và đọc phiếu.`
+              : `${String(shots.length)}/${String(MAX_PHOTOS)} taken. Press "Done" to upload.`
+          }
+        />
+      ) : null}
 
       {uploadError ? (
         <p role="alert" className="text-xs text-red-600">

@@ -147,6 +147,17 @@ class ApiClient {
             options: Options(extra: {_publicKey: public}),
           ));
 
+  /// Tải file nhị phân (PDF nhãn kiện). Dùng cùng token và cơ chế tự làm mới như các request khác.
+  Future<List<int>> getBytes(String path, {Map<String, dynamic>? query}) async {
+    final data = await _send(() => _dio.get<List<int>>(
+          path,
+          queryParameters: _clean(query),
+          options: Options(responseType: ResponseType.bytes, receiveTimeout: const Duration(seconds: 60)),
+        ));
+    if (data is List<int>) return data;
+    throw const FormatException('Máy chủ không trả về file.');
+  }
+
   Future<Object?> post(
     String path, {
     Object? body,
@@ -162,6 +173,15 @@ class ApiClient {
       _send(() => _dio.patch<dynamic>(path, data: body));
 
   Future<Object?> delete(String path) => _send(() => _dio.delete<dynamic>(path));
+
+  /// Gửi file `multipart/form-data` (ảnh bằng chứng). Ảnh vài MB nên cho thời gian gửi dài hơn.
+  Future<Object?> upload(String path, FormData data, {Map<String, dynamic>? query}) =>
+      _send(() => _dio.post<dynamic>(
+            path,
+            data: data,
+            queryParameters: _clean(query),
+            options: Options(sendTimeout: const Duration(seconds: 60)),
+          ));
 
   Future<Object?> _send(Future<Response<dynamic>> Function() call) async {
     try {

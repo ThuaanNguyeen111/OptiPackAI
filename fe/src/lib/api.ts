@@ -1,3 +1,4 @@
+import { embedApiBase, isEmbedMode } from './embed-session'
 import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
 import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
@@ -5,8 +6,9 @@ import { RETURNS_ERROR_MESSAGES } from '../types/returns'
 import { SHIPMENT_ERROR_MESSAGES } from '../types/shipments'
 import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
+// Trang nhúng (WebView trong app mobile) dùng địa chỉ API do app truyền vào.
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:3000'
+  embedApiBase() || import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
 /** JwtStrategy đọc Redis trước Mongo — Redis chậm/treo thì fetch không bao giờ settle. */
 const REQUEST_TIMEOUT_MS = 12_000
@@ -20,19 +22,39 @@ function isAbortError(err: unknown): boolean {
   )
 }
 
+/**
+ * (13/11/2026) Request bị người gọi huỷ (VD đổi bộ lọc khi danh sách cũ chưa về).
+ * Màn hình bắt bằng `isRequestCanceled(err)` và bỏ qua, không hiện lỗi.
+ */
+export class RequestCanceledError extends Error {
+  constructor() {
+    super('Đã huỷ yêu cầu.')
+    this.name = 'RequestCanceledError'
+  }
+}
+
+export function isRequestCanceled(err: unknown): boolean {
+  return err instanceof RequestCanceledError
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number = REQUEST_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<Response> {
+  if (signal?.aborted) throw new RequestCanceledError()
   const controller = new AbortController()
   const timeoutId = globalThis.setTimeout(
     () => controller.abort(),
     timeoutMs,
   )
+  const onCancel = () => controller.abort()
+  signal?.addEventListener('abort', onCancel)
   try {
     return await fetch(url, { ...init, signal: controller.signal })
   } catch (err: unknown) {
+    if (signal?.aborted) throw new RequestCanceledError()
     if (isAbortError(err)) {
       throw new ApiError(0, [
         'Máy chủ không phản hồi kịp. Kiểm tra backend và Redis đang chạy, rồi tải lại trang.',
@@ -41,6 +63,7 @@ async function fetchWithTimeout(
     throw err
   } finally {
     globalThis.clearTimeout(timeoutId)
+    signal?.removeEventListener('abort', onCancel)
   }
 }
 
@@ -105,6 +128,8 @@ async function parseJson(res: Response): Promise<unknown> {
 let refreshInFlight: Promise<boolean> | null = null
 
 async function rotateRefreshToken(): Promise<boolean> {
+  // Trang nhúng không tự làm mới token (xem embed-session.ts) — để app cấp token mới.
+  if (isEmbedMode()) return false
   const refreshToken = getRefreshToken()
   if (!refreshToken) return false
 
@@ -149,13 +174,15 @@ type RequestOptions = {
   skipRefresh?: boolean
   /** Đồng bộ catalog Lazada có thể lâu hơn 12 giây mặc định. */
   timeoutMs?: number
+  /** (13/11/2026) Huỷ request (VD đổi bộ lọc) — ném `RequestCanceledError`. */
+  signal?: AbortSignal
 }
 
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = false, skipRefresh = false, timeoutMs } = options
+  const { method = 'GET', body, auth = false, skipRefresh = false, timeoutMs, signal } = options
 
   // FormData (tải ảnh): để trình duyệt tự đặt Content-Type kèm boundary.
   const isForm = body instanceof FormData
@@ -174,6 +201,7 @@ export async function apiRequest<T>(
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     },
     timeoutMs,
+    signal,
   )
 
   if (res.status === 401 && auth && !skipRefresh) {

@@ -2,12 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:image_picker/image_picker.dart';
+
 import '../../app/mock_providers.dart';
+import '../../core/network/api_exception.dart';
+import '../proof/proof_photo_field.dart';
+import '../proof/proof_photo_repository.dart';
+import '../warehouse/scanner_screen.dart';
 import '../../shared/widgets.dart';
+import '../shipping/shipping_repository.dart';
 import 'returns_repository.dart';
 import '../../app/colors.dart';
 
+/// Tab của màn hoàn hàng: kiện giao thất bại về kho, hàng khách trả chờ nhận, chờ kiểm.
+enum _ReturnsTab { returning, awaitingReceipt, received }
+
 /// Warehouse Staff: nhận kiện hoàn → kiểm hàng (nhập lại kho / cách ly / hủy) + kiểm bao bì.
+/// Kiện giao thất bại (vận đơn "đang hoàn về kho") được nhận ở tab đầu: `POST /shipments/:id/receive-return`.
 class WarehouseReturnsScreen extends ConsumerStatefulWidget {
   const WarehouseReturnsScreen({super.key});
 
@@ -16,11 +27,30 @@ class WarehouseReturnsScreen extends ConsumerStatefulWidget {
 }
 
 class _WarehouseReturnsScreenState extends ConsumerState<WarehouseReturnsScreen> {
-  ReturnStatus _tab = ReturnStatus.awaitingReceipt;
+  _ReturnsTab _tab = _ReturnsTab.returning;
 
   void _refresh() {
+    ref.invalidate(returningShipmentsProvider);
     ref.invalidate(returnsByStatusProvider(ReturnStatus.awaitingReceipt));
     ref.invalidate(returnsByStatusProvider(ReturnStatus.received));
+  }
+
+  Future<void> _receiveShipment(ShipmentView v) async {
+    final ok = await confirmDialog(
+      context,
+      title: 'Nhận kiện giao thất bại?',
+      message: '${v.code}\nNgười nhận: ${v.recipientName}\nXác nhận kiện đã về tới kho. Hệ thống sẽ tạo phiếu hoàn để bạn kiểm hàng.',
+      confirmLabel: 'Đã nhận',
+    );
+    if (!ok || !mounted) return;
+    try {
+      await ref.read(returnsRepositoryProvider).receiveShipmentReturn(v.id);
+      HapticFeedback.mediumImpact();
+      _refresh();
+      if (mounted) showToast(context, 'Đã nhận kiện ${v.code}. Chuyển sang tab "Chờ kiểm hàng".');
+    } on ReturnsException catch (e) {
+      if (mounted) showToast(context, e.message, error: true);
+    }
   }
 
   Future<void> _receive(ReturnRequest r) async {
@@ -53,16 +83,16 @@ class _WarehouseReturnsScreenState extends ConsumerState<WarehouseReturnsScreen>
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(returnsByStatusProvider(_tab));
     return Column(
       children: [
         const MockBanner(),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: SegmentedButton<ReturnStatus>(
+          child: SegmentedButton<_ReturnsTab>(
             segments: const [
-              ButtonSegment(value: ReturnStatus.awaitingReceipt, label: Text('Chờ nhận kiện')),
-              ButtonSegment(value: ReturnStatus.received, label: Text('Chờ kiểm hàng')),
+              ButtonSegment(value: _ReturnsTab.returning, label: Text('Kiện về kho')),
+              ButtonSegment(value: _ReturnsTab.awaitingReceipt, label: Text('Chờ nhận')),
+              ButtonSegment(value: _ReturnsTab.received, label: Text('Chờ kiểm')),
             ],
             selected: {_tab},
             onSelectionChanged: (s) => setState(() => _tab = s.first),
@@ -71,32 +101,106 @@ class _WarehouseReturnsScreenState extends ConsumerState<WarehouseReturnsScreen>
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async => _refresh(),
-            child: async.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
-              data: (items) => items.isEmpty
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
-                        SizedBox(height: 80),
-                        EmptyState(icon: Icons.assignment_return_outlined, text: 'Không có phiếu nào.'),
-                      ],
-                    )
-                  : ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      itemCount: items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, i) => _ReturnCard(
-                        request: items[i],
-                        actionLabel: _tab == ReturnStatus.awaitingReceipt ? 'Nhận kiện' : 'Kiểm hàng',
-                        onAction: () => _tab == ReturnStatus.awaitingReceipt ? _receive(items[i]) : _inspect(items[i]),
-                      ),
-                    ),
-            ),
+            child: _tab == _ReturnsTab.returning ? _returningList() : _requestList(),
           ),
         ),
       ],
+    );
+  }
+}
+
+extension on _WarehouseReturnsScreenState {
+  Widget _empty(String text) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          const SizedBox(height: 80),
+          EmptyState(icon: Icons.assignment_return_outlined, text: text),
+        ],
+      );
+
+  /// Vận đơn giao thất bại đang hoàn về kho: nhận kiện để BE tạo phiếu hoàn.
+  Widget _returningList() {
+    final async = ref.watch(returningShipmentsProvider);
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => ErrorState(error: e, onRetry: _refresh),
+      data: (items) => items.isEmpty
+          ? _empty('Không có kiện nào đang hoàn về kho.')
+          : ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, i) => _ReturningShipmentCard(
+                shipment: items[i],
+                onReceive: () => _receiveShipment(items[i]),
+              ),
+            ),
+    );
+  }
+
+  Widget _requestList() {
+    final status = _tab == _ReturnsTab.awaitingReceipt ? ReturnStatus.awaitingReceipt : ReturnStatus.received;
+    final async = ref.watch(returnsByStatusProvider(status));
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => ErrorState(error: e, onRetry: _refresh),
+      data: (items) => items.isEmpty
+          ? _empty('Không có phiếu nào.')
+          : ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, i) => _ReturnCard(
+                request: items[i],
+                actionLabel: status == ReturnStatus.awaitingReceipt ? 'Nhận kiện' : 'Kiểm hàng',
+                onAction: () => status == ReturnStatus.awaitingReceipt ? _receive(items[i]) : _inspect(items[i]),
+              ),
+            ),
+    );
+  }
+}
+
+class _ReturningShipmentCard extends StatelessWidget {
+  const _ReturningShipmentCard({required this.shipment, required this.onReceive});
+
+  final ShipmentView shipment;
+  final VoidCallback onReceive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(shipment.code,
+                      style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w800)),
+                ),
+                const Pill('Giao thất bại', Colors.deepOrange),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text('Nhóm ${shipment.groupShortId} · ${shipment.recipientName}',
+                style: TextStyle(color: AppColors.inkSubtle)),
+            if (shipment.failureReason != null) ...[
+              const SizedBox(height: 6),
+              Text('Lý do: ${shipment.failureReason!.label}'),
+            ],
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: onReceive,
+              icon: const Icon(Icons.inventory_2_outlined),
+              label: const Text('Nhận kiện hoàn về kho'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -172,10 +276,31 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
   late final Map<String, InspectResult> _results = {
     for (final i in widget.request.items) i.sku: InspectResult.restock,
   };
+  late final Map<String, TextEditingController> _bins = {
+    for (final i in widget.request.items) i.sku: TextEditingController(),
+  };
+  final _material = TextEditingController();
   PackagingGrade? _grade;
   bool _labelRemoved = false;
+  List<XFile> _photos = const [];
   bool _busy = false;
   String? _error;
+
+  @override
+  void dispose() {
+    for (final c in _bins.values) {
+      c.dispose();
+    }
+    _material.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scanBin(String sku) async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const ScannerScreen()),
+    );
+    if (code != null && mounted) setState(() => _bins[sku]!.text = code.trim());
+  }
 
   Future<void> _submit() async {
     setState(() {
@@ -183,18 +308,29 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
       _error = null;
     });
     try {
+      final photoUrls = await ref.read(proofPhotoRepositoryProvider).upload(_photos);
       await ref.read(returnsRepositoryProvider).inspect(
             widget.request.id,
             [
               for (final i in widget.request.items)
-                InspectLine(sku: i.sku, quantity: i.quantity, result: _results[i.sku]!),
+                InspectLine(
+                  sku: i.sku,
+                  quantity: i.quantity,
+                  result: _results[i.sku]!,
+                  binCode: _bins[i.sku]!.text,
+                ),
             ],
-            _grade == null ? null : PackagingCheck(grade: _grade!, oldLabelRemoved: _labelRemoved),
+            _grade == null
+                ? null
+                : PackagingCheck(grade: _grade!, oldLabelRemoved: _labelRemoved, materialCode: _material.text),
+            photoUrls: photoUrls,
           );
       if (!mounted) return;
       HapticFeedback.mediumImpact();
       Navigator.pop(context, true);
     } on ReturnsException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -235,6 +371,22 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                             selected: {_results[i.sku]!},
                             onSelectionChanged: (s) => setState(() => _results[i.sku] = s.first),
                           ),
+                          if (_results[i.sku] == InspectResult.restock) ...[
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _bins[i.sku],
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: InputDecoration(
+                                labelText: 'Ô nhập lại',
+                                hintText: 'VD KA-D1-P01-T01-1',
+                                suffixIcon: IconButton(
+                                  tooltip: 'Quét mã ô',
+                                  icon: const Icon(Icons.qr_code_scanner),
+                                  onPressed: () => _scanBin(i.sku),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -260,6 +412,14 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                       ),
                   ],
                 ),
+                if (_grade != null) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _material,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(labelText: 'Mã thùng thu hồi', hintText: 'VD BOX-M'),
+                  ),
+                ],
                 if (_grade == PackagingGrade.a)
                   CheckboxListTile(
                     contentPadding: EdgeInsets.zero,
@@ -269,7 +429,12 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                     subtitle: const Text('Nhãn cũ có tên, SĐT khách. Bắt buộc với thùng hạng A.'),
                   ),
                 const SizedBox(height: 12),
-                const WaitingBackendButton(label: 'Chụp ảnh tình trạng hàng'),
+                ProofPhotoField(
+                  label: 'Ảnh tình trạng hàng',
+                  enabled: !_busy,
+                  photos: _photos,
+                  onChanged: (p) => setState(() => _photos = p),
+                ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(_error!, style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600)),
@@ -315,7 +480,7 @@ class ReturnsApprovalScreen extends ConsumerWidget {
             onRefresh: () async => refresh(),
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: refresh),
               data: (items) => items.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
