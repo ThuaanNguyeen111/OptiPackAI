@@ -57,7 +57,8 @@ export function cutBoxToLoad(box: BoxSpec, placements: Placement[]): BoxSpec {
   const base = uncutBox(box);
   if (base.kind === 'mailer' || placements.length === 0) return base;
   const top = Math.max(...placements.map((p) => p.z + p.dz));
-  const height = Math.min(base.inner.height_mm, Math.ceil(top / 10) * 10);
+  // ADR 0002: cắt hạ để giảm cước cho đơn kẹt giữa 2 cỡ thùng, không ép thùng dẹt hơn thùng thấp nhất.
+  const height = Math.min(base.inner.height_mm, Math.max(Math.ceil(top / 10) * 10, base.min_cut_height_mm ?? 0));
   const saved = base.inner.height_mm - height;
   if (saved < MIN_BOX_CUT_MM) return base;
   return {

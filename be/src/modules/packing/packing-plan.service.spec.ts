@@ -279,7 +279,7 @@ describe('PackingPlanService', () => {
       orderGroupsService as never,
       boxService as never,
       materialService as never,
-      { namesByCode: jest.fn(() => Promise.resolve(new Map())) } as never,
+      { namesByCode: jest.fn(() => Promise.resolve(new Map())), list: jest.fn(() => Promise.resolve([])) } as never,
       guideAi as never,
       notificationsService as never,
       { get: () => null } as never, // không có CP-SAT

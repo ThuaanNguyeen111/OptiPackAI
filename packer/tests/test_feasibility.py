@@ -161,3 +161,25 @@ def test_soft_unit_may_overhang_its_supporter() -> None:
     assert placements is not None
     assert_geometry(placements, boxes)
     assert solve([base, top(100)], boxes)[0] == "infeasible"
+
+
+def soft(u: UnitIn) -> UnitIn:
+    """Garment: the TS side sends min_support_pct=80 only for clothing."""
+    return u.model_copy(update={"min_support_pct": 80})
+
+
+def test_hard_unit_never_rests_on_garment() -> None:
+    # The shirt covers the whole floor, so the only layout puts the shoe on the shirt.
+    shirt = soft(unit("SHIRT", (300, 200, 40), 200, upright=True))
+    shoe = unit("SHOE", (150, 100, 100), 100, upright=True)
+    assert solve([shirt, shoe], [box("B", (300, 200, 140))])[0] == "infeasible"
+
+
+def test_fragile_unit_may_rest_on_garment() -> None:
+    shirt = soft(unit("SHIRT", (300, 200, 40), 200, upright=True))
+    glasses = unit("GLASSES", (160, 70, 50), 150, upright=True, fragile=True, cap=None)
+    boxes = [box("B", (300, 200, 90))]
+    status, placements = solve([shirt, glasses], boxes)
+    assert status == "feasible"
+    assert placements is not None
+    assert_geometry(placements, boxes)

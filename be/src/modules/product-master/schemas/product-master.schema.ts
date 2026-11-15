@@ -87,6 +87,13 @@ export class ProductMaster {
   can_fold_in_half?: boolean;
 
   /**
+   * (13/11/2026) GSM của vải (g/m², 1 lớp) — tính độ dày gói quần áo khi kho bỏ trống
+   * height_cm (PACKAGING_STANDARD §5.2). null = dùng GSM mặc định theo loại.
+   */
+  @Prop({ type: Number, min: 20, max: 1500, default: null })
+  fabric_gsm?: number | null;
+
+  /**
    * AOFP-224 (31/10/2026) — lớp vận chuyển kho chốt cho SKU (túi niêm phong được /
    * bắt buộc thùng). null = theo loại sản phẩm (DEFAULT_OUTER_REQUIREMENT). Hàng
    * dễ vỡ luôn vào thùng dù đặt gì. Xem docs/PACKAGING_STANDARD.md §4.1.

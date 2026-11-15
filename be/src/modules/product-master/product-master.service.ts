@@ -13,6 +13,7 @@ import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-
 import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
 import { bagFits, suggestSmallestBag } from '../packaging/bag-fit.util';
 import { FLAT_CATEGORIES } from '../packaging/engine/units';
+import { GARMENT_FABRIC, garmentThicknessCm, thicknessWarning } from './garment-thickness';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 // 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #7) —
@@ -56,6 +57,12 @@ export interface CatalogSyncResult {
 export type CatalogSyncShopOutcome =
   | ({ ok: true } & CatalogSyncResult)
   | { ok: false; platform: MarketplacePlatform; shopId: string; error: string };
+
+/** Kết quả xác nhận hồ sơ đóng gói: hồ sơ đã lưu + cảnh báo không chặn (vd độ dày lệch GSM). */
+export interface ConfirmProfileResult {
+  product: ProductMasterDocument;
+  warnings: string[];
+}
 
 @Injectable()
 export class ProductMasterService {
@@ -370,7 +377,7 @@ export class ProductMasterService {
     id: string,
     userId: string,
     dto: ConfirmPackagingProfileDto,
-  ): Promise<ProductMasterDocument> {
+  ): Promise<ConfirmProfileResult> {
     if (!Types.ObjectId.isValid(id)) {
       throw new AppException(
         PRODUCT_MASTER_ERROR_CODES.INVALID_ID,
@@ -388,6 +395,18 @@ export class ProductMasterService {
         { productCategory: dto.product_category },
       );
     }
+    // (13/11/2026) GSM chỉ có nghĩa với quần áo; bỏ trống độ dày thì tính từ GSM (PACKAGING_STANDARD §5.2).
+    const fabricGsm = GARMENT_FABRIC[dto.product_category] ? (dto.fabric_gsm ?? null) : null;
+    const measuredCm = dto.height_cm ?? null;
+    const heightCm = measuredCm ?? garmentThicknessCm(dto.product_category, fabricGsm);
+    if (heightCm === null) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.HEIGHT_REQUIRED,
+        'Chỉ quần áo mới được bỏ trống độ dày (hệ thống tính từ GSM) — hàng này phải đo chiều cao.',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { productCategory: dto.product_category },
+      );
+    }
     const zipBagCode = dto.zip_bag_code ?? null;
     if (zipBagCode !== null) {
       const bag = await this.bagModel.findOne({ code: zipBagCode, is_active: true }).lean();
@@ -399,12 +418,12 @@ export class ProductMasterService {
           { zipBagCode },
         );
       }
-      const pkg = { length_cm: dto.length_cm, width_cm: dto.width_cm, height_cm: dto.height_cm };
+      const pkg = { length_cm: dto.length_cm, width_cm: dto.width_cm, height_cm: heightCm };
       if (!bagFits(pkg, bag)) {
         const suggested = await this.suggestZipBag(pkg);
         throw new AppException(
           PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_TOO_SMALL,
-          `Túi "${zipBagCode}" (${formatFlatMmAsCm(bag.width_mm, bag.length_mm)}) không vừa gói ${formatDimsCm(dto.length_cm, dto.width_cm, dto.height_cm)}.` +
+          `Túi "${zipBagCode}" (${formatFlatMmAsCm(bag.width_mm, bag.length_mm)}) không vừa gói ${formatDimsCm(dto.length_cm, dto.width_cm, heightCm)}.` +
             (suggested ? ` Gợi ý: túi "${suggested}".` : ' Không túi nào trong danh mục đủ lớn — thêm túi lớn hơn.'),
           HttpStatus.UNPROCESSABLE_ENTITY,
           { zipBagCode, suggestedZipBagCode: suggested },
@@ -419,9 +438,10 @@ export class ProductMasterService {
           dimension: {
             package_length_cm: dto.length_cm,
             package_width_cm: dto.width_cm,
-            package_height_cm: dto.height_cm,
+            package_height_cm: heightCm,
             package_weight_kg: dto.weight_kg,
           },
+          fabric_gsm: fabricGsm,
           is_fragile: dto.is_fragile,
           orientation_rule: dto.orientation_rule,
           max_stack_load_kg: dto.max_stack_load_kg ?? null,
@@ -448,7 +468,9 @@ export class ProductMasterService {
     }
     this.logger.log(`Xác nhận hồ sơ đóng gói SKU ${updated.seller_sku} (shop ${updated.shop_id}).`);
     await this.releasePackingBlocks(updated);
-    return updated;
+    // Chỉ cảnh báo khi kho tự nhập độ dày; bỏ trống (kể cả null) thì độ dày vừa tính từ GSM.
+    const warning = measuredCm === null ? null : thicknessWarning(dto.product_category, fabricGsm, measuredCm);
+    return { product: updated, warnings: warning === null ? [] : [warning] };
   }
 
   /**

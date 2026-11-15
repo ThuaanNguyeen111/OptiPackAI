@@ -1,4 +1,4 @@
-import { minSupportPct } from '../../packaging/engine/units';
+import { mayRestOn, minSupportPct } from '../../packaging/engine/units';
 import { footprintOverlapArea } from '../../packaging/engine/validator';
 import type {
   BoxSpec,
@@ -98,9 +98,12 @@ export class ParcelState {
   /** Kiểm đặt `v` tại (x, y, z): tải thùng, đỡ đáy toàn phần, tải chồng. */
   check(v: Variant, x: number, y: number, z: number): PlacementCheck | null {
     if (this.weight + v.unit.weight_g > this.box.max_load_g) return null;
+    const footprint = { x, y, z, dx: v.dx, dy: v.dy, dz: v.dz };
+    // Khe dưới phần chìa mép của đồ mềm: món nhét vào sẽ đỡ món trên mà không được tính tải.
+    for (const other of this.placements)
+      if (other.z === z + v.dz && footprintOverlapArea(footprint, other) > 0) return null;
     if (z === 0) return { supporters: [], deltas: new Map() };
 
-    const footprint = { x, y, z, dx: v.dx, dy: v.dy, dz: v.dz };
     const raw: { index: number; area: number }[] = [];
     let covered = 0;
     for (let i = 0; i < this.placements.length; i += 1) {
@@ -108,6 +111,8 @@ export class ParcelState {
       if (!other || other.z + other.dz !== z) continue;
       const area = footprintOverlapArea(footprint, other);
       if (area > 0) {
+        const below = this.units[i];
+        if (below && !mayRestOn(v.unit, below)) return null;
         raw.push({ index: i, area });
         covered += area;
       }

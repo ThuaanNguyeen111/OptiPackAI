@@ -69,6 +69,18 @@ export function minSupportPct(unit: Pick<PackingUnit, 'product_category'>): numb
 }
 
 /**
+ * (16/11/2026, user chốt) Hàng cứng không được nằm trên quần áo (áo nhăn, hộp
+ * nghiêng); riêng hàng dễ vỡ được nằm trên quần áo vì vải là lớp đệm.
+ */
+export function mayRestOn(
+  top: Pick<PackingUnit, 'product_category' | 'is_fragile'>,
+  below: Pick<PackingUnit, 'product_category'>,
+): boolean {
+  const isSoft = (u: Pick<PackingUnit, 'product_category'>): boolean => FLAT_CATEGORIES.has(u.product_category ?? '');
+  return isSoft(top) || top.is_fragile || !isSoft(below);
+}
+
+/**
  * (22/09/2026) Gập đôi 1 món mềm: chia đôi (làm tròn lên) cạnh lớn hơn trong
  * dài/rộng, gấp đôi độ dày, cân giữ nguyên. Số đo do hệ thống tự tính (user
  * chốt), chỉ dùng khi nhờ gập mới vừa thùng nhỏ hơn.
@@ -95,6 +107,13 @@ export function foldUnit(unit: PackingUnit): PackingUnit {
  */
 export const DEFAULT_FRAGILE_CUSHION_MM = 5;
 
+/**
+ * (13/11/2026, user chốt) Quần áo để trống sức chịu đè vẫn chồng được — vải gập
+ * không bẹp như hộp giày. Số hữu hạn (không phải Infinity) vì bài CP-SAT gửi JSON.
+ * Hàng khác để trống vẫn = không chịu đè.
+ */
+export const SOFT_DEFAULT_STACK_LOAD_G = 5000;
+
 export interface ExpandOptions {
   /** Đệm quanh món dễ vỡ (mm mỗi mặt); bỏ qua = 0 (số đo thật, dùng cho test hình học thuần). */
   fragileCushionMm?: number;
@@ -119,7 +138,9 @@ export function expandToUnits(
         : ALL_ORIENTATIONS;
     const maxStack =
       item.max_stack_load_kg === null || item.max_stack_load_kg === undefined
-        ? null
+        ? lieFlat
+          ? SOFT_DEFAULT_STACK_LOAD_G
+          : null
         : Math.floor(item.max_stack_load_kg * 1000);
     for (let n = 1; n <= item.quantity; n += 1) {
       units.push({

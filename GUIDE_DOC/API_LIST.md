@@ -447,7 +447,7 @@ Lỗi: `PKG_INVALID_MATERIAL_ID` (400), `PKG_MATERIAL_NOT_FOUND` (404), `PKG_MAT
 | ------ | ----- | ---- | ----- |
 | GET | `/product-master` | Warehouse, Packaging, Store Owner, Admin | Danh sách hồ sơ SKU (mảng, tối đa 200): `?status=needs_measurement\|ready&shop_id=&search=` |
 | GET | `/product-master/:id` | Warehouse, Packaging, Store Owner, Admin | Chi tiết 1 hồ sơ |
-| PUT | `/product-master/:id/packaging-profile` | Warehouse, Admin | Kho xác nhận số đo thật sau gấp/bọc + quy cách xếp → `ready` (writer DUY NHẤT của `dimension`) |
+| PUT | `/product-master/:id/packaging-profile` | Warehouse, Admin | Kho xác nhận số đo thật sau gấp/bọc + quy cách xếp → `ready` (writer DUY NHẤT của `dimension`). 🆕 13/11: thêm `fabric_gsm` (tuỳ chọn); quần áo được bỏ trống `height_cm` → BE tính từ GSM (PACKAGING_STANDARD §5.2); hàng khác thiếu → 422 `PM_HEIGHT_REQUIRED`; response thêm `fabricGsm`, `warnings[]` (độ dày đo lệch > 50% so với GSM, không chặn) |
 | POST | `/product-master/sync` | Admin | Đồng bộ ngay catalog từ sàn: `?shop_id=&platform=lazada\|aurelle&full=true`. Bỏ `shop_id` = mọi shop của mọi sàn hỗ trợ. Cron tự chạy mỗi giờ (tăng dần) + 3h sáng (toàn bộ) |
 
 > 🔄 **Quyết định khi gộp**: số đo từ sàn chỉ ghi vào `marketplaceDimension` (tham khảo). Engine đóng gói chỉ dùng `dimension` do **kho xác nhận**; thiếu thì báo thiếu, không mặc định 20 cm/0,5 kg. Đã **bỏ** `PATCH /product-master/:id` và `DELETE /product-master/:id/manual-override` của main — sửa số đo đi qua `PUT .../packaging-profile`.

@@ -65,6 +65,23 @@ describe('PackagingBoxService', () => {
     expect(PackagingMaterialSchema.path('max_load_g')).toBeDefined();
   });
 
+  // ADR 0002: sàn cắt hạ = lòng thùng thấp nhất của danh mục, gắn vào mọi thùng lúc nạp.
+  it('nạp danh mục → mọi thùng mang min_cut_height_mm = lòng thùng thấp nhất (kể cả tra theo mã)', async () => {
+    const doc = (code: string, h: number): Record<string, unknown> => ({
+      code,
+      name: code,
+      inner: { length_mm: 350, width_mm: 250, height_mm: h },
+      outer: { length_mm: 356, width_mm: 256, height_mm: h + 6 },
+      tare_g: 200,
+      max_load_g: 10000,
+      unit_cost_vnd: 4500,
+    });
+    boxModel.find.mockReturnValue({ lean: () => Promise.resolve([doc('BOX-M', 200), doc('BOX-S', 100)]) });
+    const specs = await service.listActiveSpecs();
+    expect(specs.map((b) => b.min_cut_height_mm)).toEqual([100, 100]);
+    expect((await service.findActiveSpecByCode('BOX-M')).min_cut_height_mm).toBe(100);
+  });
+
   it('tạo thùng hợp lệ → is_sample=false, is_active=true', async () => {
     boxModel.create.mockResolvedValue({ _id: new Types.ObjectId() });
     await service.create(validDto);

@@ -46,6 +46,7 @@ export interface ListOrdersFilter {
   status?: OrderStatus;
   consolidatedGroupId?: string; // xem giải thích ở listOrders() — bổ sung để FE xem được "các đơn trong 1 gói hàng"
   before?: Date; // cursor phân trang — xem giải thích ở listOrders()
+  q?: string;
   limit: number;
 }
 
@@ -686,6 +687,17 @@ export class OrdersService {
     }
     if (filter.before) {
       query.created_at = { $lt: filter.before };
+    }
+    // (16/11/2026) Mobile tìm đơn: mã đơn khớp từ đầu (dùng được index), tên người nhận chứa chuỗi, không phân biệt hoa thường.
+    const search = filter.q?.trim();
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const prefix = new RegExp(`^${escaped}`, 'i');
+      query.$or = [
+        { platform_order_id: prefix },
+        { platform_order_number: prefix },
+        { 'recipient.full_name': new RegExp(escaped, 'i') },
+      ];
     }
 
     // +1 để biết có "trang sau" hay không mà KHÔNG cần thêm 1 lần

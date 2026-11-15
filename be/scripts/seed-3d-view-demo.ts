@@ -3,6 +3,8 @@ import { getModelToken } from '@nestjs/mongoose';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { Model } from 'mongoose';
 import { AppModule } from '../src/app.module';
+// (13/11/2026) Độ dày quần áo lấy từ GSM mặc định (PACKAGING_STANDARD §5.2) — số cm thứ 3 chỉ còn dùng cho hàng khác.
+import { garmentThicknessCm } from '../src/modules/product-master/garment-thickness';
 import { ProductCategory } from '../src/common/enums/product-category.enum';
 import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
 import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-fulfillment-status.enum';
@@ -90,7 +92,7 @@ async function main(): Promise<void> {
       platform: PLATFORM,
       shop_id: SHOP_ID,
       seller_sku: p.sku,
-      dimension: { package_length_cm: p.cm[0], package_width_cm: p.cm[1], package_height_cm: p.cm[2], package_weight_kg: p.kg },
+      dimension: { package_length_cm: p.cm[0], package_width_cm: p.cm[1], package_height_cm: garmentThicknessCm(p.category, null) ?? p.cm[2], package_weight_kg: p.kg },
       is_fragile: false,
       packaging_profile_status: 'ready',
       orientation_rule: 'any',

@@ -3,6 +3,8 @@ import { customBox, item, sampleBoxes, shoebox, tee } from '../../packaging/engi
 import type { BoxSpec, MailerSpec } from '../../packaging/engine/types';
 import { estimateFeeVnd, packIntoMailers, solveWithMailers } from './solve-with-mailers';
 import { solveOrder } from './solve-order';
+import type { PackableItem } from '../../../common/interfaces/packaging.interface';
+import type { SolveResult } from './types';
 
 jest.setTimeout(60_000);
 
@@ -40,7 +42,9 @@ describe('solveWithMailers — túi niêm phong trong bộ giải', () => {
     const units = expandToUnits([tee(2)]);
     const r = solveWithMailers(units, sampleBoxes(), {}, { mailers: [] });
     const old = solveOrder(units, sampleBoxes(), {});
-    expect({ ...r, stats: null }).toEqual({ ...old, stats: null });
+    // Chỉ khác câu cảnh báo lấp đầy thấp nối thêm cuối explanation.
+    expect({ ...r, stats: null, explanation: null }).toEqual({ ...old, stats: null, explanation: null });
+    expect(r.explanation.slice(0, old.explanation.length)).toEqual(old.explanation);
   });
 
   it('hàng dễ vỡ không bao giờ vào túi niêm phong', () => {
@@ -104,3 +108,83 @@ describe('solveWithMailers — túi niêm phong trong bộ giải', () => {
     expect(estimateFeeVnd(0, 500, fee)).toBe(22000);
   });
 });
+
+/**
+ * (13/11/2026, user chốt) Luật chọn bao bì theo tổ hợp hàng — bảng 4 thùng thật
+ * của kho (S/M/LT/L) + 4 cỡ túi niêm phong mẫu, giới hạn dày túi 8 cm mặc định,
+ * ưu tiên ít kiện. Số đo hàng lấy từ hồ sơ SKU DEMO trong DB.
+ */
+describe('solveWithMailers — luật chọn bao bì theo tổ hợp hàng', () => {
+  const WAREHOUSE_BOXES = [
+    priced(customBox('BOX-S', [200, 150, 100], 5000), 2500),
+    priced(customBox('BOX-M', [350, 250, 200], 10000), 4500),
+    priced(customBox('BOX-LT', [500, 400, 200], 15000), 6000),
+    priced(customBox('BOX-L', [500, 400, 350], 15000), 8000),
+  ];
+  const ao = (qty: number): PackableItem =>
+    item('AO', [36, 24, 4], 0.22, { qty, category: 't_shirt', fold: true });
+  const polo = (qty: number): PackableItem => item('POLO', [20, 20, 5], 0.1, { qty, category: 't_shirt', fold: true });
+  const quan = (qty: number): PackableItem => item('QUAN', [38, 30, 6], 0.65, { qty, category: 'trousers', fold: true, stackKg: 5 });
+  const giay = (qty: number): PackableItem => item('GIAY', [33, 21, 12], 0.9, { qty, category: 'shoes', stackKg: 5 });
+  const kinh = (qty: number): PackableItem => item('KINH', [16, 7, 5], 0.15, { qty, category: 'accessory', fragile: true });
+  const solve = (items: PackableItem[], mailers: MailerSpec[] = []): SolveResult =>
+    solveWithMailers(expandToUnits(items, { fragileCushionMm: 5 }), WAREHOUSE_BOXES, {}, { mailers });
+  const codes = (r: SolveResult): string[] => r.parcels.map((p) => p.box.code);
+
+  it('quần áo để trống sức chịu đè vẫn được chồng lên nhau, không phải gập', () => {
+    const r = solve([polo(2)]);
+    expect(codes(r)).toEqual(['BOX-M']);
+    const [p] = r.parcels;
+    expect(p?.placements.some((q) => q.z > 0)).toBe(true);
+    expect(p?.placements.every((q) => q.folded !== true)).toBe(true);
+  });
+  it('1–2 áo đi túi niêm phong khi kho có túi; không có túi thì vào thùng M', () => {
+    expect(codes(solve([ao(1)], MAILERS))).toEqual(['MAILER-32X45']);
+    expect(codes(solve([ao(2)], MAILERS))).toEqual(['MAILER-38X52']);
+    expect(codes(solve([ao(1)]))).toEqual(['BOX-M']);
+  });
+
+  it('3 áo chồng dày 12 cm vượt giới hạn túi 8 cm → 1 thùng M, không tách 2 túi', () => {
+    expect(codes(solve([ao(3)], MAILERS))).toEqual(['BOX-M']);
+  });
+
+  it('2 áo + 2 quần → 1 thùng LT (ưu tiên ít kiện thắng 2 túi)', () => {
+    expect(codes(solve([ao(2), quan(2)], MAILERS))).toEqual(['BOX-LT']);
+  });
+
+  it('giày bắt buộc thùng kể cả khi có túi; áo đi kèm giày vào chung thùng M', () => {
+    expect(codes(solve([giay(1)], MAILERS))).toEqual(['BOX-M']);
+    expect(codes(solve([ao(1), giay(1)], MAILERS))).toEqual(['BOX-M']);
+    expect(codes(solve([giay(2)], MAILERS))).toEqual(['BOX-LT']);
+  });
+
+  it('thùng S dành cho phụ kiện nhỏ dễ vỡ và 1 áo nhỏ khi kho không có túi', () => {
+    expect(codes(solve([kinh(2)], MAILERS))).toEqual(['BOX-S']);
+    expect(codes(solve([polo(1)]))).toEqual(['BOX-S']);
+    expect(codes(solve([polo(1)], MAILERS))[0]).toMatch(/^MAILER-/);
+  });
+  it('kiện lấp đầy < 80% ghi lý do: hàng mềm thiếu túi niêm phong', () => {
+    const notes = solve([ao(2)]).explanation.filter((e) => e.includes('< 80%'));
+    expect(notes).toEqual([expect.stringContaining('Kiện 1 (BOX-M) lấp đầy 39% < 80%')]);
+    expect(notes[0]).toContain('kho chưa có túi niêm phong');
+  });
+  it('kiện lấp đầy < 80% vì thùng trong kho rộng hơn hàng → gợi ý cỡ thùng sát hàng', () => {
+    // Kính 16×7×5 + đệm dễ vỡ 5 mm mỗi mặt = 17×8×6 cm, thùng S 20×15×10 chỉ đầy 27%.
+    const notes = solve([kinh(1)], MAILERS).explanation.filter((e) => e.includes('< 80%'));
+    expect(notes).toEqual([
+      'Kiện 1 (BOX-S) lấp đầy 27% < 80%: chồng hàng chỉ chiếm 17×8×6 cm (thùng cỡ này đầy 100%) — cần thùng sát hơn để đạt 80%.',
+    ]);
+  });
+
+  it('kiện đã lấp đầy ≥ 80% không có cảnh báo', () => {
+    expect(solve([ao(2)], MAILERS).explanation.some((e) => e.includes('< 80%'))).toBe(false);
+  });
+  it('gói đã cho vào túi zip và gập túi vẫn được gập đôi thêm 1 lần để vừa thùng S', () => {
+    // Số đo hồ sơ là gói SAU khi gập túi zip (20×20×5); gập thêm → 20×10×10 vừa lòng S 20×15×10.
+    const bagged: PackableItem = { ...polo(1), zip_bag_code: 'ZIP-M', zip_bag_folded: true };
+    const r = solve([bagged]);
+    expect(codes(r)).toEqual(['BOX-S']);
+    expect(r.parcels[0]?.placements[0]?.folded).toBe(true);
+  });
+});
+

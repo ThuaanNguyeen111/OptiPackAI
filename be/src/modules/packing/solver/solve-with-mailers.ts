@@ -216,11 +216,47 @@ function resultOf(base: SolveResult, parcels: SolvedParcel[], explanation: strin
 
 const vnd = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')}đ`;
 
+/** (13/11/2026, user chốt) Mục tiêu lấp đầy — chỉ cảnh báo kèm lý do, không ràng buộc cứng. */
+export const FILL_TARGET = 0.8;
+
+/** Câu giải thích cho từng kiện lấp đầy dưới mục tiêu: vì sao + cách khắc phục. */
+function lowFillNotes(parcels: SolvedParcel[], hasMailers: boolean): string[] {
+  return parcels.flatMap((p, i) => {
+    // Túi niêm phong ôm sát hàng — mục tiêu lấp đầy chỉ áp cho thùng.
+    if (p.box.kind === 'mailer' || p.fill_ratio >= FILL_TARGET) return [];
+    const target = `${String(Math.round(FILL_TARGET * 100))}%`;
+    const head = `Kiện ${String(i + 1)} (${p.box.code}) lấp đầy ${String(Math.round(p.fill_ratio * 100))}% < ${target}`;
+    if (!hasMailers && p.units.every((u) => u.mailer_ok === true)) {
+      return [`${head}: kho chưa có túi niêm phong nên hàng mềm phải vào thùng — nhập túi để kiện ôm sát hàng.`];
+    }
+    // Khối bao chồng hàng (cm, làm tròn lên) = cỡ thùng sát nhất có thể.
+    const cm = (axis: 'x' | 'y' | 'z', size: 'dx' | 'dy' | 'dz'): number =>
+      Math.ceil(Math.max(...p.placements.map((q) => q[axis] + q[size])) / 10);
+    const [l, w, h] = [cm('x', 'dx'), cm('y', 'dy'), cm('z', 'dz')];
+    const itemsCm3 = p.placements.reduce((s, q) => s + q.dx * q.dy * q.dz, 0) / 1000;
+    const tight = Math.round((itemsCm3 / (l * w * h)) * 100);
+    return [
+      `${head}: chồng hàng chỉ chiếm ${String(l)}×${String(w)}×${String(h)} cm (thùng cỡ này đầy ${String(tight)}%) — cần thùng sát hơn để đạt ${target}.`,
+    ];
+  });
+}
+
 /**
  * Giải 1 đơn có xét túi niêm phong. Không có túi / không có món mềm → đúng kết
- * quả `solveOrder` (hành vi cũ).
+ * quả `solveOrder` (hành vi cũ). Kiện lấp đầy < FILL_TARGET được ghi lý do vào `explanation`.
  */
 export function solveWithMailers(
+  units: PackingUnit[],
+  boxes: BoxSpec[],
+  options: SolveOptions,
+  mailerOptions: MailerSolveOptions,
+): SolveResult {
+  const result = solveWithMailersCore(units, boxes, options, mailerOptions);
+  const notes = lowFillNotes(result.parcels, mailerOptions.mailers.length > 0);
+  return notes.length === 0 ? result : { ...result, explanation: [...result.explanation, ...notes] };
+}
+
+function solveWithMailersCore(
   units: PackingUnit[],
   boxes: BoxSpec[],
   options: SolveOptions,

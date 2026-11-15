@@ -40,6 +40,14 @@ _Tránh_: chốt kế hoạch, duyệt kế hoạch, approve (trong UI)
 Nhân viên đóng gói trả kế hoạch kèm lý do để hệ thống tính lại, đóng tay, hoặc trả nhóm về lấy hàng.
 _Tránh_: reject (trong UI), huỷ kế hoạch
 
+**GSM**:
+Trọng lượng vải của một lớp, tính bằng g/m²; hệ thống dùng nó để tính độ dày gói quần áo khi kho không đo độ dày.
+_Tránh_: định lượng vải (trong UI), độ dày vải
+
+**Độ dày gói**:
+Cạnh mỏng nhất của gói quần áo sau khi gấp và cho vào túi zip; bằng số lớp × độ dày một lớp vải, tối thiểu 0,3 cm.
+_Tránh_: chiều cao áo, độ cao gói
+
 **Kiện**:
 Một thùng hoặc túi đã niêm phong, đi một vận đơn.
 _Tránh_: parcel (trong UI), gói, hộp
