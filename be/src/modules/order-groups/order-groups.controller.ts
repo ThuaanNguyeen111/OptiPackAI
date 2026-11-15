@@ -284,6 +284,8 @@ export class OrderGroupsController {
       packingBlocked: query.packing_blocked === undefined ? undefined : query.packing_blocked === 'true',
       q: query.q,
       before: query.before ? new Date(query.before) : undefined,
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
       limit: query.limit,
     });
     return buildOrderGroupResponses(this.orderGroupsService, groups);

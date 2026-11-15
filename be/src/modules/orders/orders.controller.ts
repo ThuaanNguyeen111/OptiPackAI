@@ -151,6 +151,7 @@ export class OrdersController {
       status: query.status,
       consolidatedGroupId: query.consolidated_group_id,
       before: query.before ? new Date(query.before) : undefined,
+      q: query.q,
       limit: query.limit ?? 20,
     });
 

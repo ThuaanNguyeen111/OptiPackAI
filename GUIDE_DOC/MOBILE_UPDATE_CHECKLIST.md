@@ -158,6 +158,8 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☑ BE xong 10/11/2026 (mục 9a) |
 | Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
 | `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
+| Tìm đơn theo mã / tên người nhận | Bỏ tải 100 đơn rồi lọc trên máy: gọi `GET /orders?q=<chuỗi>` (mã đơn sàn / số đơn khớp từ đầu, tên người nhận chứa chuỗi, không phân biệt hoa thường; phải gõ đúng dấu tiếng Việt; dùng chung `before`/`limit`) | ☑ BE xong 16/11/2026 |
+| Danh sách Hỏa Tốc ở Tổng quan lọc theo sàn + khoảng ngày | `GET /order-groups?order_priority=express&platform=<sàn>&from=<ISO>&to=<ISO>` — lọc theo ngày tạo nhóm, `from` tính cả mốc, `to` không tính (`platform` đã có từ trước) | ☑ BE xong 16/11/2026 |
 | `GET /app/version` (phiên bản app tối thiểu) | Bắt cập nhật app cũ; không cần khi chỉ demo trên máy nhóm | ✖ Bỏ 10/11/2026 (app không đưa lên store) |
 
 ### 9a. Ảnh bằng chứng (BE xong 10/11/2026)

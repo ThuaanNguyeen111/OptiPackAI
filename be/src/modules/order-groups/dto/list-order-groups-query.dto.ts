@@ -71,6 +71,16 @@ export class ListOrderGroupsQueryDto {
   @IsISO8601({}, { message: 'before phải là thời điểm ISO' })
   before?: string;
 
+  @ApiPropertyOptional({ description: '(16/11/2026) Chỉ nhóm tạo từ thời điểm này (ISO, tính cả mốc).' })
+  @IsOptional()
+  @IsISO8601({}, { message: 'from phải là thời điểm ISO' })
+  from?: string;
+
+  @ApiPropertyOptional({ description: '(16/11/2026) Chỉ nhóm tạo trước thời điểm này (ISO, không tính mốc).' })
+  @IsOptional()
+  @IsISO8601({}, { message: 'to phải là thời điểm ISO' })
+  to?: string;
+
   @ApiPropertyOptional({ default: 100, minimum: 1, maximum: 200 })
   @IsOptional()
   @Type(() => Number)
