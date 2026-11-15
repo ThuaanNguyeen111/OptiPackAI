@@ -45,6 +45,11 @@ export function proofPhotoFormat(data: Buffer): 'jpeg' | 'png' | 'webp' | 'heic'
   return null;
 }
 
+/** File PDF (bắt đầu bằng `%PDF-`). */
+export function isPdf(data: Buffer): boolean {
+  return data.length >= 5 && data.toString('ascii', 0, 5) === '%PDF-';
+}
+
 /** Chữ ký Cloudinary: sắp tham số theo tên, nối `k=v` bằng `&`, thêm API secret, SHA-1. */
 export function signCloudinaryParams(params: Record<string, string>, apiSecret: string): string {
   const toSign = Object.keys(params)

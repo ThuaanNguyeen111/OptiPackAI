@@ -7,8 +7,10 @@ import {
   MAX_PROOF_PHOTOS,
   PROOF_PHOTO_FOLDER,
   PROOF_PHOTO_TRANSFORMATION,
+  RECEIPT_PHOTO_FOLDER,
   type PhotoFolder,
   isOwnProofPhotoUrl,
+  isPdf,
   proofPhotoFormat,
   readCloudinaryConfig,
   signCloudinaryParams,
@@ -73,9 +75,12 @@ export class ProofPhotosService {
       if (file.size === 0 || file.size > MAX_PROOF_PHOTO_BYTES) {
         throw new AppException(E.TOO_LARGE, 'Mỗi ảnh tối đa 10 MB.', HttpStatus.BAD_REQUEST, { index, maxBytes: MAX_PROOF_PHOTO_BYTES });
       }
-      const format = proofPhotoFormat(file.buffer);
+      // Phiếu NCC nhận cả PDF (hoá đơn điện tử, phiếu qua email): Cloudinary đổi trang đầu sang JPG như ảnh.
+      const pdfAllowed = folder === RECEIPT_PHOTO_FOLDER;
+      const format = proofPhotoFormat(file.buffer) ?? (pdfAllowed && isPdf(file.buffer) ? 'pdf' : null);
       if (!format) {
-        throw new AppException(E.INVALID_TYPE, 'Chỉ nhận ảnh JPG, PNG, WebP hoặc HEIC.', HttpStatus.BAD_REQUEST, { index });
+        const message = pdfAllowed ? 'Chỉ nhận ảnh JPG, PNG, WebP, HEIC hoặc file PDF.' : 'Chỉ nhận ảnh JPG, PNG, WebP hoặc HEIC.';
+        throw new AppException(E.INVALID_TYPE, message, HttpStatus.BAD_REQUEST, { index });
       }
       return { file, format };
     });
@@ -92,7 +97,8 @@ export class ProofPhotosService {
           ...params,
           api_key: config.apiKey,
           signature: signCloudinaryParams(params, config.apiSecret),
-          file: `data:image/${format};base64,${file.buffer.toString('base64')}`,
+          // shortcut: PDF chỉ lấy trang đầu (mặc định Cloudinary); phiếu nhiều trang thì tải thêm ảnh trang sau.
+          file: `data:${format === 'pdf' ? 'application/pdf' : `image/${format}`};base64,${file.buffer.toString('base64')}`,
         });
         try {
           const res = await axios.post<CloudinaryUploadResponse>(
