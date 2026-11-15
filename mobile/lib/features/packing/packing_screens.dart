@@ -2,13 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:image_picker/image_picker.dart';
+
+import 'package:uuid/uuid.dart';
+
 import '../../app/mock_providers.dart';
+import '../../app/providers.dart';
+import '../../core/network/api_exception.dart';
+import '../proof/proof_photo_field.dart';
+import '../proof/proof_photo_repository.dart';
 import '../../core/format/deadline.dart';
 import '../../core/format/units.dart';
 import '../../shared/widgets.dart';
 import '../warehouse/scanner_screen.dart';
 import 'packing_repository.dart';
-import 'parcel_layer_view.dart';
+import 'parcel_3d_screen.dart';
 import '../../app/colors.dart';
 
 /// Hàng đợi của Packaging Staff: chờ chấp nhận kế hoạch / đang đóng.
@@ -44,7 +52,7 @@ class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
             onRefresh: () async => ref.invalidate(packingQueueProvider(_stage)),
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(packingQueueProvider(_stage))),
               data: (items) => items.isEmpty
                   ? ListView(
                       physics: const AlwaysScrollableScrollPhysics(),
@@ -200,6 +208,10 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
     } on PackingException catch (e) {
       if (mounted) showToast(context, e.message, error: true);
       return false;
+    } on ApiException catch (e) {
+      // Lỗi tải ảnh lỗi kiện.
+      if (mounted) showToast(context, e.message, error: true);
+      return false;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -207,13 +219,23 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
 
   Future<void> _scan(Parcel parcel, String code) async {
     if (code.trim().isEmpty) return;
+    final repo = ref.read(packingRepositoryProvider);
+    final eventId = const Uuid().v4();
     try {
-      await ref.read(packingRepositoryProvider).scan(widget.groupId, parcel.no, code);
+      await repo.scan(widget.groupId, parcel.no, code, eventId: eventId);
       HapticFeedback.mediumImpact();
       _refresh();
     } on PackingException catch (e) {
       HapticFeedback.heavyImpact();
-      if (mounted) showToast(context, e.message, error: true);
+      if (!mounted) return;
+      // Mất mạng: lưu lần quét trên máy, có mạng tự gửi (cùng mã thao tác nên BE không ghi trùng).
+      final queued = e.retryable ? repo.buildScanAction(widget.groupId, parcel.no, code, eventId) : null;
+      if (queued != null) {
+        await ref.read(syncControllerProvider.notifier).enqueue(queued);
+        if (mounted) showToast(context, 'Đang ngoại tuyến: đã lưu "${queued.label}", sẽ gửi khi có mạng.');
+        return;
+      }
+      showToast(context, e.message, error: true);
     }
   }
 
@@ -258,15 +280,30 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
   }
 
   Future<void> _reportIssue(Parcel parcel) async {
-    final result = await showModalBottomSheet<({String sku, PackIssue issue})>(
+    final result = await showModalBottomSheet<({String sku, PackIssue issue, List<XFile> photos, bool toPicking})>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => _IssueSheet(parcel: parcel),
     );
     if (result == null || !mounted) return;
-    await _run(() => ref.read(packingRepositoryProvider).reportIssue(widget.groupId, parcel.no, result.sku, result.issue));
-    if (mounted) showToast(context, 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.');
+    final photos = ref.read(proofPhotoRepositoryProvider);
+    final ok = await _run(() async => ref.read(packingRepositoryProvider).reportIssue(
+          widget.groupId,
+          parcel.no,
+          result.sku,
+          result.issue,
+          photoUrls: await photos.upload(result.photos),
+          returnToPicking: result.toPicking,
+        ));
+    if (ok && mounted) {
+      showToast(
+        context,
+        result.toPicking
+            ? 'Đã trả nhóm về bước lấy hàng.'
+            : 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.',
+      );
+    }
   }
 
   @override
@@ -282,7 +319,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             child: async.when(
               skipLoadingOnRefresh: true,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => EmptyState(icon: Icons.error_outline, text: '$e'),
+              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(packingGroupProvider(widget.groupId))),
               data: (g) => g.stage == PackingStage.pendingApproval ? _planView(g) : _sessionView(g),
             ),
           ),
@@ -338,7 +375,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
                       ),
                     ),
                   const SizedBox(height: 12),
-                  ParcelLayerView(parcel: p),
+                  ParcelLayoutCard(groupId: g.id, parcel: p),
                   const SizedBox(height: 8),
                   for (final e in p.needed.entries)
                     Text('• ${e.value} × ${e.key}', style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
@@ -433,7 +470,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
         const SizedBox(height: 12),
         ExpansionTile(
           title: const Text('Xem cách xếp'),
-          children: [ParcelLayerView(parcel: parcel)],
+          children: [ParcelLayoutCard(groupId: widget.groupId, parcel: parcel)],
         ),
         if (pending) ...[
           const SizedBox(height: 12),
@@ -482,8 +519,6 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             icon: const Icon(Icons.report_gmailerrorred_outlined),
             label: const Text('Báo lỗi kiện (hỏng / thiếu / nhầm)'),
           ),
-          const SizedBox(height: 10),
-          const WaitingBackendButton(label: 'Chụp ảnh lỗi'),
         ],
       ],
     );
@@ -556,11 +591,13 @@ class _IssueSheet extends StatefulWidget {
 class _IssueSheetState extends State<_IssueSheet> {
   String? _sku;
   PackIssue _issue = PackIssue.damaged;
+  List<XFile> _photos = const [];
+  bool _toPicking = false;
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -582,9 +619,22 @@ class _IssueSheetState extends State<_IssueSheet> {
               selected: {_issue},
               onSelectionChanged: (s) => setState(() => _issue = s.first),
             ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Trả cả nhóm về bước lấy hàng'),
+              subtitle: const Text('Dùng khi cần lấy lại hàng. Chỉ được khi chưa niêm phong kiện nào.'),
+              value: _toPicking,
+              onChanged: (v) => setState(() => _toPicking = v),
+            ),
+            const SizedBox(height: 4),
+            ProofPhotoField(
+              label: 'Ảnh lỗi',
+              photos: _photos,
+              onChanged: (p) => setState(() => _photos = p),
+            ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue)),
+              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue, photos: _photos, toPicking: _toPicking)),
               child: const Text('Gửi báo cáo'),
             ),
           ],

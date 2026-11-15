@@ -1,3 +1,4 @@
+import { useAbortPrevious } from '../hooks/useAbortPrevious'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -31,7 +32,7 @@ import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
 import { cn } from '../lib/cn'
 import { groupStatusTone } from '../lib/stage-colors'
-import { formatApiError } from '../lib/api'
+import { formatApiError, isRequestCanceled } from '../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   isFullyInactiveGroup,
@@ -177,7 +178,10 @@ export function OrderGroupsPage() {
   const [inlineTimelineOpen, setInlineTimelineOpen] = useState(false)
   const [timelineTick, setTimelineTick] = useState(0)
 
+  const nextSignal = useAbortPrevious()
+
   const load = useCallback(async () => {
+    const signal = nextSignal()
     setLoading(true)
     setError(null)
     try {
@@ -186,19 +190,20 @@ export function OrderGroupsPage() {
           ? {}
           : { order_priority: priorityFilter }),
         ...(shortageOnly ? { stock_shortage: true } : {}),
-      })
+      }, { signal })
       setGroups(rows)
       setSelectedId((prev) => {
         if (prev && rows.some((g) => g.id === prev)) return prev
         return rows[0]?.id ?? null
       })
     } catch (err: unknown) {
+      if (isRequestCanceled(err)) return
       setError(formatApiError(err))
       setGroups([])
     } finally {
-      setLoading(false)
+      if (!signal.aborted) setLoading(false)
     }
-  }, [priorityFilter, shortageOnly])
+  }, [priorityFilter, shortageOnly, nextSignal])
 
   useEffect(() => {
     let cancelled = false
@@ -312,6 +317,7 @@ export function OrderGroupsPage() {
       return () => window.clearTimeout(clear)
     }
     let cancelled = false
+    const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setRemoteSearching(true)
       void listOrderGroups({
@@ -320,7 +326,7 @@ export function OrderGroupsPage() {
           ? {}
           : { order_priority: priorityFilter }),
         ...(shortageOnly ? { stock_shortage: true } : {}),
-      })
+      }, { signal: controller.signal })
         .then((rows) => {
           if (!cancelled) setRemoteGroups(rows)
         })
@@ -333,6 +339,7 @@ export function OrderGroupsPage() {
     }, 400)
     return () => {
       cancelled = true
+      controller.abort()
       window.clearTimeout(timer)
     }
   }, [searchQuery, localVisibleGroups.length, priorityFilter, shortageOnly])

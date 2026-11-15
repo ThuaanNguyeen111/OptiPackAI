@@ -1,6 +1,6 @@
 # Mobile (Flutter) — Việc phải làm để nối Backend
 
-> **Phiên bản 1.2 — 10/11/2026 tối** (1.0 — 09/11/2026; 1.1: BE đã có upload ảnh bằng chứng, mục 9; 1.2: BE đã có push FCM mục 9b và lọc vận đơn theo shipper mục 7). Dành cho người làm app mobile (Flutter, BM04 RF-07). Viết theo cùng khuôn `FE_UPDATE_CHECKLIST.md` (file đó là của web). Nguồn: đề xuất chức năng mobile theo role (08/11/2026, mục "📱 Nhật ký 08/11/2026" trong `CLAUDE.md`) và route thật trong `API_LIST.md`.
+> **Phiên bản 1.3 — 15/11/2026** (1.0 — 09/11/2026; 1.1: BE đã có upload ảnh bằng chứng, mục 9; 1.2: BE đã có push FCM mục 9b và lọc vận đơn theo shipper mục 7; **1.3: cột Trạng thái ở bảng mục 0 đã đối chiếu lại với code trong `mobile/lib`, thêm mục 9h**). Dành cho người làm app mobile (Flutter, BM04 RF-07). Viết theo cùng khuôn `FE_UPDATE_CHECKLIST.md` (file đó là của web). Nguồn: đề xuất chức năng mobile theo role (08/11/2026, mục "📱 Nhật ký 08/11/2026" trong `CLAUDE.md`) và route thật trong `API_LIST.md`.
 
 **Quy ước chung (giống web):**
 - Mọi request cần đăng nhập gửi `Authorization: Bearer <access_token>`.
@@ -19,20 +19,22 @@
 
 | # | Việc | Mục | Đợt | Trạng thái |
 |---|---|---|---|---|
-| 1 | Đăng nhập, MFA, tự refresh token, đăng xuất, ẩn menu theo role | 1 | 1 | ☐ Chưa làm |
-| 2 | Hàng đợi ngoại tuyến: lưu thao tác trên máy, mỗi thao tác 1 `client_event_id`, gửi lại khi có mạng, thanh trạng thái đồng bộ | 2 | 1 | ☐ Chưa làm |
-| 3 | Xử lý lỗi: chỉ thử lại lỗi mạng / 408 / 429 / 5xx; lỗi nghiệp vụ thì dừng và giữ lại; 409 thì tải lại | 3 | 1 | ☐ Chưa làm |
-| 4 | Warehouse Staff — "Việc của tôi": nhóm đơn được giao, Hỏa Tốc lên đầu, đếm ngược hạn | 4.1 | 1 | ☐ Chưa làm |
-| 5 | Warehouse Staff — Lấy hàng: danh sách theo đường đi kho, quét ô + xác nhận SKU / số lượng, nhập tay, xác nhận lấy xong | 4.2 | 1 | ☐ Chưa làm |
-| 6 | Warehouse Staff — Báo thiếu hàng | 4.3 | 1 | ☐ Chưa làm |
-| 7 | Warehouse Staff — Nhập thêm / kiểm kê / chuyển ô (bắt buộc gửi `client_event_id`) | 4.4 | 1 | ☐ Chưa làm |
-| 8 | Warehouse Staff — Nhận kiện hoàn, kiểm hàng hoàn | 4.5 | 2 | ☐ Chưa làm |
-| 9 | Packaging Staff — Hàng đợi, xem kế hoạch (2D theo lớp), chấp nhận / từ chối | 5.1 | 2 | ☐ Chưa làm |
-| 10 | Packaging Staff — Phiên đóng gói: quét món, niêm phong + nhập cân, báo lỗi kiện | 5.2 | 2 | ☐ Chưa làm |
-| 11 | Thông báo: chuông + số chưa đọc + push FCM (đăng ký máy, mở đúng màn khi bấm) | 6, 9b | 2 | ☐ Chưa làm |
-| 12 | Shipping Coordinator — Kiện đã đóng, tạo vận đơn, mở nhãn PDF, giao thành công / thất bại / giao lại | 7 | 4 | ☐ Chưa làm |
-| 13 | Store Owner — Tổng quan, đánh dấu Hỏa Tốc, duyệt hàng hoàn, tra cứu đơn | 8 | 4 | ☐ Chưa làm |
-| 14 | Hỗ trợ máy quét cầm tay / Bluetooth (nhận mã như bàn phím) bên cạnh camera | 4.2 | 1 | ☐ Chưa làm |
+| 1 | Đăng nhập, MFA, tự refresh token, đăng xuất, ẩn menu theo role | 1 | 1 | ✅ Đã làm trong code (13/11) — đăng nhập, MFA, tự refresh, đăng xuất, kho bảo mật, tab theo vai trò (mục 9e); chưa thử trên máy thật |
+| 2 | Hàng đợi ngoại tuyến: lưu thao tác trên máy, mỗi thao tác 1 `client_event_id`, gửi lại khi có mạng, thanh trạng thái đồng bộ | 2 | 🟡 **Làm một phần** — hàng đợi SQLite, `SyncController`, thanh trạng thái; **quét lấy hàng, quét món khi đóng gói, nhập thêm / kiểm kê tồn** vào hàng đợi khi mất mạng (15/11); **chưa**: ảnh bằng chứng, niêm phong kiện (cần cân + kiểm tra ngay); chuyển ô cố ý không xếp hàng đợi (phải tra ô đích) | 🟡 **Làm một phần** — có hàng đợi SQLite, `SyncController`, thanh trạng thái, thử lại; nhưng **chỉ lấy hàng (`pick-item`) vào hàng đợi**. Quét món đóng gói và nhập thêm / kiểm kê / chuyển ô gọi thẳng BE (có gửi `client_event_id`), mất mạng thì báo lỗi chứ không tự gửi lại |
+| 3 | Xử lý lỗi: chỉ thử lại lỗi mạng / 408 / 429 / 5xx; lỗi nghiệp vụ thì dừng và giữ lại; 409 thì tải lại | 3 | 1 | ✅ Đã làm — chờ tăng dần, dừng khi lỗi nghiệp vụ, 409 tải lại; màn tải dữ liệu có "Thử lại" |
+| 4 | Warehouse Staff — "Việc của tôi": nhóm đơn được giao, Hỏa Tốc lên đầu, đếm ngược hạn | 4.1 | 1 | ✅ Đã làm — "Việc của tôi", Hỏa Tốc lên đầu, đếm ngược hạn |
+| 5 | Warehouse Staff — Lấy hàng: danh sách theo đường đi kho, quét ô + xác nhận SKU / số lượng, nhập tay, xác nhận lấy xong | 4.2 | 1 | ✅ Đã làm — danh sách theo đường đi kho, quét ô + SKU, nhập tay, xác nhận lấy xong (qua hàng đợi) |
+| 6 | Warehouse Staff — Báo thiếu hàng | 4.3 | 1 | ✅ Đã làm — báo thiếu từ màn lấy hàng |
+| 7 | Warehouse Staff — Nhập thêm / kiểm kê / chuyển ô (bắt buộc gửi `client_event_id`) | 4.4 | 1 | ✅ Đã làm — quét ô (`bins/by-code`), nhập thêm / kiểm kê / chuyển ô, có `client_event_id` (chưa vào hàng đợi, xem dòng 2) |
+| 8 | Warehouse Staff — Nhận kiện hoàn, kiểm hàng hoàn | 4.5 | ✅ **Đã làm** (15/11) — hàng khách trả (`/returns/:id/receive` + `/inspect`, có ảnh) và nhận kiện giao thất bại (`POST /shipments/:id/receive-return`, tab "Kiện về kho") | 🟡 **Làm một phần** — hàng khách trả (`/returns/:id/receive` + `/inspect`, có ảnh) đã có; **nhận kiện giao thất bại quay về (`POST /shipments/:id/receive-return`) chưa có** |
+| 9 | Packaging Staff — Hàng đợi, xem kế hoạch (2D theo lớp), chấp nhận / từ chối | 5.1 | 2 | ✅ Đã làm — hàng đợi, kế hoạch 2D theo lớp, chấp nhận / từ chối. Có thêm nút xem 3D bằng WebView (mục 9h, ngoài phạm vi ban đầu) |
+| 10 | Packaging Staff — Phiên đóng gói: quét món, niêm phong + nhập cân, báo lỗi kiện | 5.2 | 2 | ✅ Đã làm — quét, gỡ quét, niêm phong + cân, báo lỗi kiện (mới có hướng xử lý "lấy món thay", chưa có "trả về lấy hàng") |
+| 11 | Thông báo: chuông + số chưa đọc + push FCM (đăng ký máy, mở đúng màn khi bấm) | 6, 9b | ✅ **Đã làm** (15/11) — chuông, số chưa đọc, danh sách, đánh dấu đã đọc, push FCM, tự làm mới số chưa đọc khi mở lại app | 🟡 **Gần xong** — chuông, số chưa đọc, danh sách, đánh dấu đã đọc, push FCM (mục 9b); **chưa làm mới số chưa đọc khi quay lại app từ nền** |
+| 12 | Shipping Coordinator — Kiện đã đóng, tạo vận đơn, mở nhãn PDF, giao thành công / thất bại / giao lại | 7 | ✅ **Đã làm** (15/11) — hàng chờ, báo giá, tạo vận đơn, giao thành công / thất bại / giao lại, mở nhãn PDF (in qua gói `printing`) | 🟡 **Làm một phần** — hàng chờ, báo giá, tạo vận đơn, giao thành công / thất bại / giao lại, lý do thất bại đã có; **mở nhãn PDF chưa có** |
+| 13 | Store Owner — Tổng quan, đánh dấu Hỏa Tốc, duyệt hàng hoàn, tra cứu đơn | 8 | ✅ **Đã làm** (15/11) — tổng quan, duyệt / từ chối hoàn, tra cứu đơn, chi tiết đơn, bật / tắt Hỏa Tốc (`PATCH /order-groups/:id/priority`) | 🟡 **Làm một phần** — tổng quan, duyệt / từ chối hoàn (màn Hoàn hàng), tìm đơn (danh sách) đã có; **chưa có đánh dấu Hỏa Tốc (`PATCH /order-groups/:id/priority`)** và **chưa có xem chi tiết đơn (`GET /orders/:id`)** |
+| 14 | Hỗ trợ máy quét cầm tay / Bluetooth (nhận mã như bàn phím) bên cạnh camera | 4.2 | 🟡 **Làm một phần** — màn lấy hàng và phiên đóng gói đã có ô nhập luôn được focus cho máy quét; màn nhập kho cũng đã thêm (15/11); màn hoàn hàng chưa | ☐ **Chưa làm** — chỉ có camera và ô nhập tay, chưa có ô nhập luôn được focus cho máy quét cầm tay / Bluetooth |
+
+**Đối chiếu code 15/11/2026:** 14 dòng trên đã so với `mobile/lib` (không chỉ đọc ghi chú). Việc ngoài bảng đã làm: đăng nhập Google (mục 9d), ảnh bằng chứng (9a), push (9b), quyền trang theo vai trò (9e), nối BE thật (9f), 3D bằng WebView (9h). **Còn thiếu so với tài liệu:** dòng 2 (đưa quét đóng gói và nhập kho vào hàng đợi, ảnh vào hàng đợi), 8 (nhận kiện hoàn), 11 (làm mới khi quay lại app), 12 (nhãn PDF), 13 (Hỏa Tốc, chi tiết đơn), 14 (máy quét Bluetooth), phân trang `before` (app đang tải một lần 50–100 dòng, tài liệu mục 3 dặn `limit` 20–30 + `before`), mục 9g (chờ BE của Thi).
 
 **Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** 🔄 11/11/2026: đăng nhập Google cho mobile **đã có** (mục 9d). Xem mục 9. 🔄 10/11/2026: upload ảnh bằng chứng **đã có** (mục 9a); push FCM **đã có** (mục 9b, cần project Firebase để chạy thật); `GET /app/version` **bỏ** (app không đưa lên store, demo chạy `flutter run` nên luôn là bản mới).
 
@@ -158,9 +160,12 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☑ BE xong 10/11/2026 (mục 9a) |
 | Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
 | `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
+| Ảnh phiếu NCC chống gian lận, nhập không đối chiếu, quét nhãn khi giao (handoff OCR bản 1.1, R1–R9) | Màn nhập kho có phiếu, giao thành công (mục 9g) | ☐ Thi đang làm (giao 14/11/2026) |
 | `GET /app/version` (phiên bản app tối thiểu) | Bắt cập nhật app cũ; không cần khi chỉ demo trên máy nhóm | ✖ Bỏ 10/11/2026 (app không đưa lên store) |
 
 ### 9a. Ảnh bằng chứng (BE xong 10/11/2026)
+
+🟡 **App đã nối 13/11/2026 (chưa thử trên máy thật):** `features/proof/` (`ProofPhotoField` chụp / chọn ≤ 3 ảnh, thu nhỏ 1600 px, JPG 80; `ProofPhotoRepository.upload` gọi `POST /proof-photos`), `ApiClient.upload` (multipart, gửi tối đa 60 giây). Đã gắn: giao thành công (shop tự giao bắt buộc ≥ 1 ảnh, nút xác nhận khoá tới khi có ảnh), giao thất bại, kiểm hàng hoàn, báo lỗi kiện (không bắt buộc). Ảnh tải lên lúc bấm xác nhận, **chưa** vào hàng đợi ngoại tuyến (bước 4 dưới chưa làm): mất mạng thì báo lỗi, người dùng bấm lại. Repository giao hàng / hoàn hàng / đóng gói vẫn là dữ liệu giả, nên `photo_urls` mới chỉ kiểm ở mock; riêng tải ảnh gọi BE thật.
 
 1. Chụp ảnh (tối đa 3), **nén trước khi gửi** (VD cạnh dài ~1600 px, JPG chất lượng ~80) để gửi nhanh và đỡ tốn dung lượng. BE nhận JPG / PNG / WebP / HEIC, mỗi ảnh ≤ 10 MB.
 2. `POST /proof-photos` (`multipart/form-data`, field `files`) → `{ photos: [{ url, ... }] }`.
@@ -169,6 +174,31 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 5. Xem lại ảnh: `GET /shipments/:id/events` (`photoUrls`), phiếu trả `inspectionPhotoUrls`, kế hoạch đóng gói `issues[].photoUrls`.
 
 Chi tiết và mã lỗi: `API_LIST.md` mục 30. Link ảnh là link Cloudinary công khai (ngẫu nhiên, khó đoán), không hết hạn — hiện thẳng bằng `Image.network`.
+
+### 9f. Các màn nối BE thật (13/11/2026)
+
+🟡 **App đã nối, chưa chạy với BE thật trên máy:** mỗi tính năng có `api_*_repository.dart` (thông báo, tồn kho, hoàn hàng, đóng gói, giao hàng, tổng quan); `lib/app/mock_providers.dart` chọn bản thật làm mặc định, `--dart-define=USE_MOCK_DATA=true` hoặc `mockDataOverrides` (test) thì dùng bản giả. Ghi chú khi thử:
+- Kho / hoàn hàng / đóng gói dùng kho đầu tiên đang hoạt động (`GET /warehouse/warehouses`), giống màn lấy hàng.
+- Kiểm hàng hoàn: dòng "Nhập lại kho" phải nhập / quét **ô nhập lại**; thu hồi thùng phải nhập **mã thùng** (BE bắt buộc cả hai).
+- Báo lỗi kiện gửi `resolution: replace` (lấy món thay trên kệ); chưa có lựa chọn "trả về lấy hàng".
+- Giao hàng: đơn Hỏa Tốc chỉ có "Shop tự giao" (người tạo vận đơn là shipper); vận đơn GHN chỉ xem, trạng thái do hãng cập nhật.
+- Tra cứu đơn của chủ shop lọc 100 đơn mới nhất trên máy (BE chưa có tìm kiếm theo chữ).
+- Lỗi tải hiện câu của BE + nút "Thử lại" (mất mạng / không có quyền có biểu tượng riêng).
+
+### 9g. Phiếu NCC khi nhập kho + quét nhãn khi giao (14/11/2026)
+
+☐ **Chưa làm.** BE ảnh phiếu + AI đọc phiếu đã có (`API_LIST.md` mục 33, web làm ở `FE_UPDATE_CHECKLIST.md` mục 18); việc BE mới do **Thi** làm theo `STOCK_RECEIPT_OCR_HANDOFF.md` bản 1.1 (mã R ở cuối mỗi dòng). Làm theo đúng luật web mục 20, app chỉ khác cách chụp:
+
+1. **Màn nhập kho có ảnh phiếu** (Warehouse Staff, tab Kho; hiện app chưa có): chọn ô / SKU → chụp 1–3 ảnh phiếu → `POST /proof-photos?purpose=receipt` → `POST /receipt-ocr` → nhân viên **tự đếm và nhập số** (nhập mù: không điền số từ phiếu, không hiện số trên phiếu trước khi nhập) → hiện Theo phiếu – Đã nhập – Lệch, lệch bắt lý do → lưu phiếu nhập (`document_photo_urls`, `ocr_scan_id`, `ocr_line_index`, `mismatch_reason`).
+2. **Chỉ chụp bằng camera** ở màn nhập kho và giao thành công: `ProofPhotoField` thêm tuỳ chọn ẩn nút thư viện ảnh (`ImageSource.gallery`); các màn khác giữ nguyên. Gửi `source=camera` (R7).
+3. Lỗi `RECEIPT_OCR_NOT_A_SLIP` → "Ảnh không giống phiếu giao hàng, chụp lại" (R1). Dòng không khớp → chọn dòng trên phiếu hoặc "Không có trên phiếu" + lý do (R2). `WH_RECEIPT_PHOTO_REUSED` → "Ảnh này đã dùng cho phiếu khác" (R6).
+4. **Dự phòng:** quét lỗi ≥ 2 lần hoặc AI không khả dụng → nút "Nhập không đối chiếu" + lý do (BE tự điền khi AI hỏng) (R4). Mất mạng: không cho lưu phiếu nhập ngoại tuyến (phải có ảnh lên Cloudinary và đọc phiếu trước), báo "Cần có mạng để nhập kho có phiếu".
+5. **Giao thành công (shop tự giao):** trước khi chụp ảnh, mở `ScannerScreen` có sẵn quét QR trên nhãn kiện → gửi `scanned_code` cùng `POST /shipments/:id/deliver`. Lỗi `SHIP_LABEL_SCAN_MISMATCH` → "Mã nhãn không phải kiện này". Nút "Nhãn hỏng, không quét được" + lý do (`scan_skipped_reason`) (R9).
+6. Thông báo mới `stock_receipt_unchecked` ("Nhập hàng chưa đối chiếu phiếu") cho Store Owner: thêm nhãn vào danh sách loại thông báo (R4).
+
+### 9e. Quyền trang theo vai trò (BE AOFP-283)
+
+🟡 **App đã nối 13/11/2026:** `features/auth/role_permissions.dart` gọi `GET /role-permissions/me` sau khi đăng nhập; thanh tab chỉ hiện trang Admin bật cho vai trò (`picking` → Việc của tôi, `inventory` → Kho, `picking`/`inventory` → Hoàn hàng, `packing`, `shipping`, `dashboard` → Tổng quan, `returns` → Duyệt hoàn; tối đa 4 tab + Thông báo). Lỗi / mất mạng → dùng quyền mặc định của vai trò (bản sao `DEFAULT_ROLE_FEATURES`). Admin đổi quyền thì người dùng phải đăng nhập lại mới thấy tab mới. 403 vẫn hiện câu báo của BE.
 
 ### 9b. Push FCM (BE xong 10/11/2026)
 
@@ -208,6 +238,8 @@ Chỉ chạy được trên **máy ảo Android** (Android Emulator). `flutter r
 3. Bấm ▶ để bật máy ảo. Đăng nhập tài khoản Google trong máy ảo **không bắt buộc**; push không đến thì đăng nhập rồi mở CH Play cho Google Play services tự cập nhật.
 4. Ở thư mục `mobile/`: `flutter pub get` rồi **`flutter run`** (không cần `--dart-define`: mặc định app gọi `http://10.0.2.2:3000` = BE trên chính máy tính; không cần mở tường lửa). Nhiều máy thì thêm `-d emulator-5554` (xem `flutter devices`).
 5. Làm tiếp bước 8 phần điện thoại thật (đăng nhập Warehouse Staff → Cho phép thông báo) rồi bảng **Các bước thử**. Push hiện ở thanh thông báo của máy ảo (kéo từ trên xuống).
+
+**App sập ngay khi mở trên máy ảo (log `SIGSEGV` ở luồng `1.raster`, `Requested texture size ... exceeds maximum supported size of (0, 0)`):** máy ảo đang tắt GPU. Mở `~/.android/avd/<tên máy ảo>.avd/config.ini`, đặt `hw.gpu.enabled=yes` và `hw.gpu.mode=host`, rồi **Cold Boot** máy ảo (Device Manager → mũi tên cạnh máy → Cold Boot Now). Gặp tạm thì chạy `flutter run --no-enable-impeller`.
 
 Giới hạn máy ảo: quét mã bằng camera chỉ là camera giả → dùng ô **nhập tay** mã ô / SKU; máy cần RAM ≥ 8 GB (máy ảo chiếm ~2–3 GB). Demo trước hội đồng nên dùng điện thoại thật.
 
@@ -267,13 +299,22 @@ BE: `POST /auth/google/mobile` body `{ id_token }` → trả **cùng dạng `POS
 
 **B. App (Flutter) — nhóm mobile tự làm** (chi tiết từng bước + bảng thử: `FE_UPDATE_CHECKLIST.md` mục 16):
 - [ ] `pubspec.yaml`: `google_sign_in: ^7.2.0`.
-- [ ] Khởi tạo 1 lần: `await GoogleSignIn.instance.initialize(serverClientId: '<GOOGLE_CLIENT_ID của BE — client Web>')` (truyền qua `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, không ghi cứng secret — client id không phải secret).
-- [ ] Bấm nút: `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → `POST /auth/google/mobile { id_token }` → lưu token như đăng nhập thường (kể cả `must_change_password`).
-- [ ] Bắt `GoogleSignInException` mã `canceled` → im lặng (người dùng tự đóng). Nếu vừa chọn tài khoản đã báo `canceled` → thường do **sai SHA-1 / package** ở bước A.3.
-- [ ] Đăng xuất: `GoogleSignIn.instance.signOut()` + gửi `push_token` trong `/auth/logout`.
-- [ ] Mở khoá nút "Tiếp tục với Google (chờ BE)" ở `mobile/lib/features/auth/login_screen.dart`.
+- [x] (app đã làm 13/11) Khởi tạo 1 lần: `await GoogleSignIn.instance.initialize(serverClientId: '<GOOGLE_CLIENT_ID của BE — client Web>')` (truyền qua `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, không ghi cứng secret — client id không phải secret).
+- [x] (app đã làm 13/11) Bấm nút: `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → `POST /auth/google/mobile { id_token }` → lưu token như đăng nhập thường (kể cả `must_change_password`).
+- [x] (app đã làm 13/11) Bắt `GoogleSignInException` mã `canceled` → im lặng (người dùng tự đóng). Nếu vừa chọn tài khoản đã báo `canceled` → thường do **sai SHA-1 / package** ở bước A.3.
+- [x] (app đã làm 13/11, gỡ push bằng DELETE) Đăng xuất: `GoogleSignIn.instance.signOut()` + gửi `push_token` trong `/auth/logout`.
+- [x] (đã làm 13/11) Mở khoá nút "Tiếp tục với Google" ở `mobile/lib/features/auth/login_screen.dart`.
 
 **Thử:** tài khoản Google trùng email 1 user đang hoạt động → vào đúng màn theo role; email lạ → báo chưa có tài khoản; Admin vô hiệu hoá user đó → `AUTH_ACCOUNT_INACTIVE`.
+
+### 9h. Xem 3D và hướng dẫn đóng gói trong app (14/11/2026, ngoài phạm vi ban đầu)
+
+🟡 **Đã làm, chưa commit.** Mục "Không đưa xuống mobile" ở đầu file ghi *xem 3D chi tiết* để trên web / tablet; đây là phần mở rộng, dùng lại đúng khung 3D của web thay vì viết lại. Cần **web chạy** (không chỉ BE).
+
+- App: `features/packing/parcel_3d_screen.dart` — dưới mỗi kiện có hai nút **Xem 3D** và **Hướng dẫn**, mở WebView toàn màn hình; có nút chuyển qua lại, nút tải lại; tải lỗi thì hiện bản 2D theo lớp. Phiên đăng nhập đưa qua **fragment** của URL (`#t=…&r=…&a=…`), không lên máy chủ; thoát màn thì xoá localStorage và cache của WebView. `--dart-define=WEB_BASE_URL=<địa chỉ web>` (mặc định `http://10.0.2.2:5173` cho máy ảo; máy thật dùng IP LAN).
+- Web (`fe/`): hai trang nhúng `/embed/packing/:groupId?parcel=N` (chỉ khung 3D) và `/embed/packing/:groupId/guide` (vật tư, các bước, so sánh thùng); `lib/embed-session.ts` nhận phiên (web không tự refresh trong chế độ này); `lib/rbac.ts` cho `/embed/packing/*` cùng quyền "Đóng gói"; `vite.config.ts` mở `host` và proxy `/api` sang BE để WebView gọi API **cùng origin** (không phải sửa CORS của BE).
+- Cảnh 3D thêm bước **bọc xốp hơi** và **dán băng keo** cho phụ kiện, bày vật tư trên khu chuẩn bị, gối hơi lấp chỗ trống, tem dán lên nắp; 9 model `.glb` mới tự dựng bằng Blender ở `fe/public/models/materials/` (script `fe/blender/make_packing_materials.py`, nguồn ghi ở `fe/public/models/CREDITS.md`).
+- Hạn chế: chỉ chạy khi máy ảo / điện thoại gọi được web; proxy `/api` của Vite chỉ có ở môi trường dev (triển khai thật cần web và BE cùng domain hoặc thêm origin vào `CORS_ORIGIN`); vật tư chỉ minh hoạ, không chiếm thể tích trong tính toán xếp hàng.
 
 Đã có, mobile dùng được ngay: refresh token trả trong body, phân quyền theo role, `client_event_id` cho `pick-item` / quét món đóng gói / `restock` / `adjust` / `transfer`, `expected_version` + 409, phân trang `before` + `limit` và lọc `assigned_staff_id`, báo thiếu hàng, đơn Hỏa Tốc, thông báo in-app có phân trang, dashboard.
 
@@ -285,3 +326,5 @@ BE: `POST /auth/google/mobile` body `{ id_token }` → trả **cùng dạng `POS
 - 2 máy cùng sửa một nhóm → máy sau nhận 409, tự tải lại, không ghi đè.
 - Token hết hạn giữa ca → app tự refresh, hàng đợi không mất.
 - Chạy được trên máy Android cấu hình thấp và với máy quét Bluetooth.
+
+> 15/11/2026 bổ sung: báo lỗi khi đóng gói có lựa chọn "Trả cả nhóm về bước lấy hàng" (`resolution: back_to_picking`); thông báo phân trang 30/trang + "Xem thông báo cũ hơn" (`before`). Các danh sách khác (đơn, vận đơn, phiếu hoàn) giữ `limit` 50–100, chưa có nút tải thêm.

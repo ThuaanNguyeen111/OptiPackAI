@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/providers.dart';
 import '../../core/network/api_exception.dart';
+import 'google_sign_in_service.dart';
 import 'auth_models.dart';
 
 enum AuthStatus { loading, signedOut, signedIn }
@@ -89,6 +90,23 @@ class AuthController extends Notifier<AuthState> {
     return outcome;
   }
 
+  /// Đăng nhập bằng Google: lấy `id_token` rồi gửi BE. Sau đó đi đúng đường như đăng nhập thường
+  /// (màn "Chào mừng trở lại"). Ném [GoogleSignInCanceled] khi người dùng đóng hộp chọn tài khoản.
+  Future<LoginOutcome> loginWithGoogle() async {
+    final google = ref.read(googleIdTokenProvider);
+    final repo = ref.read(authRepositoryProvider);
+    final outcome = await repo.loginWithGoogle(await google.idToken());
+    if (outcome is LoginSuccess) {
+      final user = await repo.fetchMe();
+      state = AuthState(
+        status: AuthStatus.signedOut,
+        pendingUser: user,
+        pendingMustChange: outcome.mustChangePassword,
+      );
+    }
+    return outcome;
+  }
+
   /// Bấm "Vào trang làm việc" ở màn chào mừng.
   void enterWorkspace() {
     final user = state.pendingUser;
@@ -104,6 +122,7 @@ class AuthController extends Notifier<AuthState> {
   Future<void> logout() async {
     await ref.read(pushServiceProvider).stop(); // gỡ máy khỏi BE trước khi xoá phiên
     await ref.read(authRepositoryProvider).logout();
+    await ref.read(googleIdTokenProvider).signOut();
     state = const AuthState.signedOut();
   }
 

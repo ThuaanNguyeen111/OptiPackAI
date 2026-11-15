@@ -138,6 +138,11 @@ export const SHIPMENT_ERROR_MESSAGES: Record<string, string> = {
   SHP_INVALID_TRANSITION: 'Không làm được bước này ở trạng thái hiện tại. Tải lại rồi thử nút đúng.',
   SHP_STATE_CONFLICT: 'Dữ liệu vừa đổi (người khác đang thao tác). Tải lại rồi bấm lại.',
   SHP_NOTE_REQUIRED: 'Chọn «Lý do khác» thì bắt buộc ghi chú.',
+  SHP_PROOF_PHOTO_REQUIRED:
+    'Vận đơn shop tự giao cần ít nhất 1 ảnh bằng chứng giao hàng.',
+  SHP_RETRY_TOO_EARLY:
+    'Chưa tới giờ giao lại. Muốn giao sớm hơn phải ghi lý do (tối thiểu 3 ký tự).',
+  SHP_INVALID_RESCHEDULE: 'Giờ hẹn giao lại phải ở tương lai.',
   SHP_NOT_FOUND: 'Không tìm thấy vận đơn.',
   SHP_INVALID_ID: 'Mã vận đơn không hợp lệ.',
   SHP_MANAGED_BY_CARRIER:

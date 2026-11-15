@@ -28,6 +28,7 @@ import {
 import { useAuth } from '../../../context/use-auth'
 import { fetchMyProfile } from '../../../api/users.api'
 import { usePortal } from '../../../context/use-portal'
+import { usePreserveNavScroll } from '../../../hooks/usePreserveNavScroll'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
 import { stageOfPath } from '../../../lib/stage-colors'
@@ -97,6 +98,7 @@ export function AdminSidebar() {
   const [loggingOut, setLoggingOut] = useState(false)
   // Tên tài khoản đang đăng nhập (trước đây viết cứng 'Alice Nguyễn').
   const [profileName, setProfileName] = useState<string | null>(null)
+  const { navRef, onNavLinkMouseDown, rememberScroll } = usePreserveNavScroll()
   const accessToken = session?.accessToken
 
   useEffect(() => {
@@ -181,7 +183,10 @@ export function AdminSidebar() {
         </div>
       ) : null}
 
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+      <nav
+        ref={navRef}
+        className="flex flex-1 flex-col gap-1 overflow-y-auto p-2"
+      >
         {navItems.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
           const prevSection = idx > 0 ? navItems[idx - 1].section : null
           const showSection =
@@ -199,7 +204,11 @@ export function AdminSidebar() {
               <NavLink
                 to={to}
                 end={end}
-                onClick={() => setMobileNavOpen(false)}
+                onMouseDown={onNavLinkMouseDown}
+                onClick={() => {
+                  rememberScroll()
+                  setMobileNavOpen(false)
+                }}
                 title={vi ? labelVi : labelEn}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${

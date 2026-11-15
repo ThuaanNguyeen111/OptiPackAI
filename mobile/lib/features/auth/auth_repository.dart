@@ -29,6 +29,17 @@ class AuthRepository {
         if (backupCode != null && backupCode.isNotEmpty) 'backup_code': backupCode,
       },
     );
+    return _finishLogin(res);
+  }
+
+  /// `POST /auth/google/mobile` với `id_token` Google. Cùng dạng phản hồi như [login]
+  /// (BE áp đúng luật của web: chỉ tài khoản đã có, chặn tài khoản khoá / vô hiệu hoá).
+  Future<LoginOutcome> loginWithGoogle(String idToken) async {
+    final res = await api.post('/auth/google/mobile', public: true, body: {'id_token': idToken});
+    return _finishLogin(res);
+  }
+
+  Future<LoginOutcome> _finishLogin(Object? res) async {
     final data = asMap(res);
     if (data == null) {
       throw const ApiException(message: 'Phản hồi đăng nhập không hợp lệ.');

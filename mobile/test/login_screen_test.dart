@@ -11,6 +11,7 @@ import 'package:optipack_mobile/features/auth/auth_controller.dart';
 import 'package:optipack_mobile/features/auth/auth_models.dart';
 import 'package:optipack_mobile/features/auth/auth_repository.dart';
 import 'package:optipack_mobile/features/auth/forgot_password_screen.dart';
+import 'package:optipack_mobile/features/auth/google_sign_in_service.dart';
 import 'package:optipack_mobile/features/auth/login_screen.dart';
 
 /// Repository giả: ghi lại mọi lần gọi để kiểm tra, không dùng mạng.
@@ -46,6 +47,19 @@ class FakeAuthRepository extends AuthRepository {
     return LoginSuccess(mustChangePassword: mustChangePassword);
   }
 
+  final List<String> googleLogins = [];
+
+  @override
+  Future<LoginOutcome> loginWithGoogle(String idToken) async {
+    googleLogins.add(idToken);
+    if (script.isNotEmpty) {
+      final next = script.removeAt(0);
+      if (next is ApiException) throw next;
+      if (next is LoginOutcome) return next;
+    }
+    return LoginSuccess(mustChangePassword: mustChangePassword);
+  }
+
   @override
   Future<CurrentUser> fetchMe() async =>
       const CurrentUser(id: 'u1', name: 'Việt', email: 'a@b.vn', role: UserRole.warehouseStaff);
@@ -72,7 +86,24 @@ class FakeAuthRepository extends AuthRepository {
   Future<void> logout() async {}
 }
 
+/// Lấy id_token giả: `result` là chuỗi token, hoặc lỗi để ném.
+class FakeGoogleIdToken implements GoogleIdTokenProvider {
+  Object result = 'google-id-token';
+  int signOuts = 0;
+
+  @override
+  Future<String> idToken() async {
+    final r = result;
+    if (r is Exception) throw r;
+    return r as String;
+  }
+
+  @override
+  Future<void> signOut() async => signOuts += 1;
+}
+
 late FakeAuthRepository fake;
+late FakeGoogleIdToken fakeGoogle;
 late ProviderContainer container;
 
 Future<void> pumpLogin(WidgetTester tester, {Widget? home}) async {
@@ -80,7 +111,10 @@ Future<void> pumpLogin(WidgetTester tester, {Widget? home}) async {
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
 
-  container = ProviderContainer(overrides: [authRepositoryProvider.overrideWithValue(fake)]);
+  container = ProviderContainer(overrides: [
+    authRepositoryProvider.overrideWithValue(fake),
+    googleIdTokenProvider.overrideWithValue(fakeGoogle),
+  ]);
   addTearDown(container.dispose);
 
   final router = GoRouter(
@@ -115,7 +149,10 @@ Future<void> tapLogin(WidgetTester tester) async {
 }
 
 void main() {
-  setUp(() => fake = FakeAuthRepository());
+  setUp(() {
+    fake = FakeAuthRepository();
+    fakeGoogle = FakeGoogleIdToken();
+  });
 
   testWidgets('hiện đủ các thành phần như trang web', (tester) async {
     await pumpLogin(tester);
@@ -132,8 +169,64 @@ void main() {
     expect(find.textContaining('Liên hệ Admin'), findsOneWidget);
     expect(find.text(' Xin chào! Mình là cú OptiPack — nhập email để bắt đầu nhé.'.trim()), findsOneWidget);
 
-    final google = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Tiếp tục với Google (chờ BE)'));
-    expect(google.onPressed, isNull, reason: 'Google chờ BE hỗ trợ chuyển hướng về app');
+    final google = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Tiếp tục với Google'));
+    expect(google.onPressed, isNotNull, reason: 'BE đã có POST /auth/google/mobile');
+  });
+
+  group('đăng nhập Google', () {
+    Future<void> tapGoogle(WidgetTester tester) async {
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Tiếp tục với Google'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    testWidgets('gửi id_token lên BE rồi vào màn chào mừng', (tester) async {
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      expect(fake.googleLogins, ['google-id-token']);
+      expect(fake.logins, isEmpty, reason: 'không đi đường email + mật khẩu');
+      expect(container.read(authControllerProvider).pendingUser, isNotNull);
+    });
+
+    testWidgets('đóng hộp chọn tài khoản: không gọi BE, không báo lỗi', (tester) async {
+      fakeGoogle.result = const GoogleSignInCanceled();
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      expect(fake.googleLogins, isEmpty);
+      expect(find.textContaining('Không đăng nhập được'), findsNothing);
+      expect(container.read(authControllerProvider).pendingUser, isNull);
+    });
+
+    testWidgets('BE từ chối (tài khoản chưa có): hiện câu của BE', (tester) async {
+      fake.script.add(const ApiException(
+        message: 'Email này chưa có tài khoản. Liên hệ Admin để được cấp.',
+        statusCode: 401,
+        errorCode: 'AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED',
+      ));
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      expect(find.text('Email này chưa có tài khoản. Liên hệ Admin để được cấp.'), findsOneWidget);
+      expect(container.read(authControllerProvider).pendingUser, isNull);
+    });
+
+    testWidgets('chưa cấu hình Google: báo cách cấu hình', (tester) async {
+      fakeGoogle.result = const GoogleSignInFailed('App chưa cấu hình Google.');
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      expect(find.text('App chưa cấu hình Google.'), findsOneWidget);
+    });
+
+    testWidgets('tài khoản bật MFA: dặn dùng email + mật khẩu', (tester) async {
+      fake.script.add(const LoginMfaRequired());
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      expect(find.textContaining('xác thực 2 lớp'), findsOneWidget);
+    });
   });
 
   testWidgets('bấm đăng nhập khi để trống: báo lỗi, không gọi BE', (tester) async {
