@@ -4,6 +4,7 @@ import 'package:optipack_mobile/core/network/api_exception.dart';
 import 'package:optipack_mobile/features/notifications/api_notifications_repository.dart';
 import 'package:optipack_mobile/features/notifications/notifications_repository.dart';
 import 'package:optipack_mobile/features/overview/api_overview_repository.dart';
+import 'package:optipack_mobile/features/overview/overview_repository.dart';
 import 'package:optipack_mobile/features/packing/api_packing_repository.dart';
 import 'package:optipack_mobile/features/packing/packing_repository.dart';
 import 'package:optipack_mobile/features/returns/api_returns_repository.dart';
@@ -177,6 +178,53 @@ void main() {
     expect(s.returnsOpen, 3);
     expect(s.ordersToday, 9);
     expect(s.express.map((e) => e.stage), ['lấy hàng', 'giao khách']);
+  });
+
+  test('tổng quan: BE bọc trong "summary" và có đủ khối mới', () {
+    final s = parseOverview({
+      'summary': {
+        'actionQueue': {'expressOverdue': 2, 'deliveryFailed': 1, 'awaitingPick': 0},
+        'sales': {
+          'current': {'ordersReceived': 5, 'revenuePlacedVnd': 900000, 'revenueDeliveredVnd': 400000},
+          'change': {'ordersReceived': 0.25, 'revenuePlacedVnd': null, 'revenueDeliveredVnd': -0.1},
+          'daily': [
+            {'date': '2026-11-14', 'ordersReceived': 2, 'revenuePlacedVnd': 300000},
+            {'date': '2026-11-15', 'ordersReceived': 3, 'revenuePlacedVnd': 600000},
+          ],
+          'byPlatform': [
+            {'platform': 'aurelle', 'ordersReceived': 5, 'revenuePlacedVnd': 900000},
+          ],
+        },
+        'delivery': {'firstAttemptSuccessRate': 0.8, 'avgDeliveryHours': 12.5},
+        'costs': {'shippingCostPerOrderVnd': 24000, 'fulfillmentCostRate': 0.1},
+        'returns': {'returnRate': 0.05},
+        'express': {'onTimeRate': 0.9},
+        'warehouse': {
+          'shortageSkuCount': 1,
+          'shortageSkus': [
+            {'sku': 'A-1', 'shortage': 2, 'groups': 1},
+          ],
+          'outOfStockSkuCount': 3,
+          'materialsBelowReorder': [
+            {'code': 'BOX-S', 'name': 'Thùng S', 'usable': 4, 'reorderLevel': 10},
+          ],
+        },
+      },
+    }, const []);
+    expect(s.ordersToday, 5);
+    expect(s.revenueDeliveredVnd, 400000);
+    expect(s.ordersChange, 0.25);
+    expect(s.revenueChange, isNull);
+    expect(s.actions.map((a) => a.label), ['Hỏa Tốc quá hạn', 'Giao thất bại']);
+    expect(s.actions.first.severity, ActionSeverity.danger);
+    expect(s.daily.length, 2);
+    expect(s.byPlatform.single.platform, 'aurelle');
+    expect(s.firstAttemptRate, 0.8);
+    expect(s.shippingCostPerOrderVnd, 24000);
+    expect(s.expressOnTimeRate, 0.9);
+    expect(s.shortageSkus.single.sku, 'A-1');
+    expect(s.outOfStockSkuCount, 3);
+    expect(s.materialsLow.single.name, 'Thùng S');
   });
 
   test('màn lỗi: câu dễ hiểu theo loại lỗi', () {

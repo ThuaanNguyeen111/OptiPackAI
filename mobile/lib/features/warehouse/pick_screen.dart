@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -185,6 +186,14 @@ class _PickScreenState extends ConsumerState<PickScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // Mở từ thông báo đẩy thì không có trang trước để quay lại → nút về trang chủ.
+        leading: context.canPop()
+            ? null
+            : IconButton(
+                tooltip: 'Về trang chủ',
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => context.go('/'),
+              ),
         title: Text(data != null ? 'Nhóm ${data.group.shortId}' : 'Lấy hàng'),
         actions: [
           IconButton(
@@ -468,7 +477,7 @@ class _ConfirmPickSheetState extends State<_ConfirmPickSheet> {
     final line = widget.line;
     final max = remaining(line);
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(20, 0, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -563,6 +572,7 @@ class _MissingDialogState extends State<_MissingDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('Báo thiếu hàng'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

@@ -18,6 +18,7 @@ ShipmentView? parseShipment(Object? raw) {
     id: id,
     code: pickString(m, ['shipmentCode'], id),
     groupShortId: _short(pickString(m, ['orderGroupId'])),
+    groupId: pickString(m, ['orderGroupId']),
     recipientName: shipper != null ? 'Shipper: $shipper' : 'Nhóm ${_short(pickString(m, ['orderGroupId']))}',
     status: status,
     carrierName: carrierCode == null ? 'Shop tự giao' : pickString(m, ['carrierName'], carrierCode),
@@ -185,4 +186,9 @@ class ApiShippingRepository implements ShippingRepository {
 
   @override
   Future<ShipmentView> retry(String id) => _act(id, 'retry', const {});
+
+  @override
+  Future<List<int>> shippingLabel(String groupId) => _guard(
+        () => api.getBytes('/documents/shipping-label/${Uri.encodeComponent(groupId)}'),
+      );
 }

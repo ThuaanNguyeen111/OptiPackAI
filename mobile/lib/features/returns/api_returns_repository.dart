@@ -1,6 +1,8 @@
 import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../shipping/api_shipping_repository.dart' show parseShipment;
+import '../shipping/shipping_repository.dart';
 import 'returns_repository.dart';
 
 /// Một dòng của `GET /returns` (`toReturnResponse` của BE) → [ReturnRequest].
@@ -87,6 +89,29 @@ class ApiReturnsRepository implements ReturnsRepository {
           _known[r.id] = r;
         }
         return list;
+      });
+
+  /// Vận đơn đọc gần nhất, để lấy `version` khi nhận kiện hoàn.
+  final Map<String, ShipmentView> _knownShipments = {};
+
+  @override
+  Future<List<ShipmentView>> returningShipments() => _guard(() async {
+        final raw = asMap(await api.get('/shipments', query: {'status': 'returning_to_warehouse', 'limit': 50}));
+        final list = [
+          for (final r in (raw?['items'] as List? ?? const [])) ?parseShipment(r),
+        ];
+        for (final v in list) {
+          _knownShipments[v.id] = v;
+        }
+        return list;
+      });
+
+  @override
+  Future<void> receiveShipmentReturn(String shipmentId) => _guard(() async {
+        final id = Uri.encodeComponent(shipmentId);
+        final version = _knownShipments[shipmentId]?.version ?? parseShipment(await api.get('/shipments/$id'))?.version ?? 0;
+        await api.post('/shipments/$id/receive-return', body: {'expected_version': version});
+        _knownShipments.remove(shipmentId);
       });
 
   @override

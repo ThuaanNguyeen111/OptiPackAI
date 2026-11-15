@@ -37,11 +37,97 @@ const _expressStage = {
 };
 
 /// `GET /dashboard/summary` → [OverviewSummary] (chỉ số trong ngày + việc đang chờ).
-OverviewSummary parseOverview(Map<String, dynamic>? summary, List<Object?> expressGroups) {
+/// Nhãn + mức độ của từng hàng việc `actionQueue`. Chỉ hiện hàng có số > 0.
+const _actionDefs = <(String key, String label, ActionSeverity severity)>[
+  ('expressOverdue', 'Hỏa Tốc quá hạn', ActionSeverity.danger),
+  ('expressDueSoon', 'Hỏa Tốc sắp đến hạn', ActionSeverity.warning),
+  ('deliveryFailed', 'Giao thất bại', ActionSeverity.danger),
+  ('stockShortageGroups', 'Nhóm đơn thiếu hàng', ActionSeverity.danger),
+  ('carrierBookingErrors', 'Lỗi tạo vận đơn', ActionSeverity.danger),
+  ('marketplaceWritebackFailed', 'Lỗi báo trạng thái lên sàn', ActionSeverity.danger),
+  ('partialNeedsReview', 'Lấy thiếu chờ duyệt', ActionSeverity.warning),
+  ('plansWithHeldParcels', 'Kiện bị giữ (lệch cân)', ActionSeverity.warning),
+  ('ordersAwaitingCancelConfirm', 'Chờ xác nhận hủy đơn', ActionSeverity.warning),
+  ('plansAwaitingApproval', 'Kế hoạch đóng gói chờ duyệt', ActionSeverity.warning),
+  ('returnsToReview', 'Hoàn hàng chờ duyệt', ActionSeverity.warning),
+  ('awaitingPick', 'Chờ lấy hàng', ActionSeverity.info),
+  ('picking', 'Đang lấy hàng', ActionSeverity.info),
+  ('plansAwaitingPacking', 'Chờ đóng gói', ActionSeverity.info),
+  ('readyToShip', 'Sẵn sàng giao', ActionSeverity.info),
+  ('shipmentsInFlight', 'Đang giao', ActionSeverity.info),
+  ('returningToWarehouse', 'Đang hoàn về kho', ActionSeverity.info),
+  ('returnsToReceive', 'Hoàn hàng chờ nhận', ActionSeverity.info),
+  ('returnsToInspect', 'Hoàn hàng chờ kiểm', ActionSeverity.info),
+];
+
+double? _ratioOf(Map<String, dynamic>? m, String key) {
+  final v = m?[key];
+  return v is num ? v.toDouble() : null;
+}
+
+OverviewSummary parseOverview(Map<String, dynamic>? raw, List<Object?> expressGroups) {
+  // BE trả `{ "summary": { ... } }`; chịu cả dạng đã bóc lớp ngoài.
+  final summary = asMap(raw?['summary']) ?? raw;
   final q = asMap(summary?['actionQueue']);
-  final sales = asMap(asMap(summary?['sales'])?['current']);
+  final salesBlock = asMap(summary?['sales']);
+  final sales = asMap(salesBlock?['current']);
+  final change = asMap(salesBlock?['change']);
+  final delivery = asMap(summary?['delivery']);
+  final costs = asMap(summary?['costs']);
+  final returns = asMap(summary?['returns']);
+  final expressBlock = asMap(summary?['express']);
+  final warehouse = asMap(summary?['warehouse']);
   int n(String key) => pickInt(q, [key]);
+  int? nInt(Map<String, dynamic>? m, String key) => m?[key] is num ? (m![key] as num).round() : null;
   return OverviewSummary(
+    actions: [
+      for (final d in _actionDefs)
+        if (n(d.$1) > 0) ActionItem(label: d.$2, count: n(d.$1), severity: d.$3),
+    ],
+    revenueDeliveredVnd: pickInt(sales, ['revenueDeliveredVnd']),
+    ordersChange: _ratioOf(change, 'ordersReceived'),
+    revenueChange: _ratioOf(change, 'revenuePlacedVnd'),
+    revenueDeliveredChange: _ratioOf(change, 'revenueDeliveredVnd'),
+    daily: [
+      for (final d in (salesBlock?['daily'] as List? ?? const []))
+        if (asMap(d) case final m?)
+          DailyPoint(
+            date: pickString(m, ['date']),
+            revenueVnd: pickInt(m, ['revenuePlacedVnd']),
+            orders: pickInt(m, ['ordersReceived']),
+          ),
+    ],
+    byPlatform: [
+      for (final p in (salesBlock?['byPlatform'] as List? ?? const []))
+        if (asMap(p) case final m?)
+          PlatformSales(
+            platform: pickString(m, ['platform']),
+            orders: pickInt(m, ['ordersReceived']),
+            revenueVnd: pickInt(m, ['revenuePlacedVnd']),
+          ),
+    ],
+    firstAttemptRate: _ratioOf(delivery, 'firstAttemptSuccessRate'),
+    avgDeliveryHours: _ratioOf(delivery, 'avgDeliveryHours'),
+    shippingCostPerOrderVnd: nInt(costs, 'shippingCostPerOrderVnd'),
+    packagingCostPerOrderVnd: nInt(costs, 'packagingCostPerOrderVnd'),
+    fulfillmentCostRate: _ratioOf(costs, 'fulfillmentCostRate'),
+    returnRate: _ratioOf(returns, 'returnRate'),
+    expressOnTimeRate: _ratioOf(expressBlock, 'onTimeRate'),
+    shortageSkuCount: pickInt(warehouse, ['shortageSkuCount']),
+    outOfStockSkuCount: pickInt(warehouse, ['outOfStockSkuCount']),
+    shortageSkus: [
+      for (final k in (warehouse?['shortageSkus'] as List? ?? const []).take(5))
+        if (asMap(k) case final m?) ShortageSku(sku: pickString(m, ['sku']), shortage: pickInt(m, ['shortage'])),
+    ],
+    materialsLow: [
+      for (final k in (warehouse?['materialsBelowReorder'] as List? ?? const []).take(5))
+        if (asMap(k) case final m?)
+          LowMaterial(
+            name: pickString(m, ['name', 'code']),
+            usable: pickInt(m, ['usable']),
+            reorderLevel: pickInt(m, ['reorderLevel']),
+          ),
+    ],
     ordersToday: pickInt(sales, ['ordersReceived']),
     pending: n('awaitingPick') +
         n('picking') +
@@ -76,13 +162,15 @@ class ApiOverviewRepository implements OverviewRepository {
   final ApiClient api;
 
   @override
-  Future<OverviewSummary> summary() async {
+  Future<OverviewSummary> summary({OverviewFilter filter = const OverviewFilter()}) async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
+    final from = startOfDay.subtract(Duration(days: filter.range.days - 1));
     final results = await Future.wait([
       api.get('/dashboard/summary', query: {
-        'from': startOfDay.toUtc().toIso8601String(),
+        'from': from.toUtc().toIso8601String(),
         'to': now.toUtc().toIso8601String(),
+        'platform': filter.platform,
       }),
       api.get('/order-groups', query: {'order_priority': 'express', 'limit': 50}),
     ]);
@@ -103,6 +191,8 @@ class ApiOverviewRepository implements OverviewRepository {
           if (pickString(m, ['platformOrderId']).toLowerCase().contains(q) ||
               pickString(m, ['recipientName']).toLowerCase().contains(q))
             OrderLite(
+              id: pickString(m, ['id', '_id']),
+              groupId: pickStringOrNull(m, ['consolidatedGroupId']),
               code: pickString(m, ['platformOrderId']),
               platform: pickString(m, ['platform']),
               recipient: pickString(m, ['recipientName']),
@@ -110,5 +200,52 @@ class ApiOverviewRepository implements OverviewRepository {
               totalVnd: pickDouble(m, ['totalAmount']).round(),
             ),
     ];
+  }
+
+  @override
+  Future<OrderDetail> orderDetail(OrderLite order) async {
+    final m = asMap(await api.get('/orders/${Uri.encodeComponent(order.id)}'));
+    if (m == null) throw const FormatException('Máy chủ trả chi tiết đơn không đọc được.');
+    final groupId = pickStringOrNull(m, ['consolidatedGroupId']);
+    var express = false;
+    if (groupId != null) {
+      final g = asMap(await api.get('/order-groups/${Uri.encodeComponent(groupId)}'));
+      express = pickString(g, ['orderPriority']) == 'express';
+    }
+    final address = [
+      pickString(m, ['recipientAddressLine1']),
+      pickString(m, ['recipientWard']),
+      pickString(m, ['recipientCity']),
+    ].where((p) => p.isNotEmpty).join(', ');
+    return OrderDetail(
+      code: pickString(m, ['platformOrderId']),
+      platform: pickString(m, ['platform']),
+      status: orderStatusLabel(pickString(m, ['status'])),
+      recipient: pickString(m, ['recipientName']),
+      phone: pickString(m, ['recipientPhone']),
+      address: address,
+      items: [
+        for (final i in (m['items'] as List? ?? const []))
+          if (asMap(i) case final r?)
+            OrderLine(
+              sku: pickString(r, ['sku']),
+              name: pickString(r, ['name']),
+              quantity: pickInt(r, ['quantity']),
+              lineTotalVnd: pickDouble(r, ['lineTotal']).round(),
+            ),
+      ],
+      totalVnd: pickDouble(m, ['totalAmount']).round(),
+      groupId: groupId,
+      groupExpress: express,
+      needCancelConfirm: pickBool(m, ['needCancelConfirm']),
+    );
+  }
+
+  @override
+  Future<void> setExpress(String groupId, bool express, {int hours = 4}) async {
+    await api.patch('/order-groups/${Uri.encodeComponent(groupId)}/priority', body: {
+      'order_priority': express ? 'express' : 'normal',
+      if (express) 'deadline_hours': hours,
+    });
   }
 }

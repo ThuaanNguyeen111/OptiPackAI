@@ -71,10 +71,15 @@ void main() {
   testWidgets('Hoàn hàng (kho): chờ nhận kiện, kiểm hàng có chụp ảnh tình trạng', (tester) async {
     await pumpScreen(tester, const WarehouseReturnsScreen());
 
+    // Tab đầu: kiện giao thất bại đang hoàn về kho → nút nhận kiện (receive-return).
+    expect(find.text('Nhận kiện hoàn về kho'), findsWidgets);
+
+    await tester.tap(find.text('Chờ nhận'));
+    await tester.pumpAndSettle();
     expect(find.text('RMA-261107-0009'), findsOneWidget);
     expect(find.text('Giao thất bại'), findsOneWidget, reason: 'phiếu tự tạo khi giao thất bại');
 
-    await tester.tap(find.text('Chờ kiểm hàng'));
+    await tester.tap(find.text('Chờ kiểm'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Kiểm hàng'));
     await tester.pumpAndSettle();
@@ -146,11 +151,17 @@ void main() {
 
   testWidgets('Tổng quan: thẻ số, hỏa tốc, tra cứu đơn', (tester) async {
     await pumpScreen(tester, const OverviewScreen());
-    expect(find.text('Đơn hôm nay'), findsOneWidget);
+    expect(find.text('Đơn nhận'), findsOneWidget);
     expect(find.text('42'), findsOneWidget);
     expect(find.text('12.450.000 đ'), findsOneWidget);
+    expect(find.text('Cần xử lý ngay'), findsOneWidget);
+    expect(find.text('Doanh thu đã giao'), findsOneWidget);
+    expect(find.text('7 ngày'), findsOneWidget, reason: 'bộ chọn khoảng ngày');
+    await tester.scrollUntilVisible(find.text('Hỏa tốc đang chạy'), 300, scrollable: find.byType(Scrollable).first);
     expect(find.text('Hỏa tốc đang chạy'), findsOneWidget);
 
+    await tester.scrollUntilVisible(find.text('Tra cứu đơn'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Mã đơn hoặc tên người nhận'), 'bích');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();

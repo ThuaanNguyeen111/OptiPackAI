@@ -34,20 +34,58 @@ ThemeData buildTheme() {
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.canvas,
     canvasColor: AppColors.surface,
+    pageTransitionsTheme: const PageTransitionsTheme(builders: {
+      TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+      TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+    }),
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: AppColors.primary),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: dark ? AppColors.surface3 : const Color(0xFF123A3F),
+      contentTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: SegmentedButton.styleFrom(
+        selectedBackgroundColor: AppColors.primary,
+        selectedForegroundColor: AppColors.onPrimary,
+        side: BorderSide(color: AppColors.hairlineStrong),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+    ),
     appBarTheme: AppBarTheme(
       backgroundColor: AppColors.topbar,
       foregroundColor: AppColors.ink,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 1,
+      titleTextStyle: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: AppColors.topbar,
+      height: 68,
+      backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
-      indicatorColor: AppColors.primary.withValues(alpha: 0.18),
+      elevation: 8,
+      shadowColor: AppColors.primary.withValues(alpha: 0.35),
+      indicatorColor: AppColors.primary.withValues(alpha: 0.2),
+      indicatorShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (s) => TextStyle(
+          fontSize: 12,
+          fontWeight: s.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w500,
+          color: s.contains(WidgetState.selected) ? AppColors.primary : AppColors.inkSubtle,
+        ),
+      ),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (s) => IconThemeData(
+          size: s.contains(WidgetState.selected) ? 26 : 24,
+          color: s.contains(WidgetState.selected) ? AppColors.primary : AppColors.inkSubtle,
+        ),
+      ),
     ),
     cardTheme: CardThemeData(
-      elevation: 0,
+      elevation: 1.5,
+      shadowColor: AppColors.primary.withValues(alpha: dark ? 0.5 : 0.28),
       color: AppColors.surface,
       surfaceTintColor: Colors.transparent,
       margin: EdgeInsets.zero,

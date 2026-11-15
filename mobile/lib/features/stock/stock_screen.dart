@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../app/mock_providers.dart';
+import '../../app/providers.dart';
 import '../../shared/widgets.dart';
 import '../warehouse/scanner_screen.dart';
 import 'stock_repository.dart';
@@ -20,6 +21,8 @@ class StockScreen extends ConsumerStatefulWidget {
 
 class _StockScreenState extends ConsumerState<StockScreen> {
   final _code = TextEditingController();
+  // Ô mã luôn được focus: máy quét Bluetooth gõ mã như bàn phím rồi bấm Enter.
+  final _codeFocus = FocusNode();
   BinStock? _bin;
   bool _loading = false;
   String? _notFound;
@@ -27,6 +30,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
   @override
   void dispose() {
     _code.dispose();
+    _codeFocus.dispose();
     super.dispose();
   }
 
@@ -44,7 +48,10 @@ class _StockScreenState extends ConsumerState<StockScreen> {
       _bin = bin;
       _notFound = bin == null ? 'Không tìm thấy ô "$value".' : null;
     });
-    if (bin == null) HapticFeedback.heavyImpact();
+    if (bin == null) {
+      HapticFeedback.heavyImpact();
+      _codeFocus.requestFocus();
+    }
   }
 
   Future<void> _scan() async {
@@ -76,12 +83,14 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                   Expanded(
                     child: TextField(
                       controller: _code,
+                      focusNode: _codeFocus,
+                      autofocus: true,
                       textInputAction: TextInputAction.search,
                       textCapitalization: TextCapitalization.characters,
                       onSubmitted: _load,
                       decoration: InputDecoration(
                         labelText: 'Mã ô kệ',
-                        hintText: 'VD KA-D1-P01-T01-1',
+                        hintText: 'VD KA-D1-P01-T01-1 — hoặc quét bằng máy quét Bluetooth',
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.search),
                           onPressed: () => _load(_code.text),
@@ -234,6 +243,27 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
       HapticFeedback.mediumImpact();
       Navigator.pop(context, true);
     } on StockException catch (e) {
+      if (!mounted) return;
+      // Mất mạng: nhập thêm / kiểm kê lưu trên máy, có mạng thì tự gửi (cùng mã thao tác nên BE không ghi trùng).
+      if (e.retryable && _action != _StockAction.transfer) {
+        final queued = await repo.offlineAction(
+          kind: _action == _StockAction.restock ? 'restock' : 'adjust',
+          assignmentId: item.assignmentId,
+          sku: item.sku,
+          binCode: widget.binCode,
+          quantity: qty,
+          eventId: _eventId(_action),
+          reason: _reason,
+        );
+        if (queued != null && mounted) {
+          await ref.read(syncControllerProvider.notifier).enqueue(queued);
+          if (!mounted) return;
+          HapticFeedback.mediumImpact();
+          showToast(context, 'Đang ngoại tuyến: đã lưu "${queued.label}", sẽ gửi khi có mạng.');
+          Navigator.pop(context, true);
+          return;
+        }
+      }
       if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _busy = false);
