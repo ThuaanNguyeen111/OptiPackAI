@@ -3,13 +3,12 @@ left to right direction
 skinparam packageStyle rectangle
 
 actor "System\nAdministrator" as Admin
-actor "Shipping\nCoordinator" as Shipping
+actor "Shipping\nStaff" as Shipping
 actor "Store\nOwner" as Owner
 actor "Warehouse\nStaff" as Warehouse
 actor "Carrier" as Carrier
-actor "Marketplace\nPlatform" as Marketplace
 
-rectangle "AOFP System" {
+rectangle "OptiPack AI" {
   ' --- Carrier & shipping setup ---
   usecase "Manage carriers" as UC_Carriers
   usecase "Configure shipping settings" as UC_Settings
@@ -47,7 +46,7 @@ Admin --|> Shipping
 Admin -- UC_Carriers
 Admin -- UC_SyncCarrier
 
-' --- Shipping Coordinator ---
+' --- Shipping Staff ---
 Shipping -- UC_SelfDelivery
 Shipping -- UC_Pickup
 Shipping -- UC_EditAddr
@@ -74,9 +73,6 @@ Carrier -- UC_SyncCarrier
 Carrier -- UC_CarrierStatus
 Carrier -- UC_Compare
 Carrier -- UC_Book
-
-' --- Marketplace Platform ---
-Marketplace -- UC_ReviewReturn
 
 ' --- Include ---
 UC_BatchTrip .> UC_Compare : <<include>>

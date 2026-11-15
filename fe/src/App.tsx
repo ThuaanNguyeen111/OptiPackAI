@@ -36,9 +36,6 @@ const AdminOrdersPage = lazy(() =>
 const AdminRolesPage = lazy(() =>
   import('./pages/AdminRolesPage').then((m) => ({ default: m.AdminRolesPage })),
 )
-const AdminPackingPlansPage = lazy(() =>
-  import('./pages/AdminPackingPlansPage').then((m) => ({ default: m.AdminPackingPlansPage })),
-)
 const AdminWarehousePage = lazy(() =>
   import('./pages/AdminWarehousePage').then((m) => ({ default: m.AdminWarehousePage })),
 )
@@ -171,7 +168,8 @@ function App() {
                   <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                   <Route path="order-sync" element={<OrderSyncSettingsPage />} />
                   <Route path="ai" element={<Navigate to="/app/admin" replace />} />
-                  <Route path="packing-plans" element={<AdminPackingPlansPage />} />
+                  {/* BE tự tính kế hoạch sau lấy hàng — bookmark cũ → bàn đóng gói. */}
+                  <Route path="packing-plans" element={<Navigate to="/app/packing" replace />} />
                   <Route path="warehouse" element={<AdminWarehousePage />} />
                   <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
                   <Route path="returns" element={<ReturnsPage shell="admin" />} />
