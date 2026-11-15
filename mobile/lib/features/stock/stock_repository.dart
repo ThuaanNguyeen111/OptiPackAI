@@ -1,3 +1,5 @@
+import '../offline/pending_action.dart';
+
 /// Nhập thêm / kiểm kê / chuyển ô. **Đang là dữ liệu giả.**
 /// BE đã có: `POST /warehouse/warehouses/:wid/sku-bin-assignments/:aid/restock|adjust|transfer`,
 /// cả ba nhận `client_event_id` (gửi lại cùng mã → BE trả kết quả lần trước, không ghi hai lần).
@@ -61,9 +63,12 @@ class BinStock {
 }
 
 class StockException implements Exception {
-  const StockException(this.message, {this.code});
+  const StockException(this.message, {this.code, this.retryable = false});
   final String message;
   final String? code;
+
+  /// Lỗi tạm thời (mất mạng, timeout, 408 / 429 / 5xx): thao tác đưa vào hàng đợi ngoại tuyến được.
+  final bool retryable;
   @override
   String toString() => message;
 }
@@ -84,9 +89,34 @@ abstract class StockRepository {
     int quantity, {
     required String eventId,
   });
+
+  /// Dựng thao tác nhập thêm / kiểm kê để đưa vào **hàng đợi ngoại tuyến** khi mất mạng. Dùng đúng
+  /// [eventId] của lần bấm vừa lỗi (BE không ghi trùng). Chuyển ô không vào hàng đợi được vì phải tra ô đích
+  /// trên máy chủ. `null` = bản này không hỗ trợ (dữ liệu giả).
+  Future<PendingAction?> offlineAction({
+    required String kind,
+    required String assignmentId,
+    required String sku,
+    required String binCode,
+    required int quantity,
+    required String eventId,
+    StockAdjustReason? reason,
+  });
 }
 
 class MockStockRepository implements StockRepository {
+  @override
+  Future<PendingAction?> offlineAction({
+    required String kind,
+    required String assignmentId,
+    required String sku,
+    required String binCode,
+    required int quantity,
+    required String eventId,
+    StockAdjustReason? reason,
+  }) async =>
+      null;
+
   final Map<String, ({String zone, int? capacity})> _bins = {
     'KA-D1-P01-T01-1': (zone: 'KA', capacity: 40),
     'KA-D1-P01-T01-2': (zone: 'KA', capacity: 40),

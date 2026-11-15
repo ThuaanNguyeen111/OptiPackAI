@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../offline/pending_action.dart';
 import 'packing_repository.dart';
 
 double _cm(Object? mm) => mm is num ? mm / 10 : 0;
@@ -102,7 +103,7 @@ class ApiPackingRepository implements PackingRepository {
     try {
       return await call();
     } on ApiException catch (e) {
-      throw PackingException(e.message, code: e.errorCode);
+      throw PackingException(e.message, code: e.errorCode, retryable: e.isRetryable);
     }
   }
 
@@ -193,13 +194,23 @@ class ApiPackingRepository implements PackingRepository {
       });
 
   @override
-  Future<Parcel> scan(String groupId, int parcelNo, String code) => _guard(() async {
+  PendingAction? buildScanAction(String groupId, int parcelNo, String code, String eventId) => PendingAction(
+        id: eventId,
+        kind: 'pack_scan',
+        label: 'Quét ${code.trim()} vào kiện $parcelNo',
+        path: _path(groupId, '/parcels/$parcelNo/scan'),
+        body: {'code': code.trim(), 'scan_method': 'barcode', 'client_event_id': eventId},
+        createdAt: DateTime.now(),
+      );
+
+  @override
+  Future<Parcel> scan(String groupId, int parcelNo, String code, {String? eventId}) => _guard(() async {
         final plan = _keep(
           groupId,
           await api.post(_path(groupId, '/parcels/$parcelNo/scan'), body: {
             'code': code.trim(),
             'scan_method': 'barcode',
-            'client_event_id': _uuid.v4(),
+            'client_event_id': eventId ?? _uuid.v4(),
           }),
         );
         return _parcelOf(plan, parcelNo);
@@ -246,6 +257,7 @@ class ApiPackingRepository implements PackingRepository {
     String sku,
     PackIssue issue, {
     List<String> photoUrls = const [],
+    bool returnToPicking = false,
   }) =>
       _guard(() async {
         final plan = await _plan(groupId);
@@ -262,8 +274,8 @@ class ApiPackingRepository implements PackingRepository {
             'parcel_no': parcelNo,
             'item_key': pickString(item, ['itemKey']),
             'issue': issue.code,
-            // Lấy ngay món thay trên kệ; BE tự chọn ô còn hàng.
-            'resolution': 'replace',
+            // replace: lấy ngay món thay trên kệ (BE tự chọn ô còn hàng); back_to_picking: trả cả nhóm về bước lấy hàng.
+            'resolution': returnToPicking ? 'back_to_picking' : 'replace',
             'warehouse_id': ?wid,
             if (photoUrls.isNotEmpty) 'photo_urls': photoUrls,
           }),

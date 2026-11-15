@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Giao hàng cho Shipping Coordinator. **Đang là dữ liệu giả.**
 /// BE đã có: `GET /order-groups?fulfillment_status=packed`, `GET /shipping/quote/:groupId`, `POST /shipments`,
 /// `POST /shipments/:id/deliver|fail|retry`, `GET /shipments/reason-codes`.
@@ -108,6 +110,7 @@ class ShipmentView {
     required this.status,
     required this.carrierName,
     required this.trackingCode,
+    this.groupId = '',
     this.attempt = 1,
     this.dueAt,
     this.failureReason,
@@ -123,6 +126,9 @@ class ShipmentView {
   final ShipmentStatus status;
   final String carrierName;
   final String trackingCode;
+
+  /// Id đầy đủ của nhóm đơn (để mở nhãn `GET /documents/shipping-label/:groupId`).
+  final String groupId;
   final int attempt;
   final DateTime? dueAt;
   final FailureReason? failureReason;
@@ -146,6 +152,7 @@ class ShipmentView {
         status: status ?? this.status,
         carrierName: carrierName,
         trackingCode: trackingCode,
+        groupId: groupId,
         attempt: attempt ?? this.attempt,
         dueAt: dueAt,
         failureReason: failureReason ?? this.failureReason,
@@ -171,6 +178,9 @@ abstract class ShippingRepository {
   Future<ShipmentView> deliver(String id, {List<String> photoUrls = const []});
   Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []});
   Future<ShipmentView> retry(String id);
+
+  /// PDF nhãn kiện của nhóm đơn (mỗi kiện 1 nhãn). Cần đã có vận đơn.
+  Future<List<int>> shippingLabel(String groupId);
 }
 
 class MockShippingRepository implements ShippingRepository {
@@ -321,6 +331,17 @@ class MockShippingRepository implements ShippingRepository {
     );
     _set(v);
     return v;
+  }
+
+  @override
+  Future<List<int>> shippingLabel(String groupId) async {
+    await _latency();
+    // PDF tối thiểu hợp lệ (1 trang trắng) để thử luồng in ở chế độ dữ liệu giả.
+    return utf8.encode(
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
+      '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 283 425]>>endobj\n'
+      'trailer<</Root 1 0 R>>\n%%EOF',
+    );
   }
 
   @override

@@ -1,3 +1,4 @@
+import '../offline/pending_action.dart';
 /// Đóng gói cho Packaging Staff. **Đang là dữ liệu giả.**
 /// BE đã có: `GET /order-groups?assigned_packer_id=`, `GET /order-groups/:id/packing-plan`,
 /// `POST …/packing-plan/approve|reject|start`, `…/parcels/:no/scan|unscan|seal|unseal`, `…/report-issue`, `…/finish`.
@@ -148,9 +149,12 @@ class PackingGroup {
 }
 
 class PackingException implements Exception {
-  const PackingException(this.message, {this.code});
+  const PackingException(this.message, {this.code, this.retryable = false});
   final String message;
   final String? code;
+
+  /// Lỗi tạm thời (mất mạng, timeout, 408 / 429 / 5xx): quét món lưu vào hàng đợi ngoại tuyến được.
+  final bool retryable;
   @override
   String toString() => message;
 }
@@ -170,10 +174,15 @@ abstract class PackingRepository {
   Future<PackingGroup> get(String groupId);
   Future<PackingGroup> approve(String groupId);
   Future<void> reject(String groupId, RejectReason reason, String? note);
-  Future<Parcel> scan(String groupId, int parcelNo, String code);
+  Future<Parcel> scan(String groupId, int parcelNo, String code, {String? eventId});
+
+  /// Dựng thao tác quét món để đưa vào hàng đợi ngoại tuyến (cùng [eventId] với lần bấm vừa lỗi). `null` = không hỗ trợ.
+  PendingAction? buildScanAction(String groupId, int parcelNo, String code, String eventId);
   Future<Parcel> unscan(String groupId, int parcelNo, String sku);
   Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg);
-  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue, {List<String> photoUrls = const []});
+  /// [returnToPicking]: thay vì lấy món thay ngay, trả cả nhóm về bước lấy hàng (BE chỉ cho khi chưa niêm phong kiện nào).
+  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue,
+      {List<String> photoUrls = const [], bool returnToPicking = false});
 }
 
 class MockPackingRepository implements PackingRepository {
@@ -300,7 +309,10 @@ class MockPackingRepository implements PackingRepository {
   }
 
   @override
-  Future<Parcel> scan(String groupId, int parcelNo, String code) async {
+  PendingAction? buildScanAction(String groupId, int parcelNo, String code, String eventId) => null;
+
+  @override
+  Future<Parcel> scan(String groupId, int parcelNo, String code, {String? eventId}) async {
     await _latency();
     final p = _parcel(groupId, parcelNo);
     if (p.status != ParcelStatus.pending) {
@@ -355,7 +367,8 @@ class MockPackingRepository implements PackingRepository {
   }
 
   @override
-  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue, {List<String> photoUrls = const []}) async {
+  Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue,
+      {List<String> photoUrls = const [], bool returnToPicking = false}) async {
     await _latency();
     _parcel(groupId, parcelNo);
   }

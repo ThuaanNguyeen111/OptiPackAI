@@ -30,6 +30,7 @@ import {
   type SceneMode,
 } from '../../utils/packing-layout'
 import { sharedOrderCodes } from '../../lib/parcel-order-display'
+import { materialCounts, needsBubbleSleeve } from '../../utils/packing-materials'
 import { formatDimsMmAsCm } from '../../utils/units'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
@@ -112,9 +113,15 @@ function ParcelGuidePlayer({
   const orderIds = parcel.orderIds
   const shared = (orderIds?.length ?? 0) >= 2
   const orderCodes = sharedOrderCodes(parcel)
+  const hasBubbleWrap = useMemo(() => materialCounts(parcel.materials).has('bubble_wrap'), [parcel.materials])
   const steps = useMemo(
-    () => buildPackSteps(placements, plan.itemProfiles, { mailer, shared }),
-    [placements, plan.itemProfiles, mailer, shared],
+    () =>
+      buildPackSteps(placements, plan.itemProfiles, {
+        mailer,
+        shared,
+        wrapItem: (profile) => needsBubbleSleeve(profile, hasBubbleWrap),
+      }),
+    [placements, plan.itemProfiles, mailer, shared, hasBubbleWrap],
   )
   const slipColors = useMemo(() => (orderIds ?? []).map((_, i) => orderColor(i)), [orderIds])
   const tintOf = useMemo(() => {
@@ -207,6 +214,7 @@ function ParcelGuidePlayer({
               mailer={mailer}
               tintOf={tintOf}
               slipColors={shared ? slipColors : undefined}
+              materials={parcel.materials}
             />
           </Suspense>
           <StepCamera focus={focus} resetKey={viewKey} />
@@ -298,6 +306,19 @@ function ParcelGuidePlayer({
                     </span>
                   ) : null}
                 </p>
+                {current?.kind === 'wrap' ? (
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                    {vi
+                      ? 'Trải tấm xốp hơi, đặt món vào giữa, gập 2 mép dài lên rồi 2 mép ngắn phủ kín mặt trên.'
+                      : 'Lay the bubble wrap flat, put the item in the middle, fold the long sides up, then the short sides over the top.'}
+                  </p>
+                ) : current?.kind === 'tape' ? (
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                    {vi
+                      ? 'Dán băng keo ngang mặt trên, kéo rủ xuống hai bên để giữ chặt lớp xốp.'
+                      : 'Tape across the top and down both sides to hold the wrap.'}
+                  </p>
+                ) : null}
                 {guideStep ? (
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                     {guideStep.instruction}

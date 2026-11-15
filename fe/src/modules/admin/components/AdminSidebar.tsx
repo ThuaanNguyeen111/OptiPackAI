@@ -17,7 +17,6 @@ import {
   ScanLine,
   Shield,
   SlidersHorizontal,
-  Sparkles,
   Store,
   Sun,
   Truck,
@@ -29,6 +28,7 @@ import {
 import { useAuth } from '../../../context/use-auth'
 import { fetchMyProfile } from '../../../api/users.api'
 import { usePortal } from '../../../context/use-portal'
+import { usePreserveNavScroll } from '../../../hooks/usePreserveNavScroll'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
 import { stageOfPath } from '../../../lib/stage-colors'
@@ -61,8 +61,8 @@ const navItems: NavItem[] = [
   { to: '/app/admin/packaging-materials', end: false, labelVi: 'Vật liệu đóng gói', labelEn: 'Packaging materials', icon: Box, section: 'warehouse' },
   { to: '/app/packing', end: false, labelVi: 'Đóng gói', labelEn: 'Packing station', icon: Boxes, section: 'warehouse' },
   { to: '/app/shipping', end: false, labelVi: 'Vận chuyển', labelEn: 'Shipping', icon: Truck, section: 'warehouse' },
-  { to: '/app/admin/packing-plans', end: false, labelVi: 'Chốt kế hoạch đóng gói', labelEn: 'Confirm packing plan', icon: Sparkles, section: 'ai' },
-  { to: '/app/packaging-rules', end: false, labelVi: 'Quy tắc bao bì', labelEn: 'Packaging rules', icon: Box, section: 'ai' },
+  // BE 18/10: tự tính/tự gán sau lấy hàng — không còn bước Admin «chốt kế hoạch».
+  { to: '/app/packaging-rules', end: false, labelVi: 'Quy tắc bao bì', labelEn: 'Packaging rules', icon: SlidersHorizontal, section: 'ai' },
   { to: '/app/analytics', end: false, labelVi: 'Báo cáo', labelEn: 'Analytics', icon: BarChart3, section: 'reports' },
   { to: '/app/admin/history', end: false, labelVi: 'Lịch sử thao tác', labelEn: 'Activity history', icon: Clock, section: 'reports' },
 ]
@@ -99,6 +99,7 @@ export function AdminSidebar() {
   const [loggingOut, setLoggingOut] = useState(false)
   // Tên tài khoản đang đăng nhập (trước đây viết cứng 'Alice Nguyễn').
   const [profileName, setProfileName] = useState<string | null>(null)
+  const { navRef, onNavLinkMouseDown, rememberScroll } = usePreserveNavScroll()
   const accessToken = session?.accessToken
 
   useEffect(() => {
@@ -183,7 +184,10 @@ export function AdminSidebar() {
         </div>
       ) : null}
 
-      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+      <nav
+        ref={navRef}
+        className="flex flex-1 flex-col gap-1 overflow-y-auto p-2"
+      >
         {navItems.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
           const prevSection = idx > 0 ? navItems[idx - 1].section : null
           const showSection =
@@ -201,7 +205,11 @@ export function AdminSidebar() {
               <NavLink
                 to={to}
                 end={end}
-                onClick={() => setMobileNavOpen(false)}
+                onMouseDown={onNavLinkMouseDown}
+                onClick={() => {
+                  rememberScroll()
+                  setMobileNavOpen(false)
+                }}
                 title={vi ? labelVi : labelEn}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${

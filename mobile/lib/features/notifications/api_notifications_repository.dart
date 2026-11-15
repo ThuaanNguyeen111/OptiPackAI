@@ -31,9 +31,17 @@ class ApiNotificationsRepository implements NotificationsRepository {
   final ApiClient api;
 
   @override
-  Future<List<AppNotification>> list() async {
-    final raw = await api.get('/notifications', query: {'limit': 100});
-    final rows = raw is List ? raw : (asMap(raw)?['items'] as List? ?? const []);
+  Future<List<AppNotification>> list({DateTime? before}) async {
+    final raw = await api.get(
+      '/notifications',
+      query: {
+        'limit': notificationsPageSize,
+        'before': before?.toUtc().toIso8601String(),
+      },
+    );
+    final rows = raw is List
+        ? raw
+        : (asMap(raw)?['items'] as List? ?? const []);
     return [for (final r in rows) ?parseNotification(r)];
   }
 

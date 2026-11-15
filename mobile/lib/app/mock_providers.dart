@@ -90,6 +90,11 @@ final unreadCountProvider = FutureProvider.autoDispose<int>(
   (ref) => ref.watch(notificationsRepositoryProvider).unreadCount(),
 );
 
+/// Kiện giao thất bại đang hoàn về kho (Warehouse Staff nhận kiện).
+final returningShipmentsProvider = FutureProvider.autoDispose<List<ShipmentView>>(
+  (ref) => ref.watch(returnsRepositoryProvider).returningShipments(),
+);
+
 final returnsByStatusProvider =
     FutureProvider.autoDispose.family<List<ReturnRequest>, ReturnStatus>(
   (ref, status) => ref.watch(returnsRepositoryProvider).list(status),
@@ -113,6 +118,9 @@ final shipmentsProvider = FutureProvider.autoDispose<List<ShipmentView>>(
   (ref) => ref.watch(shippingRepositoryProvider).shipments(),
 );
 
+/// Khoảng ngày + sàn đang chọn trên tab Tổng quan.
+final overviewFilterProvider = StateProvider<OverviewFilter>((ref) => const OverviewFilter());
+
 final overviewSummaryProvider = FutureProvider.autoDispose<OverviewSummary>(
-  (ref) => ref.watch(overviewRepositoryProvider).summary(),
+  (ref) => ref.watch(overviewRepositoryProvider).summary(filter: ref.watch(overviewFilterProvider)),
 );

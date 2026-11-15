@@ -17,5 +17,13 @@ class Env {
   /// `flutter run --dart-define=GOOGLE_SERVER_CLIENT_ID=xxxx.apps.googleusercontent.com`. Để trống thì nút Google báo chưa cấu hình.
   static const String googleServerClientId = String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
 
+  /// Địa chỉ web OptiPack, dùng cho khung 3D đóng gói (nhúng trang `/embed/packing` trong WebView).
+  /// Emulator: `10.0.2.2` là máy dev (web dev `npm run dev` đã mở cho mạng ngoài). Máy thật dùng IP LAN hoặc domain.
+  /// `--dart-define=WEB_BASE_URL=http://192.168.1.10:5173`
+  static const String webBaseUrl = String.fromEnvironment(
+    'WEB_BASE_URL',
+    defaultValue: 'http://10.0.2.2:5173',
+  );
+
   static const bool useMockData = bool.fromEnvironment('USE_MOCK_DATA');
 }

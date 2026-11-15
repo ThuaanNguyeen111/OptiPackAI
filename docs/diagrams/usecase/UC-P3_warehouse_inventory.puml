@@ -4,15 +4,15 @@ skinparam packageStyle rectangle
 
 actor "System\nAdministrator" as Admin
 actor "System\nScheduler" as Scheduler
-actor "Marketplace\nPlatform" as Marketplace
 actor "Warehouse\nStaff" as Warehouse
-actor "Shipping\nCoordinator" as Shipping
+actor "Shipping\nStaff" as Shipping
 actor "Store\nOwner" as Owner
 
-rectangle "AOFP System" {
+rectangle "OptiPack AI" {
   usecase "Configure warehouse" as UC_ConfigWh
   usecase "Manage categories & colors" as UC_Categories
-  usecase "Manage internal SKUs and mappings" as UC_SKUs
+  usecase "Manage internal SKUs" as UC_SKUs
+  usecase "Map seller SKU to internal SKU" as UC_MapSKU
   usecase "Merge stock" as UC_MergeStock
   usecase "Assign SKU to bin" as UC_AssignBin
   usecase "Sync product catalog" as UC_SyncCatalog
@@ -37,12 +37,12 @@ Admin --|> Owner
 Admin -- UC_ConfigWh
 Admin -- UC_Categories
 Admin -- UC_SKUs
+Admin -- UC_MapSKU
 Admin -- UC_AssignBin
 Admin -- UC_SyncCatalog
 
-' --- System Scheduler & Marketplace Platform ---
+' --- System Scheduler ---
 Scheduler -- UC_SyncCatalog
-Marketplace -- UC_SyncCatalog
 
 ' --- Warehouse Staff ---
 Warehouse -- UC_Receive
@@ -54,7 +54,7 @@ Warehouse -- UC_ConfirmPkg
 Warehouse -- UC_PrintSKU
 Warehouse -- UC_PrintBin
 
-' --- Shipping Coordinator ---
+' --- Shipping Staff ---
 Shipping -- UC_PrintSKU
 
 ' --- Store Owner ---
@@ -64,7 +64,7 @@ Owner -- UC_ViewAvail
 
 ' --- Include ---
 UC_Receive .> UC_CreateLot : <<include>>
-UC_SKUs .> UC_MergeStock : <<include>>
+UC_MapSKU .> UC_MergeStock : <<include>>
 
 ' --- Extend ---
 UC_PrintReceipt .> UC_Receive : <<extend>>

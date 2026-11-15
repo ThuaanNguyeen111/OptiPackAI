@@ -5,9 +5,8 @@ skinparam packageStyle rectangle
 actor "System\nAdministrator" as Admin
 actor "Store\nOwner" as Owner
 actor "System\nScheduler" as Scheduler
-actor "Marketplace\nPlatform" as Marketplace
 
-rectangle "AOFP System" {
+rectangle "OptiPack AI" {
   ' --- Sync jobs ---
   usecase "Auto sync product catalog" as UC_SyncCatalog
   usecase "Auto sync orders" as UC_SyncOrders
@@ -37,13 +36,6 @@ Scheduler -- UC_AutoPlans
 Scheduler -- UC_Recheck
 Scheduler -- UC_SLA
 Scheduler -- UC_Overdue
-
-' --- Marketplace Platform ---
-Marketplace -- UC_SyncCatalog
-Marketplace -- UC_SyncOrders
-Marketplace -- UC_WriteBack
-Marketplace -- UC_PushStock
-Marketplace -- UC_PullReturns
 
 ' --- Notification recipients ---
 Owner -- UC_Notify

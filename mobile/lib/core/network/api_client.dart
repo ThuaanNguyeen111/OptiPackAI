@@ -147,6 +147,17 @@ class ApiClient {
             options: Options(extra: {_publicKey: public}),
           ));
 
+  /// Tải file nhị phân (PDF nhãn kiện). Dùng cùng token và cơ chế tự làm mới như các request khác.
+  Future<List<int>> getBytes(String path, {Map<String, dynamic>? query}) async {
+    final data = await _send(() => _dio.get<List<int>>(
+          path,
+          queryParameters: _clean(query),
+          options: Options(responseType: ResponseType.bytes, receiveTimeout: const Duration(seconds: 60)),
+        ));
+    if (data is List<int>) return data;
+    throw const FormatException('Máy chủ không trả về file.');
+  }
+
   Future<Object?> post(
     String path, {
     Object? body,
