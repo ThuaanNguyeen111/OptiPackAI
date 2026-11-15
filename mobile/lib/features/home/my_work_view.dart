@@ -54,7 +54,10 @@ class _WorkList extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
               'Đang xem bản lưu trên máy — số liệu có thể cũ.',
-              style: TextStyle(color: AppColors.warning, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: AppColors.warning,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         if (groups.isEmpty)
@@ -62,11 +65,21 @@ class _WorkList extends StatelessWidget {
             padding: EdgeInsets.symmetric(vertical: 64),
             child: Column(
               children: [
-                Icon(Icons.inventory_2_outlined, size: 56, color: AppColors.inkTertiary),
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 56,
+                  color: AppColors.inkTertiary,
+                ),
                 SizedBox(height: 12),
-                Text('Chưa có nhóm đơn nào giao cho bạn.', textAlign: TextAlign.center),
+                Text(
+                  'Chưa có nhóm đơn nào giao cho bạn.',
+                  textAlign: TextAlign.center,
+                ),
                 SizedBox(height: 4),
-                Text('Kéo xuống để tải lại.', style: TextStyle(color: AppColors.inkSubtle)),
+                Text(
+                  'Kéo xuống để tải lại.',
+                  style: TextStyle(color: AppColors.inkSubtle),
+                ),
               ],
             ),
           )
@@ -90,75 +103,75 @@ class _GroupCard extends StatelessWidget {
     final deadline = group.isExpress && group.packagingDeadline != null
         ? deadlineLabel(group.packagingDeadline!, DateTime.now())
         : null;
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => context.push('/pick/${group.id}'),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    group.shortId,
-                    style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                    ),
+    return StageCard(
+      accent: group.isExpress ? AppColors.stageReturn : AppColors.stagePick,
+      icon: group.isExpress ? Icons.bolt : Icons.shopping_basket_outlined,
+      onTap: () => context.push('/pick/${group.id}'),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  group.shortId,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
                   ),
-                  const SizedBox(width: 8),
-                  Text(_platform(group.platform), style: TextStyle(color: AppColors.inkSubtle)),
-                  const Spacer(),
-                  const Icon(Icons.chevron_right),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  if (group.isExpress) const Pill('Hỏa tốc', Colors.deepOrange),
-                  if (deadline != null)
-                    Pill(
-                      deadline.text,
-                      switch (deadline.tone) {
-                        DeadlineTone.late => AppColors.danger,
-                        DeadlineTone.soon => AppColors.warning,
-                        DeadlineTone.ok => Colors.deepOrange,
-                      },
-                    ),
-                  if (group.isOverdue) Pill('Quá hạn', AppColors.danger),
-                  if (group.stockShortage) Pill('Thiếu hàng', AppColors.danger),
-                  if (group.recipientNamesDiffer) Pill('Nhiều người nhận', AppColors.stagePack),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '${group.activeOrderCount} đơn · ${_status(group.fulfillmentStatus)}',
-                style: TextStyle(color: AppColors.inkSubtle),
-              ),
-            ],
-          ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _platform(group.platform),
+                  style: TextStyle(color: AppColors.inkSubtle),
+                ),
+                const Spacer(),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (group.isExpress) const Pill('Hỏa tốc', Colors.deepOrange),
+                if (deadline != null)
+                  Pill(deadline.text, switch (deadline.tone) {
+                    DeadlineTone.late => AppColors.danger,
+                    DeadlineTone.soon => AppColors.warning,
+                    DeadlineTone.ok => Colors.deepOrange,
+                  }),
+                if (group.isOverdue) Pill('Quá hạn', AppColors.danger),
+                if (group.stockShortage) Pill('Thiếu hàng', AppColors.danger),
+                if (group.recipientNamesDiffer)
+                  Pill('Nhiều người nhận', AppColors.stagePack),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${group.activeOrderCount} đơn · ${_status(group.fulfillmentStatus)}',
+              style: TextStyle(color: AppColors.inkSubtle),
+            ),
+          ],
         ),
       ),
     );
   }
 
   static String _platform(String p) => switch (p.toLowerCase()) {
-        'lazada' => 'Lazada',
-        'tiktok' => 'TikTok',
-        'tiki' => 'Tiki',
-        'aurelle' => 'AURELLE',
-        _ => p,
-      };
+    'lazada' => 'Lazada',
+    'tiktok' => 'TikTok',
+    'tiki' => 'Tiki',
+    'aurelle' => 'AURELLE',
+    _ => p,
+  };
 
   static String _status(String s) => switch (s) {
-        'picking' => 'Đang lấy hàng',
-        _ => 'Cần lấy hàng',
-      };
+    'picking' => 'Đang lấy hàng',
+    _ => 'Cần lấy hàng',
+  };
 }
 
 class _ErrorView extends StatelessWidget {

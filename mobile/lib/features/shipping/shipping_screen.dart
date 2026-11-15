@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:image_picker/image_picker.dart';
+import 'package:printing/printing.dart';
 
 import '../../app/mock_providers.dart';
 import '../../core/network/api_exception.dart';
@@ -166,7 +167,7 @@ class _CarrierSheetState extends ConsumerState<_CarrierSheet> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -278,6 +279,21 @@ class _ShipmentCard extends ConsumerWidget {
     }
   }
 
+  /// Mở PDF nhãn kiện (mỗi kiện 1 nhãn) để in bằng máy in Bluetooth / máy in hệ thống hoặc gửi sang máy tính.
+  Future<void> _printLabel(BuildContext context, ShippingRepository repo) async {
+    try {
+      final bytes = await repo.shippingLabel(shipment.groupId);
+      await Printing.layoutPdf(
+        name: 'nhan-${shipment.code}',
+        onLayout: (_) async => Uint8List.fromList(bytes),
+      );
+    } on ShippingException catch (e) {
+      if (context.mounted) showToast(context, e.message, error: true);
+    } on ApiException catch (e) {
+      if (context.mounted) showToast(context, e.message, error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.read(shippingRepositoryProvider);
@@ -313,6 +329,15 @@ class _ShipmentCard extends ConsumerWidget {
                 padding: const EdgeInsets.only(top: 6),
                 child: Text('Trạng thái do ${s.carrierName} cập nhật.',
                     style: TextStyle(fontSize: 12, color: AppColors.inkSubtle)),
+              ),
+            if (s.groupId.isNotEmpty && s.status != ShipmentStatus.cancelled)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => _printLabel(context, repo),
+                  icon: const Icon(Icons.print_outlined),
+                  label: const Text('In nhãn kiện'),
+                ),
               ),
             if (s.status == ShipmentStatus.outForDelivery && !s.managedByCarrier) ...[
               if (s.selfDelivery)

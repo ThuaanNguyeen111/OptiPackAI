@@ -1,6 +1,7 @@
 import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
+import '../offline/pending_action.dart';
 import 'stock_repository.dart';
 
 /// Dòng tồn của BE (`SkuBinAssignmentResponse`) → [StockItem].
@@ -60,7 +61,7 @@ class ApiStockRepository implements StockRepository {
     try {
       return await call();
     } on ApiException catch (e) {
-      throw StockException(e.message, code: e.errorCode);
+      throw StockException(e.message, code: e.errorCode, retryable: e.isRetryable);
     }
   }
 
@@ -87,7 +88,7 @@ class ApiStockRepository implements StockRepository {
       return bin;
     } on ApiException catch (e) {
       if (e.statusCode == 404) return null;
-      throw StockException(e.message, code: e.errorCode);
+      throw StockException(e.message, code: e.errorCode, retryable: e.isRetryable);
     }
   }
 
@@ -143,4 +144,38 @@ class ApiStockRepository implements StockRepository {
         });
         return _item(asMap(raw)?['from'], assignmentId);
       });
+
+  @override
+  Future<PendingAction?> offlineAction({
+    required String kind,
+    required String assignmentId,
+    required String sku,
+    required String binCode,
+    required int quantity,
+    required String eventId,
+    StockAdjustReason? reason,
+  }) async {
+    if (kind != 'restock' && kind != 'adjust') return null;
+    final String wid;
+    try {
+      wid = await _wid(); // đọc từ bộ nhớ đệm khi mất mạng
+    } on StockException {
+      return null;
+    }
+    final restock = kind == 'restock';
+    return PendingAction(
+      id: eventId,
+      kind: restock ? 'stock_restock' : 'stock_adjust',
+      label: restock ? 'Nhập thêm $quantity × $sku vào ô $binCode' : 'Kiểm kê $sku ở ô $binCode: $quantity',
+      path: '${_base(wid, assignmentId)}/${restock ? 'restock' : 'adjust'}',
+      body: restock
+          ? {'quantity': quantity, 'client_event_id': eventId}
+          : {
+              'counted_quantity': quantity,
+              'reason_code': (reason ?? StockAdjustReason.countCorrection).code,
+              'client_event_id': eventId,
+            },
+      createdAt: DateTime.now(),
+    );
+  }
 }

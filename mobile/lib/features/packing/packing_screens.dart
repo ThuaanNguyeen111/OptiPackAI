@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:image_picker/image_picker.dart';
 
+import 'package:uuid/uuid.dart';
+
 import '../../app/mock_providers.dart';
+import '../../app/providers.dart';
 import '../../core/network/api_exception.dart';
 import '../proof/proof_photo_field.dart';
 import '../proof/proof_photo_repository.dart';
@@ -216,13 +219,23 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
 
   Future<void> _scan(Parcel parcel, String code) async {
     if (code.trim().isEmpty) return;
+    final repo = ref.read(packingRepositoryProvider);
+    final eventId = const Uuid().v4();
     try {
-      await ref.read(packingRepositoryProvider).scan(widget.groupId, parcel.no, code);
+      await repo.scan(widget.groupId, parcel.no, code, eventId: eventId);
       HapticFeedback.mediumImpact();
       _refresh();
     } on PackingException catch (e) {
       HapticFeedback.heavyImpact();
-      if (mounted) showToast(context, e.message, error: true);
+      if (!mounted) return;
+      // Mất mạng: lưu lần quét trên máy, có mạng tự gửi (cùng mã thao tác nên BE không ghi trùng).
+      final queued = e.retryable ? repo.buildScanAction(widget.groupId, parcel.no, code, eventId) : null;
+      if (queued != null) {
+        await ref.read(syncControllerProvider.notifier).enqueue(queued);
+        if (mounted) showToast(context, 'Đang ngoại tuyến: đã lưu "${queued.label}", sẽ gửi khi có mạng.');
+        return;
+      }
+      showToast(context, e.message, error: true);
     }
   }
 
@@ -267,7 +280,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
   }
 
   Future<void> _reportIssue(Parcel parcel) async {
-    final result = await showModalBottomSheet<({String sku, PackIssue issue, List<XFile> photos})>(
+    final result = await showModalBottomSheet<({String sku, PackIssue issue, List<XFile> photos, bool toPicking})>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -281,8 +294,16 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
           result.sku,
           result.issue,
           photoUrls: await photos.upload(result.photos),
+          returnToPicking: result.toPicking,
         ));
-    if (ok && mounted) showToast(context, 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.');
+    if (ok && mounted) {
+      showToast(
+        context,
+        result.toPicking
+            ? 'Đã trả nhóm về bước lấy hàng.'
+            : 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.',
+      );
+    }
   }
 
   @override
@@ -571,11 +592,12 @@ class _IssueSheetState extends State<_IssueSheet> {
   String? _sku;
   PackIssue _issue = PackIssue.damaged;
   List<XFile> _photos = const [];
+  bool _toPicking = false;
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -597,7 +619,14 @@ class _IssueSheetState extends State<_IssueSheet> {
               selected: {_issue},
               onSelectionChanged: (s) => setState(() => _issue = s.first),
             ),
-            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Trả cả nhóm về bước lấy hàng'),
+              subtitle: const Text('Dùng khi cần lấy lại hàng. Chỉ được khi chưa niêm phong kiện nào.'),
+              value: _toPicking,
+              onChanged: (v) => setState(() => _toPicking = v),
+            ),
+            const SizedBox(height: 4),
             ProofPhotoField(
               label: 'Ảnh lỗi',
               photos: _photos,
@@ -605,7 +634,7 @@ class _IssueSheetState extends State<_IssueSheet> {
             ),
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue, photos: _photos)),
+              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue, photos: _photos, toPicking: _toPicking)),
               child: const Text('Gửi báo cáo'),
             ),
           ],

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/mock_providers.dart';
@@ -137,8 +138,27 @@ class AppShell extends ConsumerStatefulWidget {
   ConsumerState<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends ConsumerState<AppShell> {
+class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Quay lại app từ nền: tải lại số thông báo chưa đọc (push có thể đến trễ hoặc người dùng đã tắt quyền thông báo).
+  /// Không gọi liên tục ở nền để đỡ tốn pin.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) ref.invalidate(unreadCountProvider);
+  }
 
   Future<void> _confirmLogout() async {
     final pending = ref.read(syncControllerProvider).pending;
@@ -193,13 +213,25 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF0B3D44), Color(0xFF0F766E)],
+            ),
+          ),
+        ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(tabs[index].label, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Text(tabs[index].label, style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.white)),
             Text(
               '${user.name} · ${user.role.label}',
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFFBEE8E2)),
             ),
           ],
         ),

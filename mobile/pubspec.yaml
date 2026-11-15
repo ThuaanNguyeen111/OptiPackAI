@@ -54,6 +54,7 @@ dependencies:
   google_sign_in: ^7.2.0
   # 14/11/2026 — khung 3D đóng gói: nhúng trang web /embed/packing trong WebView
   webview_flutter: ^4.13.0
+  printing: ^5.14.3
 
 dev_dependencies:
   flutter_test:
@@ -111,3 +112,7 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# printing -> image 4.11 cần archive >= 4.7 (4.0.9 thiếu ZLibDecoder.decodeLazy, làm test không biên dịch được)
+dependency_overrides:
+  archive: ^4.7.1

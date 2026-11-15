@@ -28,20 +28,24 @@ class AppNotification {
   final String? relatedEntityId;
 
   AppNotification markRead() => AppNotification(
-        id: id,
-        type: type,
-        severity: severity,
-        title: title,
-        message: message,
-        createdAt: createdAt,
-        isRead: true,
-        relatedEntityType: relatedEntityType,
-        relatedEntityId: relatedEntityId,
-      );
+    id: id,
+    type: type,
+    severity: severity,
+    title: title,
+    message: message,
+    createdAt: createdAt,
+    isRead: true,
+    relatedEntityType: relatedEntityType,
+    relatedEntityId: relatedEntityId,
+  );
 }
 
+/// Số thông báo mỗi trang.
+const notificationsPageSize = 30;
+
 abstract class NotificationsRepository {
-  Future<List<AppNotification>> list();
+  /// Trang mới nhất; [before] = `createdAt` của thông báo cuối trang trước để lấy trang cũ hơn.
+  Future<List<AppNotification>> list({DateTime? before});
   Future<int> unreadCount();
   Future<void> markRead(String id);
   Future<void> markAllRead();
@@ -56,7 +60,8 @@ class MockNotificationsRepository implements NotificationsRepository {
         type: 'stock_shortage',
         severity: NotificationSeverity.critical,
         title: 'Thiếu hàng: AOPOLO-030-BE-L',
-        message: 'Nhóm 6ae76ee49b cần 2, chỉ giữ được 1. Nhập thêm hàng hoặc báo thiếu.',
+        message:
+            'Nhóm 6ae76ee49b cần 2, chỉ giữ được 1. Nhập thêm hàng hoặc báo thiếu.',
         createdAt: now.subtract(const Duration(minutes: 12)),
         relatedEntityType: 'order_group',
         relatedEntityId: '6ae76ee49b1f1227a7eeeca4',
@@ -76,7 +81,8 @@ class MockNotificationsRepository implements NotificationsRepository {
         type: 'packing_blocked',
         severity: NotificationSeverity.warning,
         title: 'Chưa tính được kế hoạch đóng gói',
-        message: 'SKU SLL-BRN-37 chưa có số đo. Cần đo và xác nhận hồ sơ trên web.',
+        message:
+            'SKU SLL-BRN-37 chưa có số đo. Cần đo và xác nhận hồ sơ trên web.',
         createdAt: now.subtract(const Duration(hours: 2)),
         relatedEntityType: 'order_group',
         relatedEntityId: 'g-blocked',
@@ -106,10 +112,11 @@ class MockNotificationsRepository implements NotificationsRepository {
 
   late List<AppNotification> _items;
 
-  Future<void> _latency() => Future<void>.delayed(const Duration(milliseconds: 150));
+  Future<void> _latency() =>
+      Future<void>.delayed(const Duration(milliseconds: 150));
 
   @override
-  Future<List<AppNotification>> list() async {
+  Future<List<AppNotification>> list({DateTime? before}) async {
     await _latency();
     return List.unmodifiable(_items);
   }

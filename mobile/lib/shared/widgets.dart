@@ -64,22 +64,94 @@ class WaitingBackendButton extends StatelessWidget {
 }
 
 class Pill extends StatelessWidget {
-  const Pill(this.text, this.color, {super.key});
+  const Pill(this.text, this.color, {super.key, this.icon});
 
   final String text;
   final Color color;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 13, color: color), const SizedBox(width: 4)],
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Thẻ nổi có dải màu theo bước xử lý ở bên trái (lấy hàng, đóng gói, giao hàng, hoàn hàng…) và bóng nhẹ.
+/// Màu luôn đi kèm chữ / icon bên trong thẻ, không đứng một mình.
+class StageCard extends StatelessWidget {
+  const StageCard({super.key, required this.accent, required this.child, this.onTap, this.icon});
+
+  final Color accent;
+  final Widget child;
+  final VoidCallback? onTap;
+
+  /// Icon trong ô màu ở đầu thẻ (tuỳ chọn).
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(16);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.hairline),
+        boxShadow: [
+          BoxShadow(color: accent.withValues(alpha: 0.16), blurRadius: 14, offset: const Offset(0, 5)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(width: 6, color: accent),
+                  if (icon != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 12, top: 14),
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(icon, color: accent, size: 22),
+                        ),
+                      ),
+                    ),
+                  Expanded(child: child),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -99,9 +171,21 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: AppColors.inkTertiary),
-            const SizedBox(height: 12),
-            Text(text, textAlign: TextAlign.center),
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.primary.withValues(alpha: 0.22), AppColors.primary.withValues(alpha: 0.06)],
+                ),
+              ),
+              child: Icon(icon, size: 44, color: AppColors.primary),
+            ),
+            const SizedBox(height: 16),
+            Text(text, textAlign: TextAlign.center, style: TextStyle(color: AppColors.inkSubtle, fontWeight: FontWeight.w600)),
           ],
         ),
       ),
