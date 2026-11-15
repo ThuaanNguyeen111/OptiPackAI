@@ -70,9 +70,9 @@ export function ReceiptEvidencePanel({
 
   async function pick(files: FileList | File[] | null) {
     if (!files || files.length === 0) return
-    const images = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    const images = Array.from(files).filter((f) => f.type.startsWith('image/') || f.type === 'application/pdf')
     if (images.length === 0) {
-      setUploadError(t('Chỉ nhận ảnh (JPG, PNG, WebP, HEIC). PDF hãy in ra rồi chụp lại.', 'Images only (JPG, PNG, WebP, HEIC).'))
+      setUploadError(t('Chỉ nhận ảnh (JPG, PNG, WebP, HEIC) hoặc file PDF.', 'Images (JPG, PNG, WebP, HEIC) or PDF only.'))
       return
     }
     const chosen = images.slice(0, MAX_PHOTOS)
@@ -109,7 +109,7 @@ export function ReceiptEvidencePanel({
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         multiple
         className="hidden"
         onChange={(e) => void pick(e.target.files)}
@@ -175,10 +175,10 @@ export function ReceiptEvidencePanel({
         >
           {busy === 'upload' ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Camera className="h-5 w-5 text-primary" />}
           <span className="text-sm font-semibold text-ink">
-            {busy === 'upload' ? t('Đang tải ảnh…', 'Uploading…') : t('Tải ảnh từ máy hoặc chụp phiếu', 'Upload or take slip photos')}
+            {busy === 'upload' ? t('Đang tải ảnh…', 'Uploading…') : t('Tải ảnh / PDF từ máy hoặc chụp phiếu', 'Upload a photo / PDF or take one')}
           </span>
           <span className="text-[11px] text-ink-muted">
-            {t('Kéo thả ảnh vào đây · AI sẽ đọc số lượng trên phiếu', 'Drop photos here · AI reads the quantities')}
+            {t('Kéo thả vào đây · PDF lấy trang đầu · AI đọc số lượng trên phiếu', 'Drop files here · PDF uses page 1 · AI reads the quantities')}
           </span>
         </button>
       )}

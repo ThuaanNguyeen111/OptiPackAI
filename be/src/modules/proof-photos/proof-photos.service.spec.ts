@@ -55,6 +55,18 @@ describe('ProofPhotosService.upload', () => {
     expect(body).not.toContain('secret-1');
   });
 
+  it('phiếu NCC nhận PDF (gửi application/pdf, lưu JPG); ảnh bằng chứng vẫn chặn PDF', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: { secure_url: 'https://res.cloudinary.com/demo/image/upload/v1/optipack/receipts/a.jpg', public_id: 'optipack/receipts/a' },
+    });
+    const pdf = Buffer.from('%PDF-1.7 ...', 'ascii');
+    await service.upload([{ buffer: pdf, size: pdf.length }], 'optipack/receipts');
+    const form = new URLSearchParams((mockedAxios.post.mock.calls[0] as [string, string])[1]);
+    expect(form.get('file')?.startsWith('data:application/pdf;base64,')).toBe(true);
+    expect(form.get('format')).toBe('jpg');
+    await expect(service.upload([{ buffer: pdf, size: pdf.length }], 'optipack/proof')).rejects.toMatchObject({ errorCode: E.INVALID_TYPE });
+  });
+
   it('Cloudinary lỗi → 502 PROOF_PHOTO_UPLOAD_FAILED', async () => {
     mockedAxios.post.mockRejectedValue(new Error('network'));
     await expect(service.upload([jpeg()])).rejects.toMatchObject({ errorCode: E.UPLOAD_FAILED });
