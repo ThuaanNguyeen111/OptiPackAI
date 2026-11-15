@@ -6,5 +6,6 @@ import { ProofPhotosService } from './proof-photos.service';
 @Module({
   controllers: [ProofPhotosController],
   providers: [ProofPhotosService],
+  exports: [ProofPhotosService],
 })
 export class ProofPhotosModule {}

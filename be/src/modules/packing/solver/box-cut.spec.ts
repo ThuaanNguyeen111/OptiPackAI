@@ -36,6 +36,19 @@ const unit = (sku: string, l: number, w: number, h: number, g: number, category:
 });
 
 describe('Cắt hạ thùng', () => {
+  // ADR 0002 (13/11/2026): không cắt thấp hơn thùng thấp nhất của danh mục.
+  it('không cắt thấp hơn sàn min_cut_height_mm: áo dày 1 cm trong thùng L chỉ cắt xuống 10 cm', () => {
+    const cut = cutBoxToLoad({ ...BOX_L, min_cut_height_mm: 100 }, [at(0, 10)]);
+    expect(cut.inner.height_mm).toBe(100);
+    expect(cut.outer.height_mm).toBe(106);
+    expect(cut.cut_from).toEqual({ inner_height_mm: 350, outer_height_mm: 356 });
+  });
+
+  it('sàn làm phần bỏ được < 5 cm thì không cắt (thùng M cao 20 cm, sàn 16 cm)', () => {
+    const boxM: BoxSpec = { ...BOX_L, inner: { ...BOX_L.inner, height_mm: 200 }, outer: { ...BOX_L.outer, height_mm: 206 }, min_cut_height_mm: 160 };
+    expect(cutBoxToLoad(boxM, [at(0, 10)]).cut_from).toBeUndefined();
+  });
+
   it('cắt xuống đỉnh chồng hàng làm tròn lên cm, thành thùng giữ nguyên độ dày', () => {
     const cut = cutBoxToLoad(BOX_L, [at(0, 120), at(120, 105)]);
     expect(cut.inner.height_mm).toBe(230);

@@ -267,8 +267,10 @@ export class PackagingBoxService {
 
   /** Thùng đang dùng có đủ số đo, đổi sang kiểu lõi của engine. */
   async listActiveSpecs(): Promise<BoxSpec[]> {
-    const boxes = await this.materialModel.find(PLANNABLE_BOX_FILTER).lean();
-    return boxes.map(toBoxSpec);
+    const specs = (await this.materialModel.find(PLANNABLE_BOX_FILTER).lean()).map(toBoxSpec);
+    // ADR 0002: không cắt hạ thùng nào thấp hơn thùng thấp nhất đang dùng.
+    const floor = Math.min(...specs.map((b) => b.inner.height_mm));
+    return specs.map((b) => ({ ...b, min_cut_height_mm: floor }));
   }
 
   /** AOFP-224 — túi niêm phong đang dùng có đủ số đo, đổi sang kiểu lõi của engine. */
@@ -278,7 +280,8 @@ export class PackagingBoxService {
   }
 
   async findActiveSpecByCode(code: string): Promise<BoxSpec> {
-    const box = await this.materialModel.findOne({ ...PLANNABLE_BOX_FILTER, code }).lean();
+    // Tra qua cả danh mục để thùng mang đúng sàn cắt hạ (danh mục thùng chỉ vài chục dòng).
+    const box = (await this.listActiveSpecs()).find((b) => b.code === code);
     if (!box) {
       throw new AppException(
         PACKAGING_ERROR_CODES.BOX_NOT_FOUND,
@@ -287,7 +290,7 @@ export class PackagingBoxService {
         { code },
       );
     }
-    return toBoxSpec(box);
+    return box;
   }
 
   async create(dto: CreatePackagingBoxDto): Promise<PackagingMaterialDocument> {

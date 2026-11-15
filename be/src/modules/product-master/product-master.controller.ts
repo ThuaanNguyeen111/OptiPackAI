@@ -33,10 +33,13 @@ export interface ProductMasterResponse {
   zipBagFolded: boolean;
   /** (08/10/2026) Chỉ có ở PUT packaging-profile: túi zip nhỏ nhất còn vừa gói vừa đo (null = không túi nào vừa). */
   suggestedZipBagCode?: string | null;
+  /** (13/11/2026) Chỉ có ở response xác nhận hồ sơ: cảnh báo không chặn (vd độ dày lệch GSM). */
+  warnings?: string[];
   /** AOFP-224 — giá trị kho đặt (null = theo loại) và giá trị engine áp thật. */
   outerRequirement: OuterRequirement | null;
   effectiveOuterRequirement: OuterRequirement;
   canFoldInHalf: boolean;
+  fabricGsm: number | null;
   profileConfirmedBy: string | null;
   profileConfirmedAt: Date | null;
   lastSyncedAt: Date;
@@ -75,6 +78,7 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
     zipBagCode: doc.zip_bag_code ?? null,
     zipBagFolded: doc.zip_bag_folded ?? false,
     canFoldInHalf: doc.can_fold_in_half ?? false,
+    fabricGsm: doc.fabric_gsm ?? null,
     outerRequirement: doc.outer_requirement ?? null,
     effectiveOuterRequirement: resolveOuterRequirement({
       is_fragile: doc.is_fragile ?? false,
@@ -172,12 +176,12 @@ export class ProductMasterController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ConfirmPackagingProfileDto,
   ): Promise<ProductMasterResponse> {
-    const doc = await this.productMasterService.confirmPackagingProfile(id, user.userId, dto);
+    const { product: doc, warnings } = await this.productMasterService.confirmPackagingProfile(id, user.userId, dto);
     const suggestedZipBagCode = await this.productMasterService.suggestZipBag({
       length_cm: dto.length_cm,
       width_cm: dto.width_cm,
-      height_cm: dto.height_cm,
+      height_cm: doc.dimension?.package_height_cm ?? dto.height_cm ?? 0,
     });
-    return { ...toResponse(doc), suggestedZipBagCode };
+    return { ...toResponse(doc), suggestedZipBagCode, warnings };
   }
 }

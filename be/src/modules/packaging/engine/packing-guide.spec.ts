@@ -75,6 +75,12 @@ describe('describePackingSteps', () => {
     expect(facts[2]?.rests_on).toEqual(['GIAY#1']);
   });
 
+  it('layer: sát đáy = 1, món khác = 1 + lớp cao nhất của món đỡ ngay dưới', () => {
+    const shirt2 = placement('AO#2', 4, [0, 0, 160], [250, 180, 40]);
+    const facts = describePackingSteps([shoe1, shoe2, shirt, shirt2], box);
+    expect(facts.map((f) => f.layer)).toEqual([1, 1, 2, 3]);
+  });
+
   it('mô tả vị trí theo mặt bằng thùng (trái/phải, trước/sau)', () => {
     const facts = describePackingSteps([shoe1, shoe2], box);
     expect(facts[0]?.position).toBe('góc trái – phía trước');
@@ -195,4 +201,15 @@ describe('gập đôi trong hướng dẫn (22/09/2026)', () => {
     );
     expect(guide.steps[0]?.instruction).toContain('Gập đôi');
   });
+  it('gói đã gập túi zip được engine gập thêm → hướng dẫn gập túi rồi gập đôi cả gói', () => {
+    const folded = { ...placement('AO#1', 1, [0, 0, 0], [180, 240, 80]), folded: true };
+    const profiles = new Map([
+      ['AO', { product_category: 't_shirt', zip_bag: { code: 'ZIP-M', name: 'Túi zip M', folded: true } }],
+    ]);
+    const guide = buildTemplateGuide(describePackingSteps([folded], box, [], profiles), box, null, []);
+    expect(guide.steps[0]?.instruction).toContain(
+      'Cho áo thun AO (AO#1) vào túi zip Túi zip M, gập đôi túi, gập đôi cả gói theo chiều dài',
+    );
+  });
 });
+

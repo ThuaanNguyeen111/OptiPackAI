@@ -530,7 +530,7 @@ function ActionPanel({
   const [receivedAt, setReceivedAt] = useState('')
   const [lotCode, setLotCode] = useState('')
   const [supplier, setSupplier] = useState('')
-  const [receiptQty, setReceiptQty] = useState(1)
+  const [receiptQty, setReceiptQty] = useState(0)
   const [evidence, setEvidence] = useState<ReceiptEvidenceState>(EMPTY_RECEIPT_EVIDENCE)
   const evidenceProblem = receiptEvidenceProblem(evidence, receiptQty, vi)
 
@@ -657,7 +657,7 @@ function ActionPanel({
       }
       // Xoá form ngay để bấm Lưu lần nữa không lập trùng phiếu (phiếu không có idempotency key).
       setEvidence(EMPTY_RECEIPT_EVIDENCE)
-      setReceiptQty(1)
+      setReceiptQty(0)
       setSupplier('')
       setNote('')
       setLotCode('')
@@ -773,33 +773,16 @@ function ActionPanel({
 
         {action === 'lots' ? (
           <>
-            <Field label={vi ? 'Mã lô (để trống thì hệ thống tự đặt)' : 'Lot code (blank = system)'}>
-              <Input
-                className={fieldClass}
-                value={lotCode}
-                maxLength={40}
-                onChange={(e) => setLotCode(e.target.value)}
-              />
-            </Field>
-            <Field label={vi ? 'Số lượng trên phiếu' : 'Receipt quantity'}>
-              <Input
-                className={fieldClass}
-                type="number"
-                min={1}
-                value={receiptQty}
-                onChange={(e) => setReceiptQty(Math.max(1, Number(e.target.value) || 1))}
-              />
-            </Field>
             <ReceiptEvidencePanel
               vi={vi}
               itemCodes={[row.sellerSku, row.masterSku ?? '']}
               quantity={receiptQty}
+              onQuantityChange={setReceiptQty}
               value={evidence}
               onChange={(next) => {
                 setEvidence(next)
                 if (next.scan?.supplier && !supplier.trim()) setSupplier(next.scan.supplier)
               }}
-              onQuantityFromSlip={setReceiptQty}
             />
             <Field label={vi ? 'Nhà cung cấp' : 'Supplier'}>
               <Input
@@ -807,6 +790,14 @@ function ActionPanel({
                 value={supplier}
                 maxLength={120}
                 onChange={(e) => setSupplier(e.target.value)}
+              />
+            </Field>
+            <Field label={vi ? 'Mã lô (để trống thì hệ thống tự đặt)' : 'Lot code (blank = system)'}>
+              <Input
+                className={fieldClass}
+                value={lotCode}
+                maxLength={40}
+                onChange={(e) => setLotCode(e.target.value)}
               />
             </Field>
             <Field label={vi ? 'Ghi chú' : 'Note'}>

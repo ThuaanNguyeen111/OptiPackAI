@@ -1,5 +1,5 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -9,6 +9,8 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { ScanReceiptDto } from './dto/scan-receipt.dto';
 import { ReceiptOcrService, type ReceiptOcrScanView } from './receipt-ocr.service';
 import { Features } from '../role-permissions/feature-scope';
+import { ProofPhotosService, type StoredPhoto } from '../proof-photos/proof-photos.service';
+import { RECEIPT_PHOTO_FOLDER } from '../proof-photos/proof-photo.util';
 
 /** 11/11/2026 — đọc phiếu NCC bằng AI để đối chiếu số lượng khi nhập kho / mua vật liệu. */
 @ApiTags('Receipt OCR')
@@ -17,7 +19,10 @@ import { Features } from '../role-permissions/feature-scope';
 @Controller('receipt-ocr')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ReceiptOcrController {
-  constructor(private readonly receiptOcr: ReceiptOcrService) {}
+  constructor(
+    private readonly receiptOcr: ReceiptOcrService,
+    private readonly proofPhotos: ProofPhotosService,
+  ) {}
 
   @Post()
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
@@ -27,5 +32,17 @@ export class ReceiptOcrController {
   })
   async scan(@Body() dto: ScanReceiptDto, @CurrentUser() user: AuthenticatedUser): Promise<ReceiptOcrScanView> {
     return this.receiptOcr.scan(dto.photo_urls, user.userId);
+  }
+
+  @Get('photos')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiQuery({ name: 'cursor', required: false, description: '`nextCursor` của trang trước' })
+  @ApiOperation({
+    summary:
+      '🆕 16/11/2026 — Ảnh phiếu NCC đã tải lên (thư mục optipack/receipts), mới nhất trước, 24 ảnh/trang → { photos: [{ url, createdAt, width, height }], nextCursor }. URL dùng thẳng cho `document_photo_urls` / POST /receipt-ocr. Lỗi: 503 PROOF_PHOTO_NOT_CONFIGURED, 502 PROOF_PHOTO_LIST_FAILED.',
+  })
+  async photos(@Query('cursor') cursor?: string): Promise<{ photos: StoredPhoto[]; nextCursor: string | null }> {
+    const c = typeof cursor === 'string' && /^[A-Za-z0-9]{1,200}$/.test(cursor) ? cursor : undefined;
+    return this.proofPhotos.listRecent(RECEIPT_PHOTO_FOLDER, c);
   }
 }

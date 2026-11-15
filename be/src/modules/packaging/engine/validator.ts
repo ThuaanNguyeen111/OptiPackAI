@@ -1,4 +1,4 @@
-import { minSupportPct, orientedDims } from './units';
+import { mayRestOn, minSupportPct, orientedDims } from './units';
 import type { BoxSpec, PackingUnit, Placement, Violation } from './types';
 import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
@@ -185,6 +185,18 @@ export function validateCandidate(
           message: `Không được đặt ${stackedItem.item_key} lên trên hàng dễ vỡ ${p.item_key}.`,
         });
       }
+    }
+    const softBelow = unit
+      ? directSupporters(p, placements)
+          .map((s) => unitByKey.get(placements[s.index]?.item_key ?? ''))
+          .find((below) => below !== undefined && !mayRestOn(unit, below))
+      : undefined;
+    if (softBelow) {
+      violations.push({
+        code: 'HARD_ON_SOFT',
+        item_key: p.item_key,
+        message: `Không được đặt hàng cứng ${p.item_key} lên quần áo ${softBelow.item_key}.`,
+      });
     }
     const minPct = unit ? minSupportPct(unit) : 100;
     if (!isFullySupported(p, placements, minPct)) {

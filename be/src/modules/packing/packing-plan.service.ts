@@ -20,6 +20,7 @@ import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-
 import { PackagingBoxService } from '../packaging/packaging-box.service';
 import { PackagingMaterialService } from '../packaging/packaging-material.service';
 import { PackagingBagService } from '../packaging/packaging-bag.service';
+import { toItemProfiles } from './utils/item-profiles.util';
 import { PackingGuideAiService } from '../packaging/packing-guide-ai.service';
 import {
   ALL_ORIENTATIONS,
@@ -231,6 +232,7 @@ function toPlanParcel(
       price_vnd: p.box.price_vnd,
       cut_from_inner_height_mm: p.box.cut_from?.inner_height_mm ?? null,
       cut_from_outer_height_mm: p.box.cut_from?.outer_height_mm ?? null,
+      min_cut_height_mm: p.box.min_cut_height_mm ?? null,
     },
     placements: p.placements.map((q) => ({
       ...q,
@@ -329,23 +331,10 @@ function boxSpecOf(parcel: PlanParcel): BoxSpec {
     tare_g: parcel.box.tare_g,
     max_load_g: parcel.box.max_load_g,
     price_vnd: parcel.box.price_vnd,
+    ...(typeof parcel.box.min_cut_height_mm === 'number' && { min_cut_height_mm: parcel.box.min_cut_height_mm }),
     ...(typeof cutInner === 'number' &&
       typeof cutOuter === 'number' && { cut_from: { inner_height_mm: cutInner, outer_height_mm: cutOuter } }),
   });
-}
-
-function toItemProfiles(items: PackableItem[]): PackingPlan['item_profiles'] {
-  const seen = new Map<string, PackingPlan['item_profiles'][number]>();
-  for (const i of items) {
-    if (!seen.has(i.sku))
-      seen.set(i.sku, {
-        sku: i.sku,
-        product_category: i.product_category ?? null,
-        zip_bag_code: i.zip_bag_code ?? null,
-        zip_bag_folded: i.zip_bag_folded ?? false,
-      });
-  }
-  return [...seen.values()];
 }
 
 /**
@@ -704,6 +693,7 @@ export class PackingPlanService {
           pending.push({ orderId: head.order_id, units, result, availability: stockForOrder, charge, prefer });
       }
 
+      const zipBags = await this.bagService.list(true);
       const saved = await this.runInTransaction(async (session) => {
         const updated = await this.planModel.findOneAndUpdate(
           { _id: plan._id, status: 'computing' },
@@ -712,7 +702,7 @@ export class PackingPlanService {
               status: 'ready',
               orders,
               parcels: renumberParcels(parcels, orders.map((o) => o.order_id)),
-              item_profiles: toItemProfiles(allocations.flatMap((a) => a.items)),
+              item_profiles: toItemProfiles(allocations.flatMap((a) => a.items), zipBags),
               'solver.computation_ms': Date.now() - started,
               'solver.inputs': inputs,
             },

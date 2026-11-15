@@ -8,6 +8,7 @@ import {
   PROOF_PHOTO_FOLDER,
   PROOF_PHOTO_TRANSFORMATION,
   type PhotoFolder,
+  isOwnProofPhotoUrl,
   proofPhotoFormat,
   readCloudinaryConfig,
   signCloudinaryParams,
@@ -35,6 +36,20 @@ interface CloudinaryUploadResponse {
 }
 
 const UPLOAD_TIMEOUT_MS = 30_000;
+const LIST_TIMEOUT_MS = 15_000;
+export const RECENT_PHOTOS_PAGE = 24;
+
+export interface StoredPhoto {
+  url: string;
+  createdAt: string | null;
+  width: number | null;
+  height: number | null;
+}
+
+interface CloudinarySearchResponse {
+  resources?: { secure_url?: unknown; created_at?: unknown; width?: unknown; height?: unknown }[];
+  next_cursor?: unknown;
+}
 
 /** 10/11/2026 — Gửi ảnh bằng chứng lên Cloudinary (BE_MOBILE_CHECKLIST mục 4). */
 @Injectable()
@@ -103,5 +118,44 @@ export class ProofPhotosService {
         }
       }),
     );
+  }
+
+  /**
+   * 16/11/2026 — ảnh đã tải trong 1 thư mục, mới nhất trước (Cloudinary Search API), để chọn lại
+   * ảnh phiếu chụp trước đó (VD chụp bằng điện thoại, chọn trên máy tính). Chỉ trả URL đúng cloud + thư mục.
+   */
+  async listRecent(folder: PhotoFolder, cursor?: string): Promise<{ photos: StoredPhoto[]; nextCursor: string | null }> {
+    const config = readCloudinaryConfig(process.env);
+    if (!config) {
+      throw new AppException(E.NOT_CONFIGURED, 'Chưa cấu hình nơi lưu ảnh (CLOUDINARY_* trong be/.env).', HttpStatus.SERVICE_UNAVAILABLE);
+    }
+    try {
+      const res = await axios.post<CloudinarySearchResponse>(
+        `https://api.cloudinary.com/v1_1/${encodeURIComponent(config.cloudName)}/resources/search`,
+        {
+          expression: `resource_type:image AND public_id:${folder}/*`,
+          sort_by: [{ created_at: 'desc' }],
+          max_results: RECENT_PHOTOS_PAGE,
+          ...(cursor ? { next_cursor: cursor } : {}),
+        },
+        { auth: { username: config.apiKey, password: config.apiSecret }, timeout: LIST_TIMEOUT_MS },
+      );
+      const photos = (res.data.resources ?? []).flatMap((r): StoredPhoto[] => {
+        const url = r.secure_url;
+        if (typeof url !== 'string' || !isOwnProofPhotoUrl(url, config.cloudName, folder)) return [];
+        return [{
+          url,
+          createdAt: typeof r.created_at === 'string' ? r.created_at : null,
+          width: typeof r.width === 'number' ? r.width : null,
+          height: typeof r.height === 'number' ? r.height : null,
+        }];
+      });
+      const next = res.data.next_cursor;
+      return { photos, nextCursor: typeof next === 'string' && next.length > 0 ? next : null };
+    } catch (error: unknown) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      this.logger.warn(`Liệt kê ảnh Cloudinary thất bại: ${String(status ?? '')} ${error instanceof Error ? error.message : String(error)}`);
+      throw new AppException(E.LIST_FAILED, 'Không tải được danh sách ảnh đã lưu, thử lại sau.', HttpStatus.BAD_GATEWAY);
+    }
   }
 }

@@ -796,6 +796,8 @@ export class OrderGroupsService {
     packingBlocked?: boolean;
     q?: string;
     before?: Date;
+    from?: Date;
+    to?: Date;
     limit?: number;
   }): Promise<OrderGroupDocument[]> {
     const query: Record<string, unknown> = {};
@@ -826,9 +828,16 @@ export class OrderGroupsService {
     }
     if (filter.stockShortage !== undefined) query.stock_shortage = filter.stockShortage ? true : { $ne: true };
     if (filter.isOverdue !== undefined) query.is_overdue = filter.isOverdue ? true : { $ne: true };
+    // (16/11/2026) Khoảng ngày tạo nhóm [from, to) — mobile lọc danh sách Hỏa Tốc ở Tổng quan.
+    if (filter.from || filter.to) {
+      query.created_at = { ...(filter.from && { $gte: filter.from }), ...(filter.to && { $lt: filter.to }) };
+    }
     const limit = Math.min(Math.max(filter.limit ?? 100, 1), 200);
     const pinBase = { ...query };
-    if (filter.before) query.created_at = { $lt: filter.before };
+    if (filter.before) {
+      const upper = filter.to && filter.to < filter.before ? filter.to : filter.before;
+      query.created_at = { ...(filter.from && { $gte: filter.from }), $lt: upper };
+    }
 
     // .lean() (Rule #12) — endpoint chỉ đọc để trả JSON, không cần
     // Document đầy đủ. Sort theo created_at mới nhất trước, tận dụng

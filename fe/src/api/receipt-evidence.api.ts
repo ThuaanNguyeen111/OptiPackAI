@@ -104,3 +104,20 @@ export async function scanReceipt(photoUrls: string[]): Promise<ReceiptScan> {
     }),
   }
 }
+
+export type StoredReceiptPhoto = { url: string; createdAt: string | null }
+
+/** GET /receipt-ocr/photos — 16/11/2026: ảnh phiếu đã tải lên trước đó, mới nhất trước (24 ảnh/trang). */
+export async function listReceiptPhotos(cursor?: string): Promise<{ photos: StoredReceiptPhoto[]; nextCursor: string | null }> {
+  const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  const res = asRecord(await apiRequest<unknown>(`/receipt-ocr/photos${q}`, { auth: true }))
+  const photos = Array.isArray(res?.photos) ? res.photos : []
+  return {
+    photos: photos.flatMap((raw) => {
+      const p = asRecord(raw)
+      const url = str(p?.url)
+      return url ? [{ url, createdAt: str(p?.createdAt) }] : []
+    }),
+    nextCursor: str(res?.nextCursor),
+  }
+}
