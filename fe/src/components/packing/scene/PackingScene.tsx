@@ -458,7 +458,8 @@ function PlacedItem({
           role === 'staged' && (kind === 'wrap' || kind === 'tape') ? (
             <WrapAnimation size={size} index={index} mode={kind} />
           ) : (
-            <BubbleSleeve size={size} />
+            // Xốp chỉ hiện ngoài bước bọc khi món đã qua bước dán (đang đặt / đã nằm trong thùng).
+            <BubbleSleeve size={size} taped={role === 'placing' || role === 'placed'} />
           )
         ) : null}
         {tint && model && (role === 'placed' || role === 'placing') ? (
