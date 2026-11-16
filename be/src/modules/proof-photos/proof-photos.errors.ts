@@ -7,4 +7,6 @@ export const PROOF_PHOTO_ERROR_CODES = {
   INVALID_TYPE: 'PROOF_PHOTO_INVALID_TYPE',
   UPLOAD_FAILED: 'PROOF_PHOTO_UPLOAD_FAILED',
   INVALID_PURPOSE: 'PROOF_PHOTO_INVALID_PURPOSE', // 11/11/2026 — ?purpose= khác proof|receipt
+  LIST_FAILED: 'PROOF_PHOTO_LIST_FAILED', // 16/11/2026 — Cloudinary lỗi khi liệt kê ảnh phiếu đã tải
+
 } as const;

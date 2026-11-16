@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AUTH_ERROR_CODES, authError } from '../auth.errors';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -61,7 +62,10 @@ export class TokenService {
 
     const [accessToken, refreshTokenValue] = await Promise.all([
       this.jwtService.signAsync(payload),
+      // jwtid ngẫu nhiên: 2 lần cấp trong cùng 1 giây (2 tab cùng refresh) cho payload + iat
+      // giống hệt → JWT giống hệt → trùng token_hash (E11000, 500). jti làm mỗi token khác nhau.
       this.jwtService.signAsync(payload, {
+        jwtid: randomUUID(),
         secret: refreshSecret,
         expiresIn: this.configService.get<number>('jwt.refreshExpiresIn', 2592000),
       }),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:optipack_mobile/app/mock_providers.dart';
 import 'package:optipack_mobile/app/theme.dart';
 import 'package:optipack_mobile/features/notifications/notifications_screen.dart';
 import 'package:optipack_mobile/features/overview/overview_screen.dart';
@@ -20,6 +21,7 @@ Future<void> pumpScreen(WidgetTester tester, Widget screen) async {
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     ProviderScope(
+      overrides: mockDataOverrides,
       child: MaterialApp(theme: buildTheme(), home: Scaffold(body: screen)),
     ),
   );
@@ -27,16 +29,15 @@ Future<void> pumpScreen(WidgetTester tester, Widget screen) async {
 }
 
 void main() {
-  testWidgets('Thông báo: hiện danh sách, số chưa đọc, công tắc push bị khoá', (tester) async {
+  testWidgets('Thông báo: hiện danh sách, số chưa đọc, hướng dẫn bật push', (tester) async {
     await pumpScreen(tester, const NotificationsScreen());
 
     expect(find.text('Dữ liệu mẫu — chưa nối BE'), findsOneWidget);
     expect(find.textContaining('chưa đọc'), findsOneWidget);
     expect(find.text('Thiếu hàng: AOPOLO-030-BE-L'), findsOneWidget);
 
-    final push = tester.widget<SwitchListTile>(find.byType(SwitchListTile));
-    expect(push.onChanged, isNull, reason: 'push chờ BE nên khoá');
-    expect(find.textContaining('Chờ BE hỗ trợ'), findsOneWidget);
+    expect(find.text('Thông báo đẩy'), findsOneWidget);
+    expect(find.textContaining('Chờ BE hỗ trợ'), findsNothing);
 
     await tester.tap(find.text('Đọc hết'));
     await tester.pumpAndSettle();
@@ -67,21 +68,26 @@ void main() {
     expect(find.textContaining('Không tìm thấy ô'), findsOneWidget);
   });
 
-  testWidgets('Hoàn hàng (kho): chờ nhận kiện, kiểm hàng có nút ảnh bị khoá', (tester) async {
+  testWidgets('Hoàn hàng (kho): chờ nhận kiện, kiểm hàng có chụp ảnh tình trạng', (tester) async {
     await pumpScreen(tester, const WarehouseReturnsScreen());
 
+    // Tab đầu: kiện giao thất bại đang hoàn về kho → nút nhận kiện (receive-return).
+    expect(find.text('Nhận kiện hoàn về kho'), findsWidgets);
+
+    await tester.tap(find.text('Chờ nhận'));
+    await tester.pumpAndSettle();
     expect(find.text('RMA-261107-0009'), findsOneWidget);
     expect(find.text('Giao thất bại'), findsOneWidget, reason: 'phiếu tự tạo khi giao thất bại');
 
-    await tester.tap(find.text('Chờ kiểm hàng'));
+    await tester.tap(find.text('Chờ kiểm'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Kiểm hàng'));
     await tester.pumpAndSettle();
 
     expect(find.text('Hoàn tất kiểm hàng'), findsOneWidget);
-    expect(find.textContaining('Chụp ảnh tình trạng hàng'), findsOneWidget);
-    final photo = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Chụp ảnh tình trạng hàng (chờ BE)'));
-    expect(photo.onPressed, isNull);
+    expect(find.textContaining('Ảnh tình trạng hàng (0/3) — không bắt buộc'), findsOneWidget);
+    final photo = tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Chụp ảnh'));
+    expect(photo.onPressed, isNotNull);
   });
 
   testWidgets('Duyệt hoàn (chủ shop): hiện yêu cầu chờ duyệt', (tester) async {
@@ -109,7 +115,7 @@ void main() {
     await pumpScreen(tester, const PackingGroupScreen(groupId: 'pg2'));
 
     expect(find.text('Quét đủ món để niêm phong'), findsOneWidget);
-    expect(find.textContaining('Chụp ảnh lỗi'), findsOneWidget);
+    expect(find.text('Báo lỗi kiện (hỏng / thiếu / nhầm)'), findsOneWidget);
 
     for (final sku in ['AOPOLO-030-BE-M', 'QJEAN-012-XA-30']) {
       await tester.enterText(find.widgetWithText(TextField, 'Quét / nhập SKU món'), sku);
@@ -123,7 +129,7 @@ void main() {
     expect(find.text('Niêm phong kiện 1'), findsOneWidget);
   });
 
-  testWidgets('Giao hàng: tạo vận đơn, đang giao có nút ảnh bị khoá', (tester) async {
+  testWidgets('Giao hàng: tạo vận đơn; shop tự giao phải có ảnh mới xác nhận được', (tester) async {
     await pumpScreen(tester, const ShippingScreen());
     expect(find.text('Nguyễn Văn An'), findsOneWidget);
     expect(find.text('Tạo vận đơn'), findsWidgets);
@@ -133,16 +139,29 @@ void main() {
     expect(find.text('SHP-261109-000041'), findsOneWidget);
     expect(find.text('Quá hạn giao'), findsOneWidget);
     expect(find.text('Giao lại'), findsOneWidget, reason: 'ship42 thất bại lần 1 nên giao lại được');
-    expect(find.textContaining('Chụp ảnh giao hàng'), findsOneWidget);
+    expect(find.textContaining('giao thành công cần ảnh bằng chứng'), findsOneWidget);
+
+    // Vận đơn đầu tiên (ship40) là shop tự giao: chưa có ảnh thì không xác nhận được.
+    await tester.tap(find.text('Đã giao').first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Ảnh giao hàng (0/3) — bắt buộc'), findsOneWidget);
+    final confirm = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Chụp ít nhất 1 ảnh'));
+    expect(confirm.onPressed, isNull);
   });
 
   testWidgets('Tổng quan: thẻ số, hỏa tốc, tra cứu đơn', (tester) async {
     await pumpScreen(tester, const OverviewScreen());
-    expect(find.text('Đơn hôm nay'), findsOneWidget);
+    expect(find.text('Đơn nhận'), findsOneWidget);
     expect(find.text('42'), findsOneWidget);
     expect(find.text('12.450.000 đ'), findsOneWidget);
+    expect(find.text('Cần xử lý ngay'), findsOneWidget);
+    expect(find.text('Doanh thu đã giao'), findsOneWidget);
+    expect(find.text('7 ngày'), findsOneWidget, reason: 'bộ chọn khoảng ngày');
+    await tester.scrollUntilVisible(find.text('Hỏa tốc đang chạy'), 300, scrollable: find.byType(Scrollable).first);
     expect(find.text('Hỏa tốc đang chạy'), findsOneWidget);
 
+    await tester.scrollUntilVisible(find.text('Tra cứu đơn'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Mã đơn hoặc tên người nhận'), 'bích');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();

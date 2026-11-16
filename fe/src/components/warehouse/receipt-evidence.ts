@@ -48,6 +48,9 @@ export function receiptEvidenceProblem(ev: ReceiptEvidenceState, quantity: numbe
   if (ev.photoUrls.length === 0) {
     return vi ? 'Tải ảnh phiếu của nhà cung cấp trước khi lưu.' : 'Upload the supplier slip photo first.'
   }
+  if (quantity < 1) {
+    return vi ? 'Nhập số lượng đếm được.' : 'Enter the counted quantity.'
+  }
   const line = selectedLine(ev)
   if (line && line.quantity !== quantity && ev.mismatchReason.trim() === '') {
     return vi ? 'Số nhập khác số trên phiếu — ghi lý do lệch.' : 'Quantity differs from the slip — enter a reason.'

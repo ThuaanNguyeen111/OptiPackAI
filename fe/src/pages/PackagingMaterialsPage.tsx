@@ -1253,24 +1253,25 @@ function StockActionDialog({
             ? tx(vi, `Nội bộ đang có ${item.qtyInternal}.`, `Internal stock is ${item.qtyInternal}.`)
             : tx(vi, `Tồn mới đang là ${item.qtyNew}.`, `New stock is ${item.qtyNew}.`)}
         </p>
-        <Field label={tx(vi, 'Số lượng', 'Quantity')}>
-          <Input
-            name="quantity"
-            className={fieldClass}
-            inputMode="numeric"
-            required
-            value={qtyText}
-            onChange={(e) => setQtyText(e.target.value)}
-          />
-        </Field>
-        {internal ? null : (
+        {internal ? (
+          <Field label={tx(vi, 'Số lượng', 'Quantity')}>
+            <Input
+              name="quantity"
+              className={fieldClass}
+              inputMode="numeric"
+              required
+              value={qtyText}
+              onChange={(e) => setQtyText(e.target.value)}
+            />
+          </Field>
+        ) : (
           <ReceiptEvidencePanel
             vi={vi}
             itemCodes={[item.code]}
             quantity={positiveInt(qtyText) ?? 0}
+            onQuantityChange={(q) => setQtyText(q > 0 ? String(q) : '')}
             value={evidence}
             onChange={setEvidence}
-            onQuantityFromSlip={(q) => setQtyText(String(q))}
           />
         )}
         <Field label={internal ? tx(vi, 'Mục đích', 'Purpose') : tx(vi, 'Ghi chú', 'Note')}>
@@ -1995,23 +1996,13 @@ function QuantityDialog({
     <Dialog title={title} onClose={onClose}>
       <form className="space-y-3" onSubmit={submit}>
         <Banner error={error} notice="" />
-        <Field label={tx(vi, 'Số lượng', 'Quantity')}>
-          <Input
-            name="quantity"
-            className={fieldClass}
-            inputMode="numeric"
-            required
-            value={qtyText}
-            onChange={(e) => setQtyText(e.target.value)}
-          />
-        </Field>
         <ReceiptEvidencePanel
           vi={vi}
           itemCodes={[itemCode]}
           quantity={positiveInt(qtyText) ?? 0}
+          onQuantityChange={(q) => setQtyText(q > 0 ? String(q) : '')}
           value={evidence}
           onChange={setEvidence}
-          onQuantityFromSlip={(q) => setQtyText(String(q))}
         />
         <Field label={tx(vi, 'Ghi chú', 'Note')}>
           <Input name="note" className={fieldClass} />

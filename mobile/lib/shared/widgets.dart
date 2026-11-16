@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
-import '../app/colors.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Biểu ngữ cho màn đang dùng **dữ liệu giả** (chưa nối BE). Xoá khi đã nối thật.
-class MockBanner extends StatelessWidget {
+import '../app/colors.dart';
+import '../app/mock_providers.dart';
+import '../core/network/api_exception.dart';
+
+/// Biểu ngữ "Dữ liệu mẫu": chỉ hiện khi app chạy dữ liệu giả (`USE_MOCK_DATA=true`, hoặc trong test).
+class MockBanner extends ConsumerWidget {
   const MockBanner({super.key, this.text = 'Dữ liệu mẫu — chưa nối BE'});
 
   final String text;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(useMockDataProvider)) return const SizedBox.shrink();
     return Container(
       width: double.infinity,
       color: AppColors.warningBg,
@@ -59,22 +64,94 @@ class WaitingBackendButton extends StatelessWidget {
 }
 
 class Pill extends StatelessWidget {
-  const Pill(this.text, this.color, {super.key});
+  const Pill(this.text, this.color, {super.key, this.icon});
 
   final String text;
   final Color color;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(8),
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
-      child: Text(
-        text,
-        style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[Icon(icon, size: 13, color: color), const SizedBox(width: 4)],
+          Flexible(
+            child: Text(
+              text,
+              style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Thẻ nổi có dải màu theo bước xử lý ở bên trái (lấy hàng, đóng gói, giao hàng, hoàn hàng…) và bóng nhẹ.
+/// Màu luôn đi kèm chữ / icon bên trong thẻ, không đứng một mình.
+class StageCard extends StatelessWidget {
+  const StageCard({super.key, required this.accent, required this.child, this.onTap, this.icon});
+
+  final Color accent;
+  final Widget child;
+  final VoidCallback? onTap;
+
+  /// Icon trong ô màu ở đầu thẻ (tuỳ chọn).
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(16);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.hairline),
+        boxShadow: [
+          BoxShadow(color: accent.withValues(alpha: 0.16), blurRadius: 14, offset: const Offset(0, 5)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(width: 6, color: accent),
+                  if (icon != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 12, top: 14),
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(icon, color: accent, size: 22),
+                        ),
+                      ),
+                    ),
+                  Expanded(child: child),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -94,10 +171,76 @@ class EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56, color: AppColors.inkTertiary),
-            const SizedBox(height: 12),
-            Text(text, textAlign: TextAlign.center),
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppColors.primary.withValues(alpha: 0.22), AppColors.primary.withValues(alpha: 0.06)],
+                ),
+              ),
+              child: Icon(icon, size: 44, color: AppColors.primary),
+            ),
+            const SizedBox(height: 16),
+            Text(text, textAlign: TextAlign.center, style: TextStyle(color: AppColors.inkSubtle, fontWeight: FontWeight.w600)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Màn lỗi khi tải dữ liệu: câu dễ hiểu (không in `ApiException(...)`), biểu tượng theo loại lỗi,
+/// nút "Thử lại". Kéo xuống để tải lại cũng được (nằm trong `RefreshIndicator`).
+class ErrorState extends StatelessWidget {
+  const ErrorState({super.key, required this.error, this.onRetry});
+
+  final Object error;
+  final VoidCallback? onRetry;
+
+  static ({IconData icon, String title, String message}) describe(Object error) {
+    if (error is ApiException) {
+      if (error.isNetwork) {
+        return (icon: Icons.cloud_off_outlined, title: 'Không kết nối được máy chủ', message: error.message);
+      }
+      if (error.isForbidden) {
+        return (icon: Icons.lock_outline, title: 'Bạn không có quyền xem mục này', message: error.message);
+      }
+      return (icon: Icons.error_outline, title: 'Không tải được dữ liệu', message: error.message);
+    }
+    return (icon: Icons.error_outline, title: 'Không tải được dữ liệu', message: error.toString());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = describe(error);
+    return LayoutBuilder(
+      builder: (context, box) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: box.maxHeight.isFinite ? box.maxHeight : 0),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(d.icon, size: 56, color: AppColors.inkTertiary),
+                  const SizedBox(height: 12),
+                  Text(d.title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  const SizedBox(height: 6),
+                  Text(d.message, textAlign: TextAlign.center, style: TextStyle(color: AppColors.inkSubtle)),
+                  if (onRetry != null) ...[
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: const Text('Thử lại')),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

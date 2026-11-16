@@ -55,8 +55,62 @@ describe('ProofPhotosService.upload', () => {
     expect(body).not.toContain('secret-1');
   });
 
+  it('phiếu NCC nhận PDF (gửi application/pdf, lưu JPG); ảnh bằng chứng vẫn chặn PDF', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: { secure_url: 'https://res.cloudinary.com/demo/image/upload/v1/optipack/receipts/a.jpg', public_id: 'optipack/receipts/a' },
+    });
+    const pdf = Buffer.from('%PDF-1.7 ...', 'ascii');
+    await service.upload([{ buffer: pdf, size: pdf.length }], 'optipack/receipts');
+    const form = new URLSearchParams((mockedAxios.post.mock.calls[0] as [string, string])[1]);
+    expect(form.get('file')?.startsWith('data:application/pdf;base64,')).toBe(true);
+    expect(form.get('format')).toBe('jpg');
+    await expect(service.upload([{ buffer: pdf, size: pdf.length }], 'optipack/proof')).rejects.toMatchObject({ errorCode: E.INVALID_TYPE });
+  });
+
   it('Cloudinary lỗi → 502 PROOF_PHOTO_UPLOAD_FAILED', async () => {
     mockedAxios.post.mockRejectedValue(new Error('network'));
     await expect(service.upload([jpeg()])).rejects.toMatchObject({ errorCode: E.UPLOAD_FAILED });
+  });
+});
+
+describe('ProofPhotosService.listRecent', () => {
+  const env = { ...process.env };
+  const own = 'https://res.cloudinary.com/demo/image/upload/v1/optipack/receipts/a.jpg';
+
+  beforeEach(() => {
+    process.env = { ...env, CLOUDINARY_CLOUD_NAME: 'demo', CLOUDINARY_API_KEY: 'key-1', CLOUDINARY_API_SECRET: 'secret-1' };
+    mockedAxios.post.mockReset();
+    mockedAxios.isAxiosError.mockReturnValue(false);
+  });
+
+  afterAll(() => {
+    process.env = env;
+  });
+
+  it('tìm đúng thư mục, mới nhất trước, chỉ trả URL của cloud + thư mục mình, kèm nextCursor', async () => {
+    mockedAxios.post.mockResolvedValue({
+      data: {
+        resources: [
+          { secure_url: own, created_at: '2026-11-16T03:00:00Z', width: 1240, height: 1000 },
+          { secure_url: 'https://res.cloudinary.com/other/image/upload/v1/optipack/receipts/x.jpg' },
+          { secure_url: 'https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/y.jpg' },
+        ],
+        next_cursor: 'abc123',
+      },
+    });
+    const res = await new ProofPhotosService().listRecent('optipack/receipts', 'prev9');
+    const [url, body, opts] = mockedAxios.post.mock.calls[0] as [string, Record<string, unknown>, { auth: unknown }];
+    expect(url).toBe('https://api.cloudinary.com/v1_1/demo/resources/search');
+    expect(body).toMatchObject({ expression: 'resource_type:image AND public_id:optipack/receipts/*', sort_by: [{ created_at: 'desc' }], next_cursor: 'prev9' });
+    expect(opts.auth).toEqual({ username: 'key-1', password: 'secret-1' });
+    expect(res).toEqual({ photos: [{ url: own, createdAt: '2026-11-16T03:00:00Z', width: 1240, height: 1000 }], nextCursor: 'abc123' });
+  });
+
+  it('thiếu cấu hình → 503; Cloudinary lỗi → 502 PROOF_PHOTO_LIST_FAILED', async () => {
+    delete process.env.CLOUDINARY_API_KEY;
+    await expect(new ProofPhotosService().listRecent('optipack/receipts')).rejects.toMatchObject({ errorCode: E.NOT_CONFIGURED });
+    process.env.CLOUDINARY_API_KEY = 'key-1';
+    mockedAxios.post.mockRejectedValue(new Error('boom'));
+    await expect(new ProofPhotosService().listRecent('optipack/receipts')).rejects.toMatchObject({ errorCode: E.LIST_FAILED });
   });
 });

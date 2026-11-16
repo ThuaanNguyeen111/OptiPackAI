@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { Loader2 } from 'lucide-react'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
+import { uploadProofPhotos } from '../../api/proof-photos.api'
+import { ProofPhotoPicker } from '../proof/ProofPhotoPicker'
 import {
   changeParcelBoxInSession,
   finishPackingSession,
@@ -76,6 +78,8 @@ export function PackingSessionPanel({
   const [issue, setIssue] = useState<'damaged' | 'missing' | 'wrong_item'>('damaged')
   const [resolution, setResolution] = useState<'replace' | 'back_to_picking'>('back_to_picking')
   const [warehouseId, setWarehouseId] = useState('')
+  /** (13/11/2026) Ảnh món lỗi theo kiện, chưa tải lên. */
+  const [issuePhotos, setIssuePhotos] = useState<Record<number, File[]>>({})
   const [boxCondition, setBoxCondition] = useState<'reusable' | 'damaged'>('reusable')
   const [sources, setSources] = useState<PackingBoxSources | null>(null)
   const [boxChoice, setBoxChoice] = useState<Record<number, BoxSourceInput>>({})
@@ -489,21 +493,34 @@ export function PackingSessionPanel({
                   onClick={() => {
                     const itemKey = parcel.scans?.[0]?.itemKey
                     if (!itemKey) return
-                    void run(() =>
-                      reportPackingIssue(groupId, {
+                    void run(async () => {
+                      const photoUrls = await uploadProofPhotos(issuePhotos[parcel.parcelNo] ?? [])
+                      const next = await reportPackingIssue(groupId, {
                         expectedVersion: plan.version,
                         parcelNo: parcel.parcelNo,
                         itemKey,
                         issue,
                         resolution,
                         warehouseId: warehouseId.trim() || undefined,
-                      }),
-                    )
+                        photoUrls,
+                      })
+                      setIssuePhotos((prev) => ({ ...prev, [parcel.parcelNo]: [] }))
+                      return next
+                    })
                   }}
                   className="rounded-lg border border-hairline px-3 py-2 text-sm disabled:opacity-50"
                 >
                   {vi ? 'Báo sự cố' : 'Report issue'}
                 </button>
+                <div className="basis-full">
+                  <ProofPhotoPicker
+                    vi={vi}
+                    files={issuePhotos[parcel.parcelNo] ?? []}
+                    onChange={(files) => setIssuePhotos((prev) => ({ ...prev, [parcel.parcelNo]: files }))}
+                    disabled={busy}
+                    label={vi ? 'Ảnh món lỗi' : 'Issue photo'}
+                  />
+                </div>
               </div>
             ) : null}
           </div>

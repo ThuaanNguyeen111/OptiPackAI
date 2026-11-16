@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { PackingGuide, PackingItemProfile, PackingPlanParcel } from '../../types/packing-plan'
 import { actionNote, packStepsForParcel, stepLabel } from '../../utils/packing-layout'
+import { bubbleWrapFor } from '../../utils/packing-materials'
 
 /** Mã món trong lời hướng dẫn (vd DEMO3D-QUAN-DAI#1) — tách ra để in đậm, dễ dò khi cầm hàng. */
 const CODE = /([A-Z0-9]+(?:-[A-Z0-9]+)+(?:#\d+)?)/g
@@ -56,7 +57,7 @@ export function GuideSteps({
   /** false: nơi gọi đã có tiêu đề + nút Viết lại (cột 3D) — bỏ hàng tiêu đề để nhường chỗ cho bước. */
   showHeader?: boolean
 }): ReactNode {
-  const pack = parcel?.placements?.length ? packStepsForParcel(parcel, profiles) : null
+  const pack = parcel?.placements?.length ? packStepsForParcel(parcel, profiles, bubbleWrapFor(parcel.materials)) : null
   const rows: Row[] = pack
     ? pack.steps.map((step, i) => {
         const placement = step.item != null ? pack.placements[step.item] : undefined

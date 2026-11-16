@@ -6,6 +6,10 @@ import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
 import { UserRole } from '../types/auth'
 
+/**
+ * Cấu hình đóng gói (ngưỡng lệch cân, túi niêm phong…) + người gửi trên nhãn.
+ * Danh mục thùng/vật tư nằm ở `/app/admin/packaging-materials` — không lặp bảng thùng ở đây.
+ */
 export function PackagingRulesPage() {
   const { locale } = usePortal()
   const { session } = useAuth()

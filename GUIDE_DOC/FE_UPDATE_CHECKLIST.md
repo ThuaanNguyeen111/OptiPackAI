@@ -26,13 +26,17 @@
 | 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ✅ 09/11 — `DirectConnectPanel` Tiki, khối xác nhận đủ hàng, nút In nhãn Tiki, Giao hàng ẩn chọn hãng |
 | 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ✅ 09/11 — `utils/units.ts` (cm/kg, dấu phẩy), ô nhập đổi về mm/g |
 | 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ✅ 09/11 — `PackagingMaterialsPage` 5 tab, cột Ngưỡng + trạng thái, tab Túi niêm phong đọc `stockStatus` của BE |
-| 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | 🟡 09/11 — đã làm `React.lazy` (gói chính 2,4 MB → 271 kB), dừng polling khi tab ẩn, `client_event_id` kho; **còn** huỷ request cũ khi đổi bộ lọc (13.3) |
-| 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
-| 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ☐ Chưa làm |
+| 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | ✅ 13/11 — `React.lazy`, dừng polling khi tab ẩn, `client_event_id` kho (09/11); huỷ request cũ khi đổi bộ lọc: `apiRequest` nhận `signal` + `useAbortPrevious` ở Nhóm đơn, Trả hàng, Lịch sử, Đơn sàn, 2 ô tìm nhóm (bàn đóng gói, gộp/tách). Chưa bấm thử trên trình duyệt |
+| 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ✅ 13/11 — `ProofPhotoPicker` (webcam `CameraCapture` + chọn file, ≤ 3 ảnh, ≤ 10 MB) ở Giao thành công (shop tự giao: khoá nút tới khi có ảnh, bắt `SHP_PROOF_PHOTO_REQUIRED`), Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; `uploadProofPhotos` dùng chung. **Còn:** hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện. Chưa thử với BE thật |
+| 18 | 🆕 10/11 tối **Thông báo `picking_assigned`** (BE mới): Warehouse Staff được giao lấy hàng 1 nhóm → BE gửi thông báo loại mới `picking_assigned`. Thêm vào `NOTIFICATION_TYPES`, nhãn ("Được giao lấy hàng"), điều hướng khi bấm giống `packing_assigned` (Warehouse → `/app/warehouse?groupId=`). Chưa thêm thì chuông vẫn hiện nhưng nhãn loại hiện mã thô | 15 | ~15 phút | ✅ 13/11 — nhãn "Được giao lấy hàng", bấm mở `/app/warehouse?groupId=` |
 | 19 | 🆕 11/11 **Đăng nhập Google trên app mobile** (nhóm mobile làm, web không đổi): nối nút "Tiếp tục với Google" bằng `google_sign_in` → `POST /auth/google/mobile { id_token }`; đăng xuất gửi thêm `push_token` | 16 | Vừa | ☐ Chờ Thuận tạo client Android (SHA-1 từng máy) |
-| 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ☐ Chưa làm |
-| 21 | 🆕 11/11 **Phiếu NCC có ảnh + AI đối chiếu số lượng** (góp ý hội đồng): nhập kho (Phiếu nhập / lô) và nhập thùng / túi / vật tư chèn / mua vật liệu bắt buộc ảnh phiếu, AI đọc phiếu, bảng Theo phiếu – Đã nhập – Lệch, lý do lệch, nhãn Lệch phiếu, lọc phiếu lệch | 18 | ~1 ngày | 🟡 11/11 — Claude đã làm web (`ReceiptEvidencePanel`); **còn** chụp bằng webcam (`getUserMedia`, dùng chung mục 14.1) và app mobile |
-| 22 | 🆕 13/11 **Độ dày quần áo từ GSM + cảnh báo lấp đầy**: form xác nhận hồ sơ Product Master thêm ô **GSM** (`fabric_gsm`, g/m², chỉ hiện với quần áo); với quần áo cho **bỏ trống độ dày** (`height_cm` không bắt buộc, BE tự tính và trả trong `dimension.heightCm`); hiện `warnings[]` của response PUT (vàng, không chặn). Hàng khác bỏ trống độ dày → 422 `PM_HEIGHT_REQUIRED`. Thẻ kế hoạch đóng gói hiện `orders[].explanation` (hiện chưa màn nào hiện), tô vàng câu chứa "< 80%" | — | ~2 giờ | ☐ Chưa làm |
+| 20 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 17 | ~2 giờ | ✅ 13/11 — khung soạn (≤ 4000 ký tự, nhãn "Mặc định") + nút "Khôi phục mặc định" (gửi `null`) trong `PackingSettingsForm`; chỉ gửi khi có sửa |
+| 21 | 🆕 11/11 **Phiếu NCC có ảnh + AI đối chiếu số lượng** (góp ý hội đồng): nhập kho (Phiếu nhập / lô) và nhập thùng / túi / vật tư chèn / mua vật liệu bắt buộc ảnh phiếu, AI đọc phiếu, bảng Theo phiếu – Đã nhập – Lệch, lý do lệch, nhãn Lệch phiếu, lọc phiếu lệch | 18 | ~1 ngày | 🟡 11/11 — Claude đã làm web (`ReceiptEvidencePanel`); chụp bằng webcam ✅ 13/11 (nút "Chụp bằng camera" dùng chung `CameraCapture`, chụp tới 3 ảnh rồi tải + đọc phiếu); **còn** app mobile |
+| 22 | 🆕 11/11 ⚠ **App mobile gọi sai đường sau khi BE thêm tiền tố `/api`** (⚠ **chặn** — mọi màn app báo 404): sửa địa chỉ mặc định trong `mobile/lib/core/config/env.dart` thành `http://10.0.2.2:3000/api`, mọi lệnh `--dart-define=API_BASE_URL=` thêm `/api` | 19 | Nhỏ | ⛔ 16/11 — bỏ: PR #64 (13/11) đưa BE ra `api.optipack.io.vn`, không còn tiền tố `/api`; `env.dart` đã về `http://10.0.2.2:3000` |
+| 23 | 🆕 14/11 **Phiếu NCC: nhập mù + chống gian lận ảnh + dự phòng AI**: bỏ điền sẵn số từ phiếu (làm ngay), báo "chụp lại", "Không có trên phiếu", "Nhập không đối chiếu", lọc Chưa đối chiếu / Chưa kiểm + nút Đã kiểm, chặn ảnh dùng lại, nhãn nguồn ảnh | 20.1–20.8 | ~1 ngày | ☐ 20.1 làm ngay; còn lại chờ BE (Thi, R1–R7) |
+| 24 | 🆕 14/11 **Giao thành công phải quét mã nhãn kiện** (shop tự giao): ô quét / nhập mã + "Nhãn hỏng" có lý do, rồi chụp ảnh | 20.9 | ~2 giờ | ☐ Chờ BE (Thi, R9) |
+| 25 | 🆕 13/11 **Độ dày quần áo từ GSM + cảnh báo lấp đầy**: form xác nhận hồ sơ Product Master thêm ô **GSM** (`fabric_gsm`, g/m², chỉ hiện với quần áo); với quần áo cho **bỏ trống độ dày** (`height_cm` không bắt buộc, BE tự tính và trả trong `dimension.heightCm`); hiện `warnings[]` của response PUT (vàng, không chặn). Hàng khác bỏ trống độ dày → 422 `PM_HEIGHT_REQUIRED`. Thẻ kế hoạch đóng gói hiện `orders[].explanation` (hiện chưa màn nào hiện), tô vàng câu chứa "< 80%" | — | ~2 giờ | ☐ Chưa làm |
+| 26 | 🆕 16/11 **Danh sách xếp theo lớp**: `parcels[].placements[].layer` (BE mới; sát đáy = 1). Cạnh khung 3D hiện danh sách nhóm theo lớp từ đáy lên — mỗi dòng: tên món, vị trí (cm cách thành trái/trước từ `x`,`y`), nhãn "gập đôi" khi `folded`; bấm dòng thì làm sáng món đó trong 3D. Luật mới (chỉ BE, FE không phải làm gì): hàng cứng không nằm trên quần áo, trừ hàng dễ vỡ | — | ~nửa ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -514,15 +518,48 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 | 18.5 | Chuông thông báo | Loại `stock_receipt_mismatch` ("Nhập hàng lệch phiếu NCC") → mở `/app/inventory?view=receipts` hoặc trang vật liệu |
 
 **Còn lại (chưa làm):**
-1. Chụp bằng **webcam** trên máy tính: hiện dùng `<input type="file" accept="image/*">` (điện thoại mở được camera, máy tính chỉ chọn file). Làm chung hộp thoại chụp ảnh của mục 14.1 rồi thay nút "Chụp / chọn ảnh".
+1. ✅ 13/11 (dòng 21) Chụp bằng **webcam** trên máy tính: hiện dùng `<input type="file" accept="image/*">` (điện thoại mở được camera, máy tính chỉ chọn file). Làm chung hộp thoại chụp ảnh của mục 14.1 rồi thay nút "Chụp / chọn ảnh".
 2. **App mobile:** chưa có màn nhập kho có ảnh phiếu.
 3. Chi tiết phiếu chưa hiện tên người nhập (BE trả `createdBy` là id).
+
+> ⚠ 14/11: phần **điền sẵn số lượng** ở 18.1 phải bỏ (nhập mù), xem mục 20.
 
 **Nghiệm thu (theo handoff):** nhập không ảnh → nút mờ / BE 400 `WH_RECEIPT_PHOTO_REQUIRED`; chụp phiếu "50" → tự điền 50; sửa 48 → bắt lý do → lưu → nhãn Lệch phiếu, Store Owner nhận thông báo; mở lại chi tiết thấy ảnh, 50, 48, lý do; tắt key AI → vẫn lưu, "Chưa đối chiếu"; nhập BOX-M × 100 có ảnh → tương tự.
 
 **Cấu hình cần trước khi thử:** `CLOUDINARY_*` trong `be/.env` (thiếu thì tải ảnh lỗi 503 → **không nhập kho được**), `AI_API_KEY`, `AI_VISION_MODEL`.
 
 ---
+
+## 19. 🆕 11/11/2026 — App mobile phải gọi qua tiền tố `/api` (dòng 22) ⛔ đã bỏ
+
+> ⛔ 16/11: không còn áp dụng. BE đã bỏ `app.setGlobalPrefix('api')` (PR #64, chạy ở gốc `api.optipack.io.vn`) → app gọi `http://10.0.2.2:3000` không có `/api`. Giữ mục này chỉ để tra lịch sử.
+
+**Vấn đề:** `main` đã bật `app.setGlobalPrefix('api')` trong `be/src/main.ts` → mọi route BE giờ là `/api/...` (VD `/api/auth/login`, `/api/health`). App mobile vẫn gọi `http://10.0.2.2:3000` + `/auth/login` → **404 ở mọi màn** (đăng nhập, push, lấy hàng…). Web đã được sửa trong `main`; app chưa.
+
+**Cần làm (nhóm mobile, 1 dòng):**
+1. `mobile/lib/core/config/env.dart`: `defaultValue: 'http://10.0.2.2:3000'` → `defaultValue: 'http://10.0.2.2:3000/api'` (sửa luôn câu chú thích đầu file: VD `--dart-define=API_BASE_URL=http://192.168.1.10:3000/api`).
+2. **Không** sửa các đường trong code (`'/auth/login'`, `'/auth/logout'`, `'/notifications/devices'`…): dio tự ghép `baseUrl` + đường → `http://10.0.2.2:3000/api/auth/login`.
+3. Chạy trên điện thoại thật: `flutter run --dart-define=API_BASE_URL=http://<IP máy BE>:3000/api` (có `/api` ở cuối, không có dấu `/` sau `api`).
+
+**Thử:** trình duyệt trên điện thoại mở `http://<IP máy BE>:3000/api/health` → `"status":"ok"`; app đăng nhập được, vào "Việc của tôi" có dữ liệu; terminal BE không còn log `Cannot POST /auth/...`.
+
+## 20. 🆕 14/11/2026 — Phiếu NCC: chống gian lận ảnh, nhập mù, dự phòng khi AI lỗi (dòng 23, 24)
+
+**Vì sao:** mục 18 đã chạy nhưng còn kẽ hở: (1) web **điền sẵn số trên phiếu** vào ô số lượng (`onQuantityFromSlip` trong `ReceiptEvidencePanel.tsx`) → nhân viên bấm lưu là "khớp", không còn kiểm đếm; (2) chụp ảnh bất kỳ / dùng lại ảnh phiếu cũ vẫn qua; (3) AI hỏng thì chưa có đường đi rõ ràng. BE do **Thi** làm theo `STOCK_RECEIPT_OCR_HANDOFF.md` bản 1.1 mục 3 (R1–R9). **Chỉ nối khi BE xong từng việc** (mã R trong cột cuối); trước đó chỉ làm được 20.1.
+
+| # | Màn | Việc FE | BE |
+|---|---|---|---|
+| 20.1 | Khối ảnh phiếu (`ReceiptEvidencePanel`, cả nhập kho và vật liệu) | **Nhập mù:** bỏ `onQuantityFromSlip`, ô số lượng để trống, **không** hiện số trên phiếu trước khi nhân viên nhập số. Sau khi nhập mới hiện bảng Theo phiếu – Đã nhập – Lệch. Vẫn điền sẵn được nhà cung cấp (không ảnh hưởng kiểm đếm) | Không cần (R3) |
+| 20.2 | Khối ảnh phiếu | Lỗi `RECEIPT_OCR_NOT_A_SLIP` → báo đỏ "Ảnh không giống phiếu giao hàng, chụp lại", giữ nút chụp / chọn ảnh | R1 |
+| 20.3 | Khối ảnh phiếu | Dòng không tự khớp (lỗi `WH_RECEIPT_LINE_UNMATCHED`) → ô chọn dòng trên phiếu + lựa chọn **"Không có trên phiếu"** (bắt lý do, tính là lệch). Thay phần tự khớp mã đang làm ở web bằng kết quả BE trả | R2 |
+| 20.4 | Khối ảnh phiếu | Quét lỗi ≥ 2 lần hoặc BE báo AI không khả dụng → hiện nút **"Nhập không đối chiếu"** + ô lý do (AI không khả dụng: BE tự điền, chỉ hiện). Câu giải thích: "Ảnh phiếu vẫn được lưu, chủ shop sẽ kiểm lại". Bỏ câu vàng cũ "Vẫn lưu được…" của mục 18.1 | R4 |
+| 20.5 | Chuông thông báo | Loại mới `stock_receipt_unchecked` ("Nhập hàng chưa đối chiếu phiếu") → mở `/app/inventory?view=receipts` (hoặc trang vật liệu), giống `stock_receipt_mismatch` | R4 |
+| 20.6 | Tồn kho → tab **Phiếu nhập**; Vật liệu → Lịch sử | Bộ lọc thêm **Chưa đối chiếu** (`?ocr_status=not_checked`) và **Chưa kiểm** (`?reviewed=false`). Chi tiết phiếu: nút **"Đã kiểm"** (Store Owner, Admin) + ô ghi chú → `POST …/receipts/:receiptId/review`; đã kiểm thì hiện người kiểm, lúc kiểm | R5 |
+| 20.7 | Khối ảnh phiếu | Lỗi `WH_RECEIPT_PHOTO_REUSED` (409) → "Ảnh này đã dùng cho phiếu <mã> — chụp phiếu thật"; phiếu có cờ `photo_suspect` → nhãn cam "Nghi trùng ảnh" ở danh sách + chi tiết | R6 |
+| 20.8 | Mọi chỗ tải ảnh (`ProofPhotoPicker`, `CameraCapture`) | Gửi `source=camera` khi chụp bằng `CameraCapture`, `source=upload` khi chọn file; ảnh trong chi tiết hiện nhãn nhỏ "Chụp trực tiếp" / "Tải từ máy" (chỉ để xem) | R7 |
+| 20.9 | Vận chuyển → Giao thành công (shop tự giao, `ShippingPage`) | Thêm ô **"Quét / nhập mã trên nhãn"** trước khi chụp ảnh (máy quét cầm tay gõ như bàn phím, không cần thư viện mới) → gửi `scanned_code`. Lỗi `SHIP_LABEL_SCAN_MISMATCH` → "Mã nhãn không phải kiện này". Có lựa chọn "Nhãn hỏng, không quét được" + lý do (`scan_skipped_reason`). Ảnh chụp bằng `CameraCapture` có sẵn | R9 |
+
+**Nghiệm thu:** theo `STOCK_RECEIPT_OCR_HANDOFF.md` mục 6 (phiếu mẫu ở `docs/test-data/supplier-slips/` khi Thi xong R10).
 
 ## Phụ lục ✅ — đã hoàn thành
 

@@ -69,6 +69,18 @@ export function minSupportPct(unit: Pick<PackingUnit, 'product_category'>): numb
 }
 
 /**
+ * (16/11/2026, user chốt) Hàng cứng không được nằm trên quần áo (áo nhăn, hộp
+ * nghiêng); riêng hàng dễ vỡ được nằm trên quần áo vì vải là lớp đệm.
+ */
+export function mayRestOn(
+  top: Pick<PackingUnit, 'product_category' | 'is_fragile'>,
+  below: Pick<PackingUnit, 'product_category'>,
+): boolean {
+  const isSoft = (u: Pick<PackingUnit, 'product_category'>): boolean => FLAT_CATEGORIES.has(u.product_category ?? '');
+  return isSoft(top) || top.is_fragile || !isSoft(below);
+}
+
+/**
  * (22/09/2026) Gập đôi 1 món mềm: chia đôi (làm tròn lên) cạnh lớn hơn trong
  * dài/rộng, gấp đôi độ dày, cân giữ nguyên. Số đo do hệ thống tự tính (user
  * chốt), chỉ dùng khi nhờ gập mới vừa thùng nhỏ hơn.

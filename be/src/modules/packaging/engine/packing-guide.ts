@@ -55,6 +55,8 @@ export interface GuideStepFacts {
   orientation_hint: string;
   /** item_key các món nằm ngay bên dưới; rỗng = đặt sát đáy thùng. */
   rests_on: string[];
+  /** (16/11/2026) Lớp xếp: sát đáy = 1, món khác = 1 + lớp cao nhất của món đỡ ngay dưới. */
+  layer: number;
   size_mm: { dx: number; dy: number; dz: number };
 }
 
@@ -120,10 +122,28 @@ export function describeOrientation(orientation: Orientation): string {
   }
 }
 
-function overlapsInPlan(a: Placement, b: Placement): boolean {
+type PlacedBox = Pick<Placement, 'item_key' | 'step' | 'x' | 'y' | 'z' | 'dx' | 'dy' | 'dz'>;
+
+function overlapsInPlan(a: PlacedBox, b: PlacedBox): boolean {
   return (
     a.x < b.x + b.dx && b.x < a.x + a.dx && a.y < b.y + b.dy && b.y < a.y + a.dy
   );
+}
+
+/** item_key các món đã đặt trước nằm ngay dưới `p`; rỗng = sát đáy thùng. */
+function restsOn(p: PlacedBox, earlier: PlacedBox[]): string[] {
+  return earlier.filter((q) => q.z + q.dz === p.z && p.z > 0 && overlapsInPlan(p, q)).map((q) => q.item_key);
+}
+
+/** (16/11/2026) Lớp xếp theo item_key: sát đáy = 1, món khác = 1 + lớp cao nhất của món đỡ ngay dưới. */
+export function placementLayers(placements: PlacedBox[]): Map<string, number> {
+  const ordered = [...placements].sort((a, b) => a.step - b.step);
+  const layerOf = new Map<string, number>();
+  ordered.forEach((p, index) => {
+    const below = restsOn(p, ordered.slice(0, index));
+    layerOf.set(p.item_key, 1 + Math.max(0, ...below.map((key) => layerOf.get(key) ?? 0)));
+  });
+  return layerOf;
 }
 
 function productTypeLabel(category: string | null | undefined): string | null {
@@ -147,12 +167,11 @@ export function describePackingSteps(
 ): GuideStepFacts[] {
   const unitByKey = new Map(units.map((u) => [u.item_key, u]));
   const ordered = [...placements].sort((a, b) => a.step - b.step);
+  const layerOf = placementLayers(ordered);
   return ordered.map((p, index) => {
     const unit = unitByKey.get(p.item_key);
-    const below = ordered
-      .slice(0, index)
-      .filter((q) => q.z + q.dz === p.z && p.z > 0 && overlapsInPlan(p, q))
-      .map((q) => q.item_key);
+    const below = restsOn(p, ordered.slice(0, index));
+    const layer = layerOf.get(p.item_key) ?? 1;
     const profile = profiles.get(p.sku);
     return {
       step: index + 1,
@@ -169,6 +188,7 @@ export function describePackingSteps(
       position: describePosition(p, box),
       orientation_hint: describeOrientation(p.orientation),
       rests_on: below,
+      layer,
       size_mm: { dx: p.dx, dy: p.dy, dz: p.dz },
     };
   });

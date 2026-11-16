@@ -19,6 +19,7 @@ function toQuery(params: Record<string, string | number | undefined>): string {
 
 export async function listOrders(
   params: ListOrdersParams = {},
+  opts: { signal?: AbortSignal } = {},
 ): Promise<ListOrdersResponse> {
   const query = toQuery({
     shop_id: params.shop_id,
@@ -27,7 +28,7 @@ export async function listOrders(
     before: params.before,
     limit: params.limit ?? 20,
   })
-  return apiRequest<ListOrdersResponse>(`/orders${query}`, { auth: true })
+  return apiRequest<ListOrdersResponse>(`/orders${query}`, { auth: true, signal: opts.signal })
 }
 
 export async function getOrderById(
