@@ -56,6 +56,10 @@ _Tránh_: parcel (trong UI), gói, hộp
 Đóng kiện sau khi quét đủ món và cân; kiện cuối được niêm phong thì nhóm đơn coi như đã đóng gói.
 _Tránh_: seal (trong UI), chốt kiện
 
+**Ảnh niêm phong**:
+Ảnh chụp kiện ngay trước khi niêm phong, làm bằng chứng khi có khiếu nại; con người xem, hệ thống không tự chấm.
+_Tránh_: ảnh xác minh, AI soi ảnh
+
 ## Vận chuyển và hoàn
 
 **Vận đơn**:

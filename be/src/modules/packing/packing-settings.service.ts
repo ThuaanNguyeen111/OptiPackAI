@@ -10,6 +10,7 @@ import {
 } from '../packaging/packing-guide-ai.service';
 import { PackingSettings, PackingSettingsDocument } from './schemas/packing-settings.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
+import { readCloudinaryConfig } from '../proof-photos/proof-photo.util';
 import type { UpdatePackingSettingsDto } from './dto/packing-session.dto';
 
 export interface ActivePackingSettings {
@@ -21,6 +22,8 @@ export interface ActivePackingSettings {
   maxParcelsPerOrder: number | null;
   allowReusedBoxForFragile: boolean;
   requireScan: boolean;
+  /** (13/11/2026) Niêm phong phải kèm ảnh bằng chứng. */
+  requireSealPhoto: boolean;
   /** AOFP-224 — túi niêm phong (PACKAGING_STANDARD §4.3, §6). */
   mailerEnabled: boolean;
   mailerMarginWidthMm: number;
@@ -50,6 +53,7 @@ export const DEFAULT_PACKING_SETTINGS: ActivePackingSettings = {
   maxParcelsPerOrder: null,
   allowReusedBoxForFragile: false,
   requireScan: false,
+  requireSealPhoto: false,
   mailerEnabled: false,
   mailerMarginWidthMm: 20,
   mailerMarginLengthMm: 30,
@@ -100,6 +104,7 @@ export class PackingSettingsService {
       maxParcelsPerOrder: doc.max_parcels_per_order,
       allowReusedBoxForFragile: doc.allow_reused_box_for_fragile,
       requireScan: doc.require_scan,
+      requireSealPhoto: doc.require_seal_photo ?? false,
       mailerEnabled: m.mailer_enabled ?? d.mailerEnabled,
       mailerMarginWidthMm: m.mailer_margin_width_mm ?? d.mailerMarginWidthMm,
       mailerMarginLengthMm: m.mailer_margin_length_mm ?? d.mailerMarginLengthMm,
@@ -123,6 +128,13 @@ export class PackingSettingsService {
     if (dto.expected_version !== undefined && dto.expected_version !== current.version) {
       throw this.conflict(current.version);
     }
+    if (dto.require_seal_photo === true && !readCloudinaryConfig(process.env)) {
+      throw new AppException(
+        PACKING_ERROR_CODES.SEAL_PHOTO_STORAGE_MISSING,
+        'Server chưa cấu hình nơi lưu ảnh (Cloudinary) — bật bắt buộc ảnh sẽ chặn mọi lần niêm phong.',
+        HttpStatus.CONFLICT,
+      );
+    }
     const latest = await this.settingsModel.findOne().sort({ version: -1 }).select('version').lean();
     const version = (latest?.version ?? 0) + 1;
     const session = await this.connection.startSession();
@@ -139,6 +151,7 @@ export class PackingSettingsService {
                 dto.max_parcels_per_order === undefined ? current.maxParcelsPerOrder : dto.max_parcels_per_order,
               allow_reused_box_for_fragile: dto.allow_reused_box_for_fragile ?? current.allowReusedBoxForFragile,
               require_scan: dto.require_scan ?? current.requireScan,
+              require_seal_photo: dto.require_seal_photo ?? current.requireSealPhoto,
               mailer_enabled: dto.mailer_enabled ?? current.mailerEnabled,
               mailer_margin_width_mm: dto.mailer_margin_width_mm ?? current.mailerMarginWidthMm,
               mailer_margin_length_mm: dto.mailer_margin_length_mm ?? current.mailerMarginLengthMm,

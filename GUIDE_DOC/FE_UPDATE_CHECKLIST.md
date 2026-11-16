@@ -561,6 +561,15 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 
 **Nghiệm thu:** theo `STOCK_RECEIPT_OCR_HANDOFF.md` mục 6 (phiếu mẫu ở `docs/test-data/supplier-slips/` khi Thi xong R10).
 
+## 21. 🆕 13/11/2026 — Ảnh bằng chứng lúc niêm phong kiện (FE đã làm)
+
+Spec: `docs/specs/anh-bang-chung-niem-phong.md`. Ảnh chỉ để người xem, không AI chấm.
+
+- Phiên đóng gói + đóng nhanh: ô "Chụp ảnh kiện (0/3)" (camera sau, nén ≤ 1600 px trước khi gửi) → gửi `photo_urls` khi niêm phong.
+- Cài đặt đóng gói & AI: công tắc "Bắt buộc chụp ảnh khi niêm phong" (`require_seal_photo`).
+- Ảnh hiện ở: kiện đã niêm phong, Lịch sử thao tác, dòng thời gian nhóm đơn (`photoUrls` của mốc `packing.parcel_sealed` / `packing.unseal`), màn kiểm hàng hoàn.
+- App mobile: chưa làm — nếu app có niêm phong kiện thì gửi thêm `photo_urls` như web.
+
 ## Phụ lục ✅ — đã hoàn thành
 
 Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại chi tiết request/response và cách làm cũ.

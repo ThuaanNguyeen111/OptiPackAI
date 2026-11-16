@@ -78,6 +78,8 @@ export type PackingPlanParcel = {
   platformOrderIds?: (string | null)[]
   shareGroup?: string | null
   boxSourceUsed?: 'new' | 'reused' | null
+  /** (13/11/2026) Ảnh bằng chứng lúc niêm phong; [] = không chụp. */
+  sealPhotoUrls?: string[]
   boxSourceOverride?: {
     source: 'new' | 'reused'
     planned: 'new' | 'reused' | null
@@ -274,6 +276,8 @@ export type PackingSettings = {
   maxParcelsPerOrder: number | null
   allowReusedBoxForFragile: boolean
   requireScan: boolean
+  /** (13/11/2026) Niêm phong phải kèm ≥ 1 ảnh bằng chứng. */
+  requireSealPhoto: boolean
   mailerEnabled: boolean
   mailerMarginWidthMm: number
   mailerMarginLengthMm: number
@@ -305,6 +309,8 @@ export type PackingReport = {
   approvedIntactRate: number | null
   minimalParcelRate: number | null
   scanRate: number | null
+  /** (13/11/2026) Kiện có ảnh niêm phong / kiện đã niêm phong. */
+  sealPhotoRate?: number | null
   packagingCostVnd: number
   issues: { damaged: number; missing: number; wrongItem: number }
   byStaff: {

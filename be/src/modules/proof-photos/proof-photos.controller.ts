@@ -32,7 +32,7 @@ export class ProofPhotosController {
   })
   @ApiOperation({
     summary:
-      'Gửi 1–3 ảnh bằng chứng (JPG/PNG/WebP/HEIC, mỗi ảnh ≤ 10 MB, multipart field "files"). Trả URL để gửi kèm `photo_urls` ở: POST /shipments/:id/deliver (đơn shop tự giao: bắt buộc ≥ 1 ảnh), /fail, POST /returns/:id/inspect, POST /order-groups/:groupId/packing-plan/report-issue. Ảnh được thu nhỏ ≤ 1600 px và lưu JPG. Chưa cấu hình Cloudinary → 503 PROOF_PHOTO_NOT_CONFIGURED.',
+      'Gửi 1–3 ảnh bằng chứng (JPG/PNG/WebP/HEIC, mỗi ảnh ≤ 10 MB, multipart field "files"). Trả URL để gửi kèm `photo_urls` ở: POST /shipments/:id/deliver (đơn shop tự giao: bắt buộc ≥ 1 ảnh), /fail, POST /returns/:id/inspect, POST /order-groups/:groupId/packing-plan/report-issue, …/parcels/:parcelNo/seal và …/pack (13/11: ảnh niêm phong). Ảnh được thu nhỏ ≤ 1600 px và lưu JPG. Chưa cấu hình Cloudinary → 503 PROOF_PHOTO_NOT_CONFIGURED.',
   })
   @ApiQuery({ name: 'purpose', required: false, enum: ['proof', 'receipt'], description: '11/11/2026 — `receipt` = ảnh phiếu nhập/phiếu giao hàng NCC (gửi kèm `document_photo_urls` khi nhập kho, mua vật liệu). 16/11/2026 — `receipt` nhận thêm file PDF: lưu trang đầu thành ảnh JPG.' })
   async upload(@UploadedFiles() files?: ProofPhotoFile[], @Query('purpose') purpose?: string): Promise<{ photos: UploadedProofPhoto[] }> {

@@ -16,7 +16,7 @@ const FOV_DEGREES = 40
 /** Bảng hướng dẫn che phần dưới khung: chừa thêm chỗ và đẩy cảnh lên trên. */
 const PANEL_ROOM = 1.3
 const PANEL_SHIFT = 0.12
-const MOVE_SECONDS = 1.1
+const MOVE_SECONDS = 1.6
 
 type Controls = {
   target: Vector3
@@ -77,7 +77,7 @@ export function StepCamera({ focus, resetKey }: { focus: CameraFocus; resetKey: 
     }
     if (remaining.current <= 0) return
     remaining.current -= dt
-    const blend = 1 - Math.exp(-5 * dt)
+    const blend = 1 - Math.exp(-3.5 * dt)
     camera.position.lerp(goal.position, blend)
     controls.target.lerp(goal.target, blend)
     controls.update()

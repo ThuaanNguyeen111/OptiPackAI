@@ -154,7 +154,11 @@ export function expandToUnits(
         orientations,
         max_stack_load_g: maxStack,
         // Chỉ quần áo mới gập được (FE chỉ có clip gập cho 6 loại này); chặn cả hồ sơ cũ lỡ đánh dấu.
-        foldable: lieFlat && item.can_fold_in_half === true,
+        // Túi zip đã gập đôi theo quy cách SKU thì kích thước đo là gói đã gập — không gập chồng lần nữa.
+        foldable:
+          lieFlat &&
+          item.can_fold_in_half === true &&
+          !(item.zip_bag_code && item.zip_bag_folded === true),
         product_category: item.product_category ?? null,
         mailer_ok: resolveOuterRequirement(item) === 'mailer_ok',
       });

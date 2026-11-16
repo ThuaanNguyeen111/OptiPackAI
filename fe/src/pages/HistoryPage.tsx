@@ -21,6 +21,7 @@ import { formatApiError, isRequestCanceled } from '../lib/api'
 import type { AdminUser } from '../types/admin'
 import { UserRole } from '../types/auth'
 import { formatDateTime } from '../utils/format'
+import { PhotoThumbs } from '../components/ui/PhotoThumbs'
 
 function historyDayKey(iso: string): string {
   const date = new Date(iso)
@@ -422,6 +423,11 @@ export function HistoryPage({
                           {item.skus.length > 0 ? ` · ${item.skus.join(', ')}` : ''}
                         </p>
                       </button>
+                      {item.photoUrls?.length ? (
+                        <div className="mt-1.5">
+                          <PhotoThumbs urls={item.photoUrls} alt={vi ? 'Ảnh kiện' : 'Parcel photo'} size="h-14 w-14" />
+                        </div>
+                      ) : null}
                       {item.orderGroupId ? (
                         <Link
                           to={`${shell === 'admin' ? '/app/admin/history' : '/app/history'}?group=${item.orderGroupId}`}

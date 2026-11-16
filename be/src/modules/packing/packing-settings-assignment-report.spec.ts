@@ -52,6 +52,39 @@ describe('PackingSettingsService', () => {
     expect(m.updateMany).toHaveBeenCalled();
   });
 
+  describe('require_seal_photo (13/11/2026)', () => {
+    const KEYS = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'] as const;
+    const saved = KEYS.map((k) => process.env[k]);
+    const unset = (k: string): void => {
+      Reflect.deleteProperty(process.env, k);
+    };
+    afterEach(() => {
+      KEYS.forEach((k, i) => {
+        const v = saved[i];
+        if (v === undefined) unset(k);
+        else process.env[k] = v;
+      });
+    });
+
+    it('bản lưu cũ thiếu trường → false; bật khi chưa có Cloudinary → 409, có thì lưu', async () => {
+      const old = new PackingSettingsService(model({ version: 2, require_scan: false }) as never, connection as never);
+      expect((await old.get()).requireSealPhoto).toBe(false);
+
+      KEYS.forEach(unset);
+      const m = model(null);
+      const service = new PackingSettingsService(m as never, connection as never);
+      await expect(service.update({ require_seal_photo: true }, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.SEAL_PHOTO_STORAGE_MISSING,
+      });
+      expect(m.create).not.toHaveBeenCalled();
+
+      KEYS.forEach((k) => (process.env[k] = 'x'));
+      await service.update({ require_seal_photo: true }, userId);
+      const [[created]] = m.create.mock.calls[0] as [[Record<string, unknown>]];
+      expect(created).toMatchObject({ require_seal_photo: true });
+    });
+  });
+
   it('expected_version lệch → PACKING_SETTINGS_CONFLICT', async () => {
     const service = new PackingSettingsService(model(null) as never, connection as never);
     await expect(service.update({ expected_version: 4 }, userId)).rejects.toMatchObject({
@@ -299,6 +332,7 @@ describe('PackingReportService', () => {
     expect(r.approvedIntactRate).toBe(0.5);
     expect(r.minimalParcelRate).toBe(0.5);
     expect(r.scanRate).toBe(0.5);
+    expect(r.sealPhotoRate).toBe(0); // kiện mẫu không có ảnh niêm phong
     expect(r.packagingCostVnd).toBe(3 * 5500);
     expect(r.issues).toEqual({ damaged: 1, missing: 0, wrongItem: 0 }); // sự cố ngoài khoảng ngày không tính
     expect(r.byStaff).toEqual([

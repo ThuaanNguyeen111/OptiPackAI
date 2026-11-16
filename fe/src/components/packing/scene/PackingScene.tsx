@@ -1,7 +1,7 @@
 import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useFrame } from '@react-three/fiber'
-import { Edges, useGLTF } from '@react-three/drei'
-import { Box3, MathUtils, Quaternion, Vector3, type Group } from 'three'
+import { ContactShadows, Edges, useGLTF } from '@react-three/drei'
+import { Box3, MathUtils, Matrix4, Mesh, Quaternion, Vector3, type Group, type Material } from 'three'
 import type { PackingItemProfile, PackingMm, PackingPlacement } from '../../../types/packing-plan'
 import {
   FOLD_CLIP_SHARE,
@@ -50,14 +50,115 @@ function Block({ size, color, wire = false }: { size: Vec3; color: string; wire?
 /** Phần cuối bước chuẩn bị: cụm đã gọn, phóng về đúng cỡ khối. */
 const PREP_SETTLE_FROM = 0.82
 
-function clipRange(rig: ItemRig, role: ItemRole, kind: PackStepKind | undefined): [number, number] {
+/**
+ * Gập đôi thật: uốn hình học quanh một bản lề trong khung của món (vertex shader), áp cho mọi lưới của
+ * mô hình — áo, túi zip — nên nửa bị gập mang đúng vải/túi chứ không phải tấm giả.
+ * Khung món = group chuyển động; bản lề là đường thẳng (a = hingeA, y = hingeY) vuông góc trục gập.
+ */
+type BendUniforms = {
+  uBendOn: { value: number }
+  uBendAxis: { value: number }
+  uHingeA: { value: number }
+  uHingeY: { value: number }
+  uAngle: { value: number }
+  uToItem: { value: Matrix4 }
+  uFromItem: { value: Matrix4 }
+}
+
+const BEND_DECL = `
+uniform float uBendOn;
+uniform float uBendAxis;
+uniform float uHingeA;
+uniform float uHingeY;
+uniform float uAngle;
+uniform mat4 uToItem;
+uniform mat4 uFromItem;
+`
+
+const BEND_PROJECT = `
+vec4 bendWorld = modelMatrix * vec4( transformed, 1.0 );
+if ( uBendOn > 0.5 ) {
+  vec3 bp = ( uToItem * bendWorld ).xyz;
+  float ba = uBendAxis < 0.5 ? bp.x : bp.z;
+  if ( ba > uHingeA ) {
+    float bc = cos( uAngle );
+    float bs = sin( uAngle );
+    float ra = ba - uHingeA;
+    float ry = bp.y - uHingeY;
+    float na = uHingeA + ra * bc - ry * bs;
+    // Nhích lên rất nhẹ để nửa gập không trùng mặt (z-fighting) với nửa nằm dưới.
+    float ny = uHingeY + ra * bs + ry * bc + 0.0006 * ( uAngle / 3.14159265 );
+    if ( uBendAxis < 0.5 ) bp.x = na; else bp.z = na;
+    bp.y = ny;
+    bendWorld = uFromItem * vec4( bp, 1.0 );
+    #ifndef FLAT_SHADED
+      vec3 bn = mat3( uToItem ) * normalize( mat3( modelMatrix ) * objectNormal );
+      float bna = uBendAxis < 0.5 ? bn.x : bn.z;
+      float nna = bna * bc - bn.y * bs;
+      float nny = bna * bs + bn.y * bc;
+      if ( uBendAxis < 0.5 ) bn.x = nna; else bn.z = nna;
+      bn.y = nny;
+      vNormal = normalize( mat3( viewMatrix ) * ( mat3( uFromItem ) * bn ) );
+    #endif
+  }
+}
+vec4 mvPosition = viewMatrix * bendWorld;
+gl_Position = projectionMatrix * mvPosition;
+`
+
+function makeBendUniforms(): BendUniforms {
+  return {
+    uBendOn: { value: 0 },
+    uBendAxis: { value: 0 },
+    uHingeA: { value: 0 },
+    uHingeY: { value: 0 },
+    uAngle: { value: 0 },
+    uToItem: { value: new Matrix4() },
+    uFromItem: { value: new Matrix4() },
+  }
+}
+
+/** Cập nhật uniform mỗi khung hình (null = tắt uốn). Đặt ngoài component để không đụng luật bất biến của React. */
+function setBend(
+  bend: BendUniforms,
+  next: { axis: number; hingeA: number; hingeY: number; angle: number; item: Group } | null,
+): void {
+  bend.uBendOn.value = next ? 1 : 0
+  if (!next) return
+  bend.uBendAxis.value = next.axis
+  bend.uHingeA.value = next.hingeA
+  bend.uHingeY.value = next.hingeY
+  bend.uAngle.value = next.angle
+  bend.uFromItem.value.copy(next.item.matrixWorld)
+  bend.uToItem.value.copy(next.item.matrixWorld).invert()
+}
+
+function withBend(material: Material, bend: BendUniforms): Material {
+  const patched = material.clone()
+  patched.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, bend)
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', `${BEND_DECL}\nvoid main() {`)
+      .replace('#include <project_vertex>', BEND_PROJECT)
+  }
+  patched.customProgramCacheKey = () => 'pack-fold-bend'
+  return patched
+}
+
+function clipRange(
+  rig: ItemRig,
+  role: ItemRole,
+  kind: PackStepKind | undefined,
+  withZip: boolean,
+): [number, number] {
   const { foldEnd, bagEnd, end } = rig.phases
   if (role !== 'staged') return [rig.finalTime, rig.finalTime]
   switch (kind) {
     case 'fold':
       return [0, foldEnd]
     case 'halfFold':
-      return [foldEnd, foldEnd]
+      // Có túi zip thì gập đôi diễn ra sau khi đã vào túi.
+      return withZip ? [bagEnd, bagEnd] : [foldEnd, foldEnd]
     case 'zip':
       return [foldEnd, bagEnd]
     case 'zipFold':
@@ -78,8 +179,10 @@ function ModelBody({
   kind,
   index,
   areaSize,
+  bend,
 }: {
   model: ItemModel
+  bend: BendUniforms
   size: Vec3
   /** Cạnh khu chuẩn bị: hàng trải phẳng lớn hơn thì co lại, gấp xong về đúng cỡ. */
   areaSize: number
@@ -94,6 +197,22 @@ function ModelBody({
     () => new ItemRig(gltf.scene, gltf.animations[0], model.kind, withZip, Boolean(model.prepStep)),
     [gltf, model.kind, withZip, model.prepStep],
   )
+  useEffect(() => {
+    rig.root.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return
+      const mesh = obj as Mesh
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map((m) => withBend(m, bend))
+        : withBend(mesh.material, bend)
+    })
+  }, [rig, bend])
+  // Độ lệch của gói lúc bắt đầu cho vào túi: giữ nguyên độ lệch này khi túi nằm yên, gói trượt vào.
+  const zipStartDrift = useMemo(() => {
+    rig.setTime(rig.phases.foldEnd)
+    const v = rig.driftInto(new Vector3())
+    rig.setTime(rig.finalTime)
+    return v
+  }, [rig])
   const fit = useMemo(
     () => fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
     [rig, sx, sy, sz, model.kind],
@@ -157,13 +276,20 @@ function ModelBody({
 
   useFrame((_, dt) => {
     const elapsed = clock.tick(dt)
-    const [from, to] = clipRange(rig, role, kind)
+    const [from, to] = clipRange(rig, role, kind, withZip)
     const seconds = kind ? STEP_SECONDS[kind] : 0
     const folding = role === 'staged' && kind === 'fold'
     const clipSeconds = folding ? seconds * FOLD_CLIP_SHARE : seconds
     const p = clipSeconds > 0 ? Math.min(1, elapsed / clipSeconds) : 1
     rig.setTime(from + (to - from) * p)
-    offsetRef.current?.position.copy(fit.offset).sub(rig.driftInto(drift))
+    if (role === 'staged' && kind === 'zip') {
+      // Túi zip nằm yên, gói trượt vào theo clip; vào xong (30% cuối) cả túi mới dời về giữa khu chuẩn bị.
+      const settle = easeInOut((p - 0.7) / 0.3)
+      drift.copy(zipStartDrift).multiplyScalar(1 - settle)
+      offsetRef.current?.position.copy(fit.offset).sub(drift)
+    } else {
+      offsetRef.current?.position.copy(fit.offset).sub(rig.driftInto(drift))
+    }
 
     const stage = stageRef.current
     if (!stage) return
@@ -208,6 +334,16 @@ function ModelBody({
   )
 }
 
+/** Hệ số trải [x, _, z] sau khi mở k lần gập đôi: mỗi lần nhân đôi cạnh đang ngắn hơn. */
+function unfolded(size: Vec3, k: number): Vec3 {
+  const f: Vec3 = [1, 1, 1]
+  for (let i = 0; i < k; i++) {
+    if (size[0] * f[0] <= size[2] * f[2]) f[0] *= 2
+    else f[2] *= 2
+  }
+  return f
+}
+
 function PlacedItem({
   placement,
   profile,
@@ -218,6 +354,7 @@ function PlacedItem({
   tint,
   area,
   floorY,
+  pendingFolds,
   bubble,
 }: {
   placement: PackingPlacement
@@ -230,6 +367,8 @@ function PlacedItem({
   tint?: string
   area: WorkArea
   floorY: number
+  /** Số lần gập đôi (halfFold/zipFold) của món này còn ở SAU bước hiện tại. */
+  pendingFolds: number
   /** Món dễ vỡ: bọc xốp hơi. */
   bubble: boolean
 }): ReactNode {
@@ -237,6 +376,7 @@ function PlacedItem({
   const staged: Vec3 = [area.center[0], size[1] / 2 + 0.004 - floorY, area.center[1]]
   const motionRef = useRef<Group>(null)
   const squashRef = useRef<Group>(null)
+  const bend = useMemo(() => makeBendUniforms(), [])
   const clock = useMemo(() => new StepClock(), [])
   const from = useMemo(() => new Vector3(), [])
   const to = useMemo(() => new Vector3(), [])
@@ -244,7 +384,6 @@ function PlacedItem({
     clock.reset()
   }, [clock, index])
 
-  const longAxis = size[0] >= size[2] ? 0 : 2
   useFrame((_, dt) => {
     const elapsed = clock.tick(dt)
     const g = motionRef.current
@@ -263,12 +402,30 @@ function PlacedItem({
     } else {
       g.position.set(staged[0], staged[1], staged[2])
     }
-    // Gập đôi: trải dài gấp 2 rồi thu về đúng khối đã đo.
-    if (role === 'staged' && (kind === 'halfFold' || kind === 'zipFold')) {
-      const f = 2 - easeInOut(elapsed / STEP_SECONDS[kind])
-      s.scale.set(longAxis === 0 ? f : 1, 1 / f, longAxis === 2 ? f : 1)
+    // Khối đo là món SAU mọi lần gập đôi. Trước đó món còn "trải" k lần (k = số lần gập còn lại):
+    // mỗi lần trải nhân đôi cạnh ngắn hơn (gập thật xen kẽ hai chiều), mỏng đi một nửa, đáy luôn sát sàn.
+    // Nhờ vậy túi zip ôm đúng gói chưa gập, và tới bước gập không có cú "kéo giãn".
+    const h = size[1]
+    const foldNow = role === 'staged' && (kind === 'halfFold' || kind === 'zipFold')
+    const remain = role === 'staged' ? pendingFolds : 0
+    const after = unfolded(size, remain)
+    if (foldNow && kind) {
+      // Gập thật: cả gói trải dài nằm trên sàn, nửa phía + uốn quanh bản lề lật 180° đè lên nửa kia.
+      const before = unfolded(size, remain + 1)
+      const ax = before[0] !== after[0] ? 0 : 2
+      const e = easeInOut(elapsed / STEP_SECONDS[kind])
+      const half = size[ax] * after[ax]
+      const thickPre = h / 2 ** (remain + 1)
+      // Bản lề ở giữa gói; gói trượt dần để gập xong nằm đúng tâm khu chuẩn bị.
+      const c = (half / 2) * e
+      s.scale.set(before[0], 1 / 2 ** (remain + 1), before[2])
+      s.position.set(ax === 0 ? c : 0, -h / 2 + thickPre / 2, ax === 2 ? c : 0)
+      g.updateWorldMatrix(true, false)
+      setBend(bend, { axis: ax === 0 ? 0 : 1, hingeA: c, hingeY: -h / 2 + thickPre, angle: Math.PI * e, item: g })
     } else {
-      s.scale.set(1, 1, 1)
+      s.scale.set(after[0], 1 / 2 ** remain, after[2])
+      s.position.set(0, -(h / 2) * (1 - 1 / 2 ** remain), 0)
+      setBend(bend, null)
     }
   })
 
@@ -290,6 +447,7 @@ function PlacedItem({
                 kind={kind}
                 index={index}
                 areaSize={area.size}
+                bend={bend}
               />
             </Suspense>
           </ModelBoundary>
@@ -568,19 +726,31 @@ export function PackingScene({
 
   return (
     <>
-      <ambientLight intensity={1.4} />
-      <directionalLight position={[2, 4, 3]} intensity={1.8} />
-      <directionalLight position={[-3, 2, -2]} intensity={0.5} color="#bfdbfe" />
+      {/* Nền bàn tối (xanh than) để áo trắng, túi trắng, thùng giấy đều nổi; đèn chính có hướng để mặt vật có khối. */}
+      <color attach="background" args={['#24363f']} />
+      <hemisphereLight args={['#f1f5f9', '#1e2a31', 0.9]} />
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[2, 4, 3]} intensity={2.2} />
+      <directionalLight position={[-3, 2, -2]} intensity={0.6} color="#bfdbfe" />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]}>
         <planeGeometry args={[Math.max(outer[0], outer[2]) * 10, Math.max(outer[0], outer[2]) * 10]} />
-        <meshStandardMaterial color={mailer ? '#c9d2dc' : '#d7dee6'} />
+        <meshStandardMaterial color="#2f4651" roughness={0.95} />
       </mesh>
+      <ContactShadows
+        position={[0, 0.0005, 0]}
+        scale={Math.max(outer[0], outer[2]) * 4}
+        opacity={0.55}
+        blur={2.4}
+        far={Math.max(outer[1], 0.2) * 2}
+        resolution={512}
+        color="#0b1418"
+      />
       {/* Khu chuẩn bị: gấp, cho vào túi zip ở đây rồi mới đặt vào thùng. */}
       <group position={[area.center[0], 0.001, area.center[1]]} rotation={[-Math.PI / 2, 0, 0]}>
         <mesh>
           <planeGeometry args={[area.size, area.size]} />
-          <meshStandardMaterial color={mailer ? '#e2e8f0' : '#f8fafc'} />
-          <Edges color="#94a3b8" />
+          <meshStandardMaterial color="#3b5562" roughness={0.9} />
+          <Edges color="#5eead4" />
         </mesh>
       </group>
       {current?.kind === 'prepare' && counts.size > 0 ? <PrepareTray counts={counts} area={area} mailer={mailer} /> : null}
@@ -613,6 +783,9 @@ export function PackingScene({
               tint={tintOf?.(placement)}
               area={area}
               floorY={floorY}
+              pendingFolds={steps.filter(
+                (step, j) => j > index && step.item === item && (step.kind === 'halfFold' || step.kind === 'zipFold'),
+              ).length}
               bubble={needsBubbleSleeve(profileFor(profiles, placement.sku), counts.has('bubble_wrap'))}
             />
           )

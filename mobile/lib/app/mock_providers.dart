@@ -105,6 +105,11 @@ final packingQueueProvider =
   (ref, stage) => ref.watch(packingRepositoryProvider).queue(stage),
 );
 
+/// Cài đặt "bắt buộc chụp ảnh khi niêm phong".
+final sealPhotoRequiredProvider = FutureProvider.autoDispose<bool>(
+  (ref) => ref.watch(packingRepositoryProvider).requireSealPhoto(),
+);
+
 final packingGroupProvider =
     FutureProvider.autoDispose.family<PackingGroup, String>(
   (ref, id) => ref.watch(packingRepositoryProvider).get(id),

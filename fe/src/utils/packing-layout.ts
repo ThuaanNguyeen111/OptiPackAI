@@ -135,11 +135,12 @@ export function buildPackSteps(
     const model = itemModelFor(profile?.productCategory)
     if (model?.kind === 'garment') steps.push({ kind: 'fold', item })
     if (model?.prepStep) steps.push({ kind: model.prepStep, item })
-    if (p.folded) steps.push({ kind: 'halfFold', item })
     if (profile?.zipBagCode) {
       steps.push({ kind: 'zip', item })
       if (profile.zipBagFolded) steps.push({ kind: 'zipFold', item })
     }
+    // Gập đôi thêm làm trên cả gói đã vào túi zip — cùng thứ tự với hướng dẫn chữ của BE.
+    if (p.folded) steps.push({ kind: 'halfFold', item })
     if (options.wrapItem?.(profile)) steps.push({ kind: 'wrap', item }, { kind: 'tape', item })
     steps.push({ kind: 'place', item })
   })
@@ -150,6 +151,42 @@ export function buildPackSteps(
     steps.push({ kind: 'close', item: null })
   }
   return steps
+}
+
+/** Lời mô tả cố định của các thao tác chung (không gắn món) — hoạt ảnh 3D và danh sách bước dùng chung. */
+export function actionNote(kind: PackStepKind, vi: boolean): string | null {
+  switch (kind) {
+    case 'close':
+      return vi
+        ? 'Chèn vật tư vào khoảng trống, gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
+        : 'Fill gaps with materials, fold short flaps then long flaps, tape the box.'
+    case 'slip':
+      return vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng.' : "Place each order's packing slip on the stack."
+    case 'bagIn':
+      return vi
+        ? 'Cho cả chồng hàng vào túi, món lớn và nặng nằm dưới.'
+        : 'Slide the whole stack into the mailer, large and heavy items at the bottom.'
+    case 'seal':
+      return vi
+        ? 'Ép bớt không khí, bóc lớp giấy bảo vệ keo, gập nắp dán kín. Không cần băng keo.'
+        : 'Press out the air, peel the adhesive strip and seal the flap. No tape needed.'
+    case 'label':
+      return vi ? 'Dán tem vận đơn lên mặt phẳng lớn của túi.' : 'Apply the shipping label on the large flat side.'
+    default:
+      return null
+  }
+}
+
+/** Thao tác của một kiện — nguồn chung cho hoạt ảnh 3D và danh sách bước chữ để hai bên luôn khớp. */
+export function packStepsForParcel(
+  parcel: PackingPlanParcel,
+  profiles: PackingItemProfile[] | undefined,
+  wrapItem?: PackStepOptions['wrapItem'],
+): { placements: PackingPlacement[]; steps: PackStep[]; mailer: boolean } {
+  const placements = sortedPlacements(parcel)
+  const mailer = parcel.box.kind === 'mailer'
+  const shared = (parcel.orderIds?.length ?? 0) >= 2
+  return { placements, steps: buildPackSteps(placements, profiles, { mailer, shared, wrapItem }), mailer }
 }
 
 /** Món ở vị trí `item` đang ở trạng thái nào khi xem bước `index`. */
@@ -172,7 +209,8 @@ export function stepLabel(kind: PackStepKind, vi: boolean, mailer = false): stri
     case 'fold':
       return vi ? 'Gấp gọn món hàng' : 'Fold the item'
     case 'halfFold':
-      return vi ? 'Gập đôi để vừa thùng' : 'Fold in half to fit'
+      if (mailer) return vi ? 'Gập đôi để vừa túi' : 'Fold in half to fit the mailer'
+      return vi ? 'Gập đôi để vừa thùng' : 'Fold in half to fit the box'
     case 'zip':
       return vi ? 'Cho vào túi zip, kéo khoá' : 'Put into zip bag and close'
     case 'zipFold':

@@ -236,7 +236,19 @@ class ApiPackingRepository implements PackingRepository {
       });
 
   @override
-  Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg) =>
+  Future<bool> requireSealPhoto() async {
+    try {
+      final settings = asMap(asMap(await api.get('/packing/settings'))?['settings']);
+      return pickBool(settings, ['requireSealPhoto', 'require_seal_photo']);
+    } on ApiException {
+      // Không đọc được cài đặt: không chặn phía máy, BE vẫn kiểm (PACKING_SEAL_PHOTO_REQUIRED).
+      return false;
+    }
+  }
+
+  @override
+  Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg,
+          {List<String> photoUrls = const []}) =>
       _guard(() async {
         final plan = await _plan(groupId);
         final next = _keep(
@@ -244,6 +256,7 @@ class ApiPackingRepository implements PackingRepository {
           await api.post(_path(groupId, '/parcels/$parcelNo/seal'), body: {
             'expected_version': _version(plan),
             'weight_kg': weightKg,
+            if (photoUrls.isNotEmpty) 'photo_urls': photoUrls,
           }),
         );
         final parcel = _parcelOf(next, parcelNo);

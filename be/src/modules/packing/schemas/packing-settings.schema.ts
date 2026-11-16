@@ -39,6 +39,9 @@ export class PackingSettings {
   /** true = bắt buộc quét từng món; lối tắt POST pack bị chặn. */
   @Prop({ type: Boolean, required: true }) require_scan!: boolean;
 
+  /** (13/11/2026) true = niêm phong kiện phải kèm ≥ 1 ảnh bằng chứng. Bản ghi cũ không có → false. */
+  @Prop({ type: Boolean, default: false }) require_seal_photo?: boolean;
+
   // ---- AOFP-224 (31/10/2026) túi niêm phong — docs/PACKAGING_STANDARD.md §4.3, §6.
   // Có default: bản cài đặt lưu trước AOFP-224 vẫn đọc được (service tự bù khi đọc lean).
   /** Bật phương án túi niêm phong cho hàng mềm. Mặc định TẮT tới khi xác nhận GHN nhận túi làm lớp ngoài. */

@@ -179,12 +179,16 @@ describe('solveWithMailers — luật chọn bao bì theo tổ hợp hàng', () 
   it('kiện đã lấp đầy ≥ 80% không có cảnh báo', () => {
     expect(solve([ao(2)], MAILERS).explanation.some((e) => e.includes('< 80%'))).toBe(false);
   });
-  it('gói đã cho vào túi zip và gập túi vẫn được gập đôi thêm 1 lần để vừa thùng S', () => {
-    // Số đo hồ sơ là gói SAU khi gập túi zip (20×20×5); gập thêm → 20×10×10 vừa lòng S 20×15×10.
+  it('gói đã cho vào túi zip và gập túi KHÔNG bị gập chồng thêm lần nữa', () => {
+    // Số đo hồ sơ là gói SAU khi gập túi zip (20×20×5) — đã là dạng gọn nhất, engine không gập thêm.
     const bagged: PackableItem = { ...polo(1), zip_bag_code: 'ZIP-M', zip_bag_folded: true };
     const r = solve([bagged]);
-    expect(codes(r)).toEqual(['BOX-S']);
-    expect(r.parcels[0]?.placements[0]?.folded).toBe(true);
+    expect(codes(r)).toEqual(['BOX-M']);
+    expect(r.parcels[0]?.placements[0]?.folded).not.toBe(true);
+    // Có túi niêm phong: chọn túi đủ lớn cho gói 20×20×5 thay vì gập tiếp để nhét túi nhỏ.
+    const m = solve([bagged], MAILERS);
+    expect(codes(m)).toEqual(['MAILER-32X45']);
+    expect(m.parcels[0]?.placements[0]?.folded).not.toBe(true);
   });
 });
 

@@ -420,6 +420,26 @@ describe('quần áo nằm phẳng + gập đôi khi cần (22/09/2026)', () => 
     });
   });
 
+  it('túi zip đã gập theo quy cách SKU → engine không gập thêm lần nữa', () => {
+    const units = expandToUnits([
+      {
+        ...shirtItem,
+        can_fold_in_half: true,
+        product_category: 't_shirt',
+        zip_bag_code: 'ZIP-M',
+        zip_bag_folded: true,
+      },
+    ]);
+    expect(units[0]?.foldable).toBe(false);
+    const small = box('S', [250, 250, 100], [260, 260, 110]);
+    const large = box('L', [400, 300, 100], [410, 310, 110]);
+    const result = packOrder(units, [small, large]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.box.code).toBe('L');
+    expect(result.placements[0]?.folded).toBeUndefined();
+  });
+
   it('không gập vẫn vừa thùng nhỏ nhất → KHÔNG gập', () => {
     const units = expandToUnits([
       { ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' },

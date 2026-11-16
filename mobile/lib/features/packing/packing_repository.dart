@@ -179,7 +179,12 @@ abstract class PackingRepository {
   /// Dựng thao tác quét món để đưa vào hàng đợi ngoại tuyến (cùng [eventId] với lần bấm vừa lỗi). `null` = không hỗ trợ.
   PendingAction? buildScanAction(String groupId, int parcelNo, String code, String eventId);
   Future<Parcel> unscan(String groupId, int parcelNo, String sku);
-  Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg);
+  /// [photoUrls]: ảnh kiện lúc niêm phong (đã tải qua `POST /proof-photos`), làm bằng chứng khi khách khiếu nại.
+  Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg,
+      {List<String> photoUrls = const []});
+
+  /// Cài đặt "bắt buộc chụp ảnh khi niêm phong" (`GET /packing/settings`).
+  Future<bool> requireSealPhoto();
   /// [returnToPicking]: thay vì lấy món thay ngay, trả cả nhóm về bước lấy hàng (BE chỉ cho khi chưa niêm phong kiện nào).
   Future<void> reportIssue(String groupId, int parcelNo, String sku, PackIssue issue,
       {List<String> photoUrls = const [], bool returnToPicking = false});
@@ -348,7 +353,11 @@ class MockPackingRepository implements PackingRepository {
   }
 
   @override
-  Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg) async {
+  Future<bool> requireSealPhoto() async => false;
+
+  @override
+  Future<({Parcel parcel, SealOutcome outcome})> seal(String groupId, int parcelNo, double weightKg,
+      {List<String> photoUrls = const []}) async {
     await _latency();
     final p = _parcel(groupId, parcelNo);
     if (!p.allScanned) {

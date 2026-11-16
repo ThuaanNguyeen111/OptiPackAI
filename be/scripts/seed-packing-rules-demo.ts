@@ -48,7 +48,7 @@ const PRODUCTS: Record<string, DemoProduct> = {
   'RULE-AO-THUN': { name: 'Áo thun', cm: [36, 24, 4], kg: 0.22, category: ProductCategory.T_SHIRT, fold: true, stackKg: 5, fragile: false },
   // Để trống sức chịu đè — kiểm luật quần áo trống = chịu 5 kg.
   'RULE-POLO': { name: 'Áo polo nhỏ', cm: [20, 20, 5], kg: 0.1, category: ProductCategory.T_SHIRT, fold: true, stackKg: null, fragile: false },
-  // Đã vào túi zip + gập túi, vẫn được engine gập đôi thêm 1 lần.
+  // Đã vào túi zip + gập túi: số đo là gói đã gập, engine KHÔNG gập chồng thêm.
   'RULE-POLO-ZIP': { name: 'Áo polo túi zip', cm: [20, 20, 5], kg: 0.1, category: ProductCategory.T_SHIRT, fold: true, stackKg: 5, fragile: false, zipFolded: true },
   'RULE-QUAN': { name: 'Quần jean', cm: [38, 30, 6], kg: 0.65, category: ProductCategory.TROUSERS, fold: true, stackKg: 5, fragile: false },
   'RULE-GIAY': { name: 'Giày (hộp gốc)', cm: [33, 21, 12], kg: 0.9, category: ProductCategory.SHOES, fold: false, stackKg: 5, fragile: false },
@@ -69,7 +69,7 @@ const SCENARIOS: [string, string, Record<string, number>, string][] = [
   ['RULE-10', '2 giày', { 'RULE-GIAY': 2 }, 'LT'],
   ['RULE-11', '2 kính', { 'RULE-KINH': 2 }, 'S'],
   ['RULE-12', '1 áo + 1 kính', { 'RULE-AO-THUN': 1, 'RULE-KINH': 1 }, 'M'],
-  ['RULE-13', '1 polo túi zip đã gập', { 'RULE-POLO-ZIP': 1 }, 'S, gập thêm 1 lần'],
+  ['RULE-13', '1 polo túi zip đã gập', { 'RULE-POLO-ZIP': 1 }, 'M / túi 32×45, không gập thêm'],
 ];
 
 async function main(): Promise<void> {

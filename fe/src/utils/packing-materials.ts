@@ -149,3 +149,11 @@ export function dividerSpot(placements: PackingPlacement[], inner: PackingMm): D
     facing: 'h',
   }
 }
+
+/** Tuỳ chọn "bọc xốp hơi" của một kiện — danh sách bước chữ và hoạt ảnh 3D dùng chung để luôn cùng số bước. */
+export function bubbleWrapFor(
+  materials: MaterialRow[] | undefined,
+): (profile: PackingItemProfile | undefined) => boolean {
+  const hasBubbleWrap = materialCounts(materials).has('bubble_wrap')
+  return (profile) => needsBubbleSleeve(profile, hasBubbleWrap)
+}

@@ -732,16 +732,13 @@ html.dark .owner-shell .owner-sidebar nav a.owner-nav-active:hover {
   color: var(--ls-muted);
 }
 
+/* Thanh cuộn mảnh, luôn thấy được: người dùng cần biết cột còn nội dung phía dưới. */
 .pack-bench-scroll {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.pack-bench-scroll::-webkit-scrollbar {
-  display: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ls-card-border) transparent;
 }
 
 .pack-bench-detail .pack-bench-scroll {

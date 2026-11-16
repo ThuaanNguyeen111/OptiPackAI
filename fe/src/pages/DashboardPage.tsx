@@ -672,8 +672,8 @@ export function DashboardPage() {
                   <span className="dash-note ml-auto font-normal">
                     {packReport
                       ? vi
-                        ? `Chờ ${packReport.avgWaitMinutes ?? '—'} phút · đóng ${packReport.avgPackMinutes ?? '—'} phút · quét ${formatPct(packReport.scanRate)}`
-                        : `Wait ${packReport.avgWaitMinutes ?? '—'} min · pack ${packReport.avgPackMinutes ?? '—'} min · scan ${formatPct(packReport.scanRate)}`
+                        ? `Chờ ${packReport.avgWaitMinutes ?? '—'} phút · đóng ${packReport.avgPackMinutes ?? '—'} phút · quét ${formatPct(packReport.scanRate)} · có ảnh ${formatPct(packReport.sealPhotoRate ?? null)}`
+                        : `Wait ${packReport.avgWaitMinutes ?? '—'} min · pack ${packReport.avgPackMinutes ?? '—'} min · scan ${formatPct(packReport.scanRate)} · photo ${formatPct(packReport.sealPhotoRate ?? null)}`
                       : '…'}
                   </span>
                 </h3>
