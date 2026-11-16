@@ -1,4 +1,4 @@
-import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode, type Ref } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
 import {
@@ -199,19 +199,30 @@ function makeBubbleTexture(): CanvasTexture | null {
   canvas.width = canvas.height = 128
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
-  ctx.clearRect(0, 0, 128, 128)
-  for (let ix = 0; ix < 4; ix += 1) {
-    for (let iy = 0; iy < 4; iy += 1) {
-      const cx = 16 + ix * 32
+  // Màng nền mờ liền mạch: không để lỗ trong suốt giữa các bong bóng (trước đây nhìn thành lưới ô vuông).
+  ctx.fillStyle = 'rgba(226,240,248,0.22)'
+  ctx.fillRect(0, 0, 128, 128)
+  // Bong bóng so le như xốp hơi thật; vẽ lặp ±128 px để texture nối liền khi lặp.
+  for (let iy = 0; iy < 4; iy += 1) {
+    for (let ix = 0; ix < 4; ix += 1) {
       const cy = 16 + iy * 32
-      const g = ctx.createRadialGradient(cx - 5, cy - 5, 1, cx, cy, 15)
-      g.addColorStop(0, 'rgba(255,255,255,0.95)')
-      g.addColorStop(0.55, 'rgba(205,232,247,0.55)')
-      g.addColorStop(1, 'rgba(150,200,230,0.75)')
-      ctx.fillStyle = g
-      ctx.beginPath()
-      ctx.arc(cx, cy, 14.5, 0, Math.PI * 2)
-      ctx.fill()
+      const cx = 16 + ix * 32 + (iy % 2) * 16
+      for (const wrap of [-128, 0, 128]) {
+        const x = cx + wrap
+        const dome = ctx.createRadialGradient(x - 3, cy - 4, 1, x, cy, 12)
+        dome.addColorStop(0, 'rgba(255,255,255,0.10)')
+        dome.addColorStop(0.75, 'rgba(214,234,246,0.22)')
+        dome.addColorStop(1, 'rgba(170,205,228,0.55)')
+        ctx.fillStyle = dome
+        ctx.beginPath()
+        ctx.arc(x, cy, 12, 0, Math.PI * 2)
+        ctx.fill()
+        // Điểm sáng nhỏ trên đỉnh bong bóng.
+        ctx.fillStyle = 'rgba(255,255,255,0.8)'
+        ctx.beginPath()
+        ctx.ellipse(x - 4, cy - 5, 2.6, 1.6, -0.6, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
   }
   const texture = new CanvasTexture(canvas)
@@ -235,19 +246,65 @@ function makeBubbleMaterial(u: number, v: number, doubleSided = false): MeshStan
     map.needsUpdate = true
     map.repeat.set(Math.max(1, u / BUBBLE_TILE_M), Math.max(1, v / BUBBLE_TILE_M))
   }
+  // Độ đục lấy từ texture: màng mỏng nhìn xuyên thấy món bên trong, chỉ viền bong bóng đậm hơn.
   return new MeshStandardMaterial({
-    color: '#e8f4fb',
+    color: '#ffffff',
     map,
     transparent: true,
-    opacity: 0.88,
-    roughness: 0.15,
+    opacity: 1,
+    roughness: 0.2,
     depthWrite: false,
     side: doubleSided ? DoubleSide : FrontSide,
   })
 }
 
-/** Lớp xốp hơi bọc kín món (6 mặt, mỗi mặt lặp texture theo cạnh thật). */
-export function BubbleSleeve({ size }: { size: Vec3 }): ReactNode {
+const TAPE_COLOR = '#d9b36c'
+const TAPE_WIDTH_M = 0.016
+
+/**
+ * Dải băng keo quấn ngang qua cạnh NGẮN của món: chạy trên mặt trên rồi rủ xuống hai bên.
+ * Hoạt ảnh dán truyền ref để kéo dải dần; lớp xốp đã dán dùng bản tĩnh.
+ */
+function TapeBand({
+  size,
+  material,
+  topRef,
+  dropsRef,
+}: {
+  size: Vec3
+  material: MeshStandardMaterial
+  topRef?: Ref<Mesh>
+  dropsRef?: Ref<Group>
+}): ReactNode {
+  const [sx, sy, sz] = size
+  const alongX = sx < sz
+  // Nằm trên lớp xốp dày nhất (BubbleSleeve chừa 4 mm) để không bị xốp che.
+  const topLen = (alongX ? sx : sz) + 0.018
+  const y = sy / 2 + 0.0058
+  return (
+    <group rotation={[0, alongX ? Math.PI / 2 : 0, 0]}>
+      <mesh ref={topRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, y, 0]} material={material}>
+        <planeGeometry args={[TAPE_WIDTH_M, topLen]} />
+      </mesh>
+      <group ref={dropsRef} visible={!dropsRef}>
+        {[1, -1].map((dir) => (
+          <mesh key={dir} position={[0, y - (sy * 0.7) / 2, dir * (topLen / 2)]} material={material}>
+            <planeGeometry args={[TAPE_WIDTH_M, sy * 0.7]} />
+          </mesh>
+        ))}
+      </group>
+    </group>
+  )
+}
+
+function makeTapeMaterial(): MeshStandardMaterial {
+  return new MeshStandardMaterial({ color: TAPE_COLOR, transparent: true, opacity: 0.85, roughness: 0.3, side: DoubleSide })
+}
+
+/** Lớp xốp hơi bọc kín món (6 mặt, mỗi mặt lặp texture theo cạnh thật); `taped` giữ dải băng keo đã dán. */
+export function BubbleSleeve({ size, taped = false }: { size: Vec3; taped?: boolean }): ReactNode {
+  const tape = useMemo(() => (taped ? makeTapeMaterial() : null), [taped])
+  useEffect(() => () => tape?.dispose(), [tape])
   const pad = 0.004
   const dims: Vec3 = [size[0] + pad * 2, size[1] + pad * 2, size[2] + pad * 2]
   const materials = useMemo(() => {
@@ -267,9 +324,12 @@ export function BubbleSleeve({ size }: { size: Vec3 }): ReactNode {
     [materials],
   )
   return (
-    <mesh material={materials}>
-      <boxGeometry args={dims} />
-    </mesh>
+    <>
+      <mesh material={materials}>
+        <boxGeometry args={dims} />
+      </mesh>
+      {tape ? <TapeBand size={size} material={tape} /> : null}
+    </>
   )
 }
 
@@ -324,7 +384,7 @@ export function WrapAnimation({
       base: makeBubbleMaterial(sx + pad * 2, sz + pad * 2, true),
       side: flaps.map((f) => makeBubbleMaterial(side, f.edge, true)),
       top: flaps.map((f) => makeBubbleMaterial(f.top, f.edge, true)),
-      tape: new MeshStandardMaterial({ color: '#d9b36c', transparent: true, opacity: 0.85, roughness: 0.3 }),
+      tape: makeTapeMaterial(),
     }),
     [flaps, sx, sz, side],
   )
@@ -373,10 +433,6 @@ export function WrapAnimation({
     if (tapeDrops.current) tapeDrops.current.visible = tapeP > 0.7
   })
 
-  // Băng keo quấn ngang qua cạnh NGẮN của món (dải chạy theo cạnh ngắn, rủ xuống ở hai đầu).
-  const tapeAlongX = sx < sz
-  const topLen = (tapeAlongX ? sx : sz) + pad * 2 + 0.01
-  const tapeY = sy / 2 + pad * 2 + 0.0016
   return (
     <group>
       {/* Tấm xốp trải dưới món. */}
@@ -408,23 +464,7 @@ export function WrapAnimation({
       ))}
       {mode === 'tape' ? (
         <>
-          {/* Dải băng keo kéo ngang mặt trên rồi rủ xuống hai bên. */}
-          <group rotation={[0, tapeAlongX ? Math.PI / 2 : 0, 0]}>
-            <mesh ref={tapeTop} rotation={[-Math.PI / 2, 0, 0]} position={[0, tapeY, 0]} material={materials.tape}>
-              <planeGeometry args={[0.016, topLen]} />
-            </mesh>
-            <group ref={tapeDrops} visible={false}>
-              {[1, -1].map((dir) => (
-                <mesh
-                  key={dir}
-                  position={[0, tapeY - (sy * 0.7) / 2, dir * (topLen / 2)]}
-                  material={materials.tape}
-                >
-                  <planeGeometry args={[0.016, sy * 0.7]} />
-                </mesh>
-              ))}
-            </group>
-          </group>
+          <TapeBand size={size} material={materials.tape} topRef={tapeTop} dropsRef={tapeDrops} />
           <SilentBoundary>
             <Suspense fallback={null}>
               <Piece kind="tape_roll" position={[sx / 2 + 0.07, bottom, 0.02]} />
