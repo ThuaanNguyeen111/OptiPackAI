@@ -431,5 +431,6 @@ export class StepClock {
 
 export function easeInOut(t: number): number {
   const x = Math.min(1, Math.max(0, t))
-  return x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2
+  // smootherstep: vận tốc và gia tốc đều bằng 0 ở hai đầu — chuyển động vào/ra không giật.
+  return x * x * x * (x * (x * 6 - 15) + 10)
 }

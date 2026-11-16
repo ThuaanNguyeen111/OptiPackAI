@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import {
@@ -17,7 +17,7 @@ import type { PackingPlacement, PackingPlan, PackingPlanParcel } from '../../typ
 import { boxCutNote } from '../../types/packing-plan'
 import {
   STEP_SECONDS,
-  buildPackSteps,
+  packStepsForParcel,
   innerOf,
   isWorkAreaStep,
   orderColor,
@@ -26,6 +26,7 @@ import {
   selectParcel,
   sortedPlacements,
   stepLabel,
+  actionNote,
   workAreaFor,
   type SceneMode,
 } from '../../utils/packing-layout'
@@ -79,11 +80,11 @@ function ModeMessage({
       ) : (
         <Package className="h-8 w-8 text-slate-400" />
       )}
-      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
+      <p className="text-sm font-semibold text-slate-100">{title}</p>
       {mode === 'list' && items.length > 0 ? (
-        <ul className="max-h-40 w-full max-w-xs overflow-y-auto text-left text-xs text-slate-600 dark:text-slate-300">
+        <ul className="max-h-40 w-full max-w-xs overflow-y-auto text-left text-xs text-slate-300">
           {items.map((p) => (
-            <li key={p.itemKey} className="border-b border-slate-100 py-1 font-mono dark:border-slate-800">
+            <li key={p.itemKey} className="border-b border-white/10 py-1 font-mono">
               {p.sku}
             </li>
           ))}
@@ -100,22 +101,26 @@ function ParcelGuidePlayer({
   autoRotate,
   vi,
   onOpenDetail,
+  stepIndex,
+  onStepIndexChange,
+  showCaption,
 }: {
   plan: PackingPlan
   parcel: PackingPlanParcel
   autoRotate: boolean
   vi: boolean
   onOpenDetail?: () => void
+  stepIndex?: number
+  onStepIndexChange?: (index: number) => void
+  showCaption: boolean
 }): ReactNode {
-  const placements = useMemo(() => sortedPlacements(parcel), [parcel])
-  const mailer = parcel.box.kind === 'mailer'
+  const { placements, steps, mailer } = useMemo(
+    () => packStepsForParcel(parcel, plan.itemProfiles),
+    [parcel, plan.itemProfiles],
+  )
   const orderIds = parcel.orderIds
   const shared = (orderIds?.length ?? 0) >= 2
   const orderCodes = sharedOrderCodes(parcel)
-  const steps = useMemo(
-    () => buildPackSteps(placements, plan.itemProfiles, { mailer, shared }),
-    [placements, plan.itemProfiles, mailer, shared],
-  )
   const slipColors = useMemo(() => (orderIds ?? []).map((_, i) => orderColor(i)), [orderIds])
   const tintOf = useMemo(() => {
     if (!shared) return undefined
@@ -124,7 +129,17 @@ function ParcelGuidePlayer({
       return at >= 0 ? orderColor(at) : undefined
     }
   }, [shared, orderIds, parcel.orderId])
-  const [index, setIndex] = useState(0)
+  const [localIndex, setLocalIndex] = useState(0)
+  // Có onStepIndexChange thì bước do ngoài giữ (đồng bộ với danh sách bước chữ).
+  const index = Math.min(steps.length - 1, Math.max(0, onStepIndexChange ? (stepIndex ?? 0) : localIndex))
+  const setIndex = useCallback(
+    (next: (i: number) => number): void => {
+      const value = next(index)
+      if (onStepIndexChange) onStepIndexChange(value)
+      else setLocalIndex(value)
+    },
+    [index, onStepIndexChange],
+  )
   const [playing, setPlaying] = useState(false)
   const [viewKey, setViewKey] = useState(0)
 
@@ -137,10 +152,10 @@ function ParcelGuidePlayer({
       const stop = window.setTimeout(() => setPlaying(false), 0)
       return () => window.clearTimeout(stop)
     }
-    const wait = (STEP_SECONDS[current.kind] + 1.2) * 1000
+    const wait = (STEP_SECONDS[current.kind] + 0.7) * 1000
     const timer = window.setTimeout(() => setIndex((i) => Math.min(last, i + 1)), wait)
     return () => window.clearTimeout(timer)
-  }, [playing, index, last, current])
+  }, [playing, index, last, current, setIndex])
 
   const placement = current?.item != null ? placements[current.item] : undefined
   const profile = placement ? profileFor(plan.itemProfiles, placement.sku) : undefined
@@ -162,17 +177,20 @@ function ParcelGuidePlayer({
   // Nắp thùng mở choãi ra ngoài thân thùng: khung toàn cảnh phải chứa cả phần này.
   const flap = mailer ? 0 : Math.min(outer.lengthMm, outer.widthMm) / 2000
   const fullMinX = minX - flap
+  // Cho vào túi zip / gập đôi là thao tác trên một gói nhỏ: lại gần để thấy rõ nếp gập.
+  const closeUp = current?.kind === 'zip' || current?.kind === 'halfFold' || current?.kind === 'zipFold'
+  const areaView = area.size * (closeUp ? 0.6 : 1)
   const focus = useMemo<CameraFocus>(
     () =>
       onWorkArea
-        ? { center: [areaX, areaZ], width: area.size, depth: area.size, height: 0.12 }
+        ? { center: [areaX, areaZ], width: areaView, depth: areaView, height: 0.12 }
         : {
             center: [(fullMinX + maxX) / 2, (minZ + maxZ) / 2],
             width: maxX - fullMinX,
             depth: maxZ - minZ,
             height: outer.heightMm / 1000 + flap,
           },
-    [onWorkArea, areaX, areaZ, area.size, fullMinX, maxX, minZ, maxZ, outer.heightMm, flap],
+    [onWorkArea, areaX, areaZ, areaView, fullMinX, maxX, minZ, maxZ, outer.heightMm, flap],
   )
   const placementOrder = placement && shared ? tintOf?.(placement) : undefined
   const placementOrderCode = placement
@@ -186,14 +204,15 @@ function ParcelGuidePlayer({
 
   return (
     <div
-      className="relative h-full w-full outline-none"
+      className="flex min-h-0 w-full flex-1 flex-col outline-none"
       tabIndex={0}
       onKeyDown={(event) => {
         if (event.key === 'ArrowRight') go(1)
         if (event.key === 'ArrowLeft') go(-1)
       }}
     >
-      <div className="h-full w-full cursor-grab active:cursor-grabbing">
+      {/* Cảnh 3D chiếm trọn phần giữa; thông tin + điều khiển nằm ở hai dải trên/dưới, không đè lên hàng. */}
+      <div className="relative min-h-0 w-full flex-1 cursor-grab active:cursor-grabbing">
         <Canvas camera={{ position: [reach, reach, reach], fov: 40, near: 0.01, far: 50 }}>
           <Suspense fallback={null}>
             <PackingScene
@@ -221,14 +240,12 @@ function ParcelGuidePlayer({
             autoRotateSpeed={1.2}
           />
         </Canvas>
-      </div>
-
-      <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+      <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5">
         {onOpenDetail ? (
           <button
             type="button"
             onClick={onOpenDetail}
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:text-blue-600"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/25 text-white/90 hover:bg-black/40 hover:text-white focus-visible:outline-2 focus-visible:outline-white"
             title={vi ? 'Xem chi tiết' : 'View details'}
             aria-label={vi ? 'Xem chi tiết' : 'View details'}
           >
@@ -238,16 +255,18 @@ function ParcelGuidePlayer({
         <button
           type="button"
           onClick={() => setViewKey((k) => k + 1)}
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:text-blue-600"
+          className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/25 text-white/90 hover:bg-black/40 hover:text-white focus-visible:outline-2 focus-visible:outline-white"
           title={vi ? 'Đặt lại góc nhìn' : 'Reset view'}
           aria-label={vi ? 'Đặt lại góc nhìn' : 'Reset view'}
         >
           <RotateCcw className="h-4 w-4" />
         </button>
       </div>
+      </div>
 
-      <div className="absolute right-3 bottom-3 left-3 z-20 rounded-xl border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
+      <div className="shrink-0 border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         {/* Lời bước dài/ngắn khác nhau: giới hạn chiều cao + cuộn để thẻ không phình che cảnh 3D. */}
+        {showCaption ? (
         <div className="max-h-28 min-h-[3.25rem] overflow-y-auto overscroll-contain px-3 pt-2.5 pb-2" aria-live="polite">
             {current?.kind === 'prepare' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
@@ -257,32 +276,14 @@ function ParcelGuidePlayer({
                   : ''}
               </p>
             ) : current?.kind === 'close' ? (
-              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {vi
-                  ? 'Chèn vật tư vào khoảng trống, gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
-                  : 'Fill gaps with materials, fold short flaps then long flaps, tape the box.'}
-              </p>
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">{actionNote('close', vi)}</p>
             ) : current?.kind === 'slip' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
                 {vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng' : 'Place each order\'s packing slip on the stack'}
                 {orderCodes.length > 0 ? `: ${orderCodes.join(', ')}` : ''}
               </p>
-            ) : current?.kind === 'bagIn' ? (
-              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {vi
-                  ? 'Cho cả chồng hàng vào túi, món lớn và nặng nằm dưới.'
-                  : 'Slide the whole stack into the mailer, large and heavy items at the bottom.'}
-              </p>
-            ) : current?.kind === 'seal' ? (
-              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {vi
-                  ? 'Ép bớt không khí, bóc lớp giấy bảo vệ keo, gập nắp dán kín. Không cần băng keo.'
-                  : 'Press out the air, peel the adhesive strip and seal the flap. No tape needed.'}
-              </p>
-            ) : current?.kind === 'label' ? (
-              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {vi ? 'Dán tem vận đơn lên mặt phẳng lớn của túi.' : 'Apply the shipping label on the large flat side.'}
-              </p>
+            ) : current && (current.kind === 'bagIn' || current.kind === 'seal' || current.kind === 'label') ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">{actionNote(current.kind, vi)}</p>
             ) : placement ? (
               <>
                 <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
@@ -317,20 +318,21 @@ function ParcelGuidePlayer({
               </p>
             ) : null}
         </div>
+        ) : null}
         {/* Thanh điều khiển neo đáy thẻ: nút không xê dịch khi đổi bước. */}
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200/80 px-3 py-2 dark:border-slate-800">
-          <p className="min-w-0 truncate text-xs font-semibold text-slate-600 dark:text-slate-300">
+        <div className={`flex items-center justify-between gap-3 px-3 py-1.5 ${showCaption ? 'border-t border-slate-200/80 dark:border-slate-800' : ''}`}>
+          <p className="min-w-0 truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
             <span className="tabular-nums">
               {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
             </span>
-            {current ? <span className="font-medium text-slate-500 dark:text-slate-400"> · {stepLabel(current.kind, vi, mailer)}</span> : null}
+            {current ? <span className="font-medium text-slate-700 dark:text-slate-300"> · {stepLabel(current.kind, vi, mailer)}</span> : null}
           </p>
           <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
               onClick={() => go(-1)}
               disabled={index === 0}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40"
               aria-label={vi ? 'Bước trước' : 'Previous step'}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -338,10 +340,10 @@ function ParcelGuidePlayer({
             <button
               type="button"
               onClick={() => {
-                if (index >= last) setIndex(0)
+                if (index >= last) setIndex(() => 0)
                 setPlaying((p) => !p)
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#152d35] text-white"
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#152d35] text-white"
               aria-label={playing ? (vi ? 'Tạm dừng' : 'Pause') : vi ? 'Tự chạy' : 'Play'}
             >
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -350,7 +352,7 @@ function ParcelGuidePlayer({
               type="button"
               onClick={() => go(1)}
               disabled={index >= last}
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40"
               aria-label={vi ? 'Bước sau' : 'Next step'}
             >
               <ChevronRight className="h-4 w-4" />
@@ -369,6 +371,9 @@ export function Packing3DBoxViewer({
   className,
   autoRotate = false,
   onOpenDetail,
+  stepIndex,
+  onStepIndexChange,
+  showCaption = true,
 }: {
   plan: PackingPlan | null
   /** Kiện đang xem; không truyền = kiện đầu tiên. */
@@ -380,6 +385,11 @@ export function Packing3DBoxViewer({
   autoRotate?: boolean
   /** Nút phóng to mở màn chi tiết */
   onOpenDetail?: () => void
+  /** Bước đang xem do ngoài giữ — để danh sách bước chữ tô sáng và bấm nhảy tới. */
+  stepIndex?: number
+  onStepIndexChange?: (index: number) => void
+  /** false khi bên cạnh đã có danh sách bước chữ: chỉ giữ thanh điều khiển, không che cảnh 3D. */
+  showCaption?: boolean
 }): ReactNode {
   const { locale } = usePortal()
   const vi = locale === 'vi'
@@ -412,16 +422,17 @@ export function Packing3DBoxViewer({
     <div
       className={
         className ??
-        'relative h-[380px] w-full select-none overflow-hidden rounded-2xl border border-slate-100 bg-[#f8faff] sm:h-[420px] dark:border-slate-800 dark:bg-slate-900/40'
+        'relative h-[380px] w-full select-none overflow-hidden rounded-2xl border border-slate-700 bg-[#24363f] sm:h-[420px]'
       }
     >
-      <div className="pointer-events-none absolute top-3 left-3 z-20 max-w-[60%] rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
-        <p className="truncate text-xs font-bold text-slate-800 sm:text-sm dark:text-slate-100">{label}</p>
-        {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
-      </div>
-
+      <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-3 py-1.5 dark:border-slate-800 dark:bg-slate-900">
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100" title={label}>
+          {label}
+          {sub ? <span className="ml-2 text-xs font-normal text-slate-600 dark:text-slate-300">{sub}</span> : null}
+        </p>
       {parcels.length > 1 ? (
-        <div className="absolute top-[4.25rem] left-3 z-20 flex flex-wrap gap-1">
+        <div className="flex shrink-0 flex-wrap gap-1">
           {parcels.map((p) => (
             <button
               key={p.parcelNo}
@@ -438,6 +449,7 @@ export function Packing3DBoxViewer({
           ))}
         </div>
       ) : null}
+      </div>
 
       {mode === 'scene' && plan && parcel ? (
         webgl ? (
@@ -448,17 +460,23 @@ export function Packing3DBoxViewer({
             autoRotate={autoRotate}
             vi={vi}
             onOpenDetail={onOpenDetail}
+            stepIndex={stepIndex}
+            onStepIndexChange={onStepIndexChange}
+            showCaption={showCaption}
           />
         ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-600">
+          <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-300">
             {vi
               ? 'Trình duyệt không hỗ trợ WebGL — xem các bước ở danh sách hướng dẫn.'
               : 'WebGL is not available — use the step list instead.'}
           </div>
         )
       ) : (
-        <ModeMessage mode={mode === 'scene' ? 'list' : mode} parcel={parcel} vi={vi} />
+        <div className="min-h-0 flex-1">
+          <ModeMessage mode={mode === 'scene' ? 'list' : mode} parcel={parcel} vi={vi} />
+        </div>
       )}
+      </div>
     </div>
   )
 }

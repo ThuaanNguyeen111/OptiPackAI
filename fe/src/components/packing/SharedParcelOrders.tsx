@@ -34,9 +34,10 @@ export function SharedParcelOrders({
 
 /** Nhãn lớp ngoài của kiện. Thùng là mặc định nên không hiện. */
 export function MailerBadge({ parcel, vi }: { parcel: PackingPlanParcel; vi: boolean }): ReactNode {
-  if (parcel.box.kind !== 'mailer') return null
+  // Tên vật tư đã nói là túi thì không gắn nhãn lặp lại.
+  if (parcel.box.kind !== 'mailer' || /túi|mailer/i.test(parcel.box.name)) return null
   return (
-    <span className="ml-1.5 rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-ink">
+    <span className="ml-1.5 inline-block rounded bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap text-ink">
       {vi ? 'Túi niêm phong' : 'Mailer'}
     </span>
   )
