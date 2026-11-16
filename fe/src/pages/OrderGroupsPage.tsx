@@ -45,6 +45,7 @@ import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import { GroupOpsPanel } from './order-groups/GroupOpsPanel'
 import { UserRole } from '../types/auth'
+import { PhotoThumbs } from '../components/ui/PhotoThumbs'
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
@@ -834,6 +835,11 @@ export function OrderGroupsPage() {
                                 </p>
                                 {historyShippingLine(item) ? (
                                   <p className="text-ink-subtle">{historyShippingLine(item)}</p>
+                                ) : null}
+                                {item.photoUrls?.length ? (
+                                  <div className="mt-1">
+                                    <PhotoThumbs urls={item.photoUrls} alt={vi ? 'Ảnh kiện' : 'Parcel photo'} size="h-12 w-12" />
+                                  </div>
                                 ) : null}
                               </li>
                             ))}

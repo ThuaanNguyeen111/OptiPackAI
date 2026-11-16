@@ -1350,6 +1350,51 @@ describe('PackingPlanService', () => {
       function unsealParcel(no: number, dto: never, role: UserRole): ReturnType<PackingSessionService['unseal']> {
         return session.unseal(groupId, no, dto, userId, role);
       }
+
+      describe('13/11/2026 — ảnh bằng chứng lúc niêm phong', () => {
+        const PHOTO_A = 'https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/a.jpg';
+        const PHOTO_B = 'https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/b.jpg';
+
+        it('tắt bắt buộc: niêm phong không ảnh được, kiện không có trường ảnh', async () => {
+          await approvedPlan();
+          const plan = await sealOne(1);
+          const parcel = plan.parcels.find((p) => p.parcel_no === 1);
+          expect(parcel?.status).toBe('sealed');
+          expect(toPlanResponse(plan).parcels.find((p) => p.parcelNo === 1)?.sealPhotoUrls).toEqual([]);
+        });
+
+        it('bật bắt buộc: thiếu ảnh → 409, kiện vẫn pending, không trừ thùng; có ảnh → lưu đúng URL', async () => {
+          settings = { ...settings, requireSealPhoto: true };
+          await approvedPlan();
+          let plan = await scanAll(1);
+          await expect(
+            session.seal(groupId, 1, { weight_kg: weightOf(plan, 1), expected_version: plan.version }, userId),
+          ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SEAL_PHOTO_REQUIRED, details: { parcelNos: [1] } });
+          plan = await service.requireActivePlan(groupId);
+          expect(plan.parcels.find((p) => p.parcel_no === 1)?.status).toBe('pending');
+          expect(consumedFor(1)).toBe(0);
+          plan = (
+            await session.seal(groupId, 1, { weight_kg: weightOf(plan, 1), expected_version: plan.version, photo_urls: [PHOTO_A] }, userId)
+          ).plan;
+          expect(plan.parcels.find((p) => p.parcel_no === 1)?.seal_photo_urls).toEqual([PHOTO_A]);
+        });
+
+        it('hoàn tác: ảnh cũ chuyển vào nhật ký unseal, niêm phong lại chỉ còn ảnh mới', async () => {
+          await approvedPlan();
+          let plan = await scanAll(1);
+          plan = (
+            await session.seal(groupId, 1, { weight_kg: weightOf(plan, 1), expected_version: plan.version, photo_urls: [PHOTO_A] }, userId)
+          ).plan;
+          plan = (await unsealParcel(1, unsealDto(plan.version), STAFF)).plan;
+          expect(plan.parcels.find((p) => p.parcel_no === 1)?.seal_photo_urls).toBeUndefined();
+          expect(plan.activity.at(-1)).toMatchObject({ kind: 'unseal', parcel_no: 1, photo_urls: [PHOTO_A] });
+          plan = (
+            await session.seal(groupId, 1, { weight_kg: weightOf(plan, 1), expected_version: plan.version, photo_urls: [PHOTO_B] }, userId)
+          ).plan;
+          expect(plan.parcels.find((p) => p.parcel_no === 1)?.seal_photo_urls).toEqual([PHOTO_B]);
+          expect(toPlanResponse(plan).activity.at(-1)?.photoUrls).toEqual([PHOTO_A]);
+        });
+      });
     });
 
     it('23/10/2026 — đơn gộp khác tên: kế hoạch chụp tên người nhận từng đơn/kiện, chặn "đóng nhanh"', async () => {

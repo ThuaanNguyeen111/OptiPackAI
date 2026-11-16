@@ -162,6 +162,9 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
   final _weight = TextEditingController();
   bool _busy = false;
 
+  /// Ảnh kiện chụp trước khi niêm phong, theo số kiện — tải lên lúc bấm niêm phong.
+  final Map<int, List<XFile>> _sealPhotos = {};
+
   @override
   void dispose() {
     _code.dispose();
@@ -261,8 +264,10 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
     if (!ok || !mounted) return;
     setState(() => _busy = true);
     try {
-      final res = await ref.read(packingRepositoryProvider).seal(widget.groupId, parcel.no, kg);
+      final urls = await ref.read(proofPhotoRepositoryProvider).upload(_sealPhotos[parcel.no] ?? const []);
+      final res = await ref.read(packingRepositoryProvider).seal(widget.groupId, parcel.no, kg, photoUrls: urls);
       _weight.clear();
+      _sealPhotos.remove(parcel.no);
       _refresh();
       if (!mounted) return;
       if (res.outcome == SealOutcome.held) {
@@ -273,6 +278,8 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
         showToast(context, 'Đã niêm phong kiện ${parcel.no}.');
       }
     } on PackingException catch (e) {
+      if (mounted) showToast(context, e.message, error: true);
+    } on ApiException catch (e) {
       if (mounted) showToast(context, e.message, error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -393,6 +400,8 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
     final index = _parcelIndex.clamp(0, g.parcels.length - 1);
     final parcel = g.parcels[index];
     final pending = parcel.status == ParcelStatus.pending;
+    final photoRequired = ref.watch(sealPhotoRequiredProvider).valueOrNull ?? false;
+    final missingPhoto = photoRequired && (_sealPhotos[parcel.no] ?? const []).isEmpty;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -508,10 +517,22 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          ProofPhotoField(
+            label: 'Ảnh kiện',
+            required: photoRequired,
+            enabled: !_busy,
+            photos: _sealPhotos[parcel.no] ?? const [],
+            onChanged: (p) => setState(() => _sealPhotos[parcel.no] = p),
+          ),
+          const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: parcel.allScanned && !_busy ? () => _seal(parcel) : null,
+            onPressed: parcel.allScanned && !_busy && !missingPhoto ? () => _seal(parcel) : null,
             icon: const Icon(Icons.inventory_2),
-            label: Text(parcel.allScanned ? 'Niêm phong kiện ${parcel.no}' : 'Quét đủ món để niêm phong'),
+            label: Text(!parcel.allScanned
+                ? 'Quét đủ món để niêm phong'
+                : missingPhoto
+                    ? 'Chụp ảnh kiện để niêm phong'
+                    : 'Niêm phong kiện ${parcel.no}'),
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(

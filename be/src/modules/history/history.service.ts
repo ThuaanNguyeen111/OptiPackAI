@@ -41,6 +41,8 @@ export interface HistoryItem {
   fromStatus: string | null;
   toStatus: string | null;
   details: Record<string, Detail>;
+  /** (13/11/2026) Ảnh bằng chứng của mốc này (VD niêm phong kiện); không có thì vắng. */
+  photoUrls?: string[];
 }
 
 export interface HistoryListResult {
@@ -594,7 +596,7 @@ export class HistoryService {
   private async fromPackingPlans(ctx: Ctx): Promise<RawItem[]> {
     const plans = await this.planModel
       .find(this.planFilter(ctx))
-      .select('order_group_id revision status source parcels.parcel_no parcels.platform_order_id parcels.box parcels.sealed_by parcels.sealed_at parcels.actual_weight_kg parcels.estimated_weight_g approved_by approved_at approve_override_reason rejected_by rejected_at rejection_reason assigned_packer_id assigned_packer_at assigned_packer_name packing_started_by packing_started_at pack_mode packed_by packed_at activity created_at item_profiles.sku')
+      .select('order_group_id revision status source parcels.parcel_no parcels.platform_order_id parcels.box parcels.sealed_by parcels.sealed_at parcels.seal_photo_urls parcels.actual_weight_kg parcels.estimated_weight_g approved_by approved_at approve_override_reason rejected_by rejected_at rejection_reason assigned_packer_id assigned_packer_at assigned_packer_name packing_started_by packing_started_at pack_mode packed_by packed_at activity created_at item_profiles.sku')
       .sort({ updated_at: -1 })
       // Mỗi kế hoạch sinh ≥1 mốc: lấy page × limit kế hoạch mới cập nhật nhất là đủ cho trang sâu.
       .limit(ctx.limit)
@@ -630,14 +632,16 @@ export class HistoryService {
         if (!parcel.sealed_at) continue;
         const kg = parcel.actual_weight_kg ?? Math.round(num(parcel.estimated_weight_g) / 10) / 100;
         const boxCode = (parcel.box as { code?: string } | null | undefined)?.code ?? '?';
-        out.push(base(`seal:${String(parcel.parcel_no)}`, parcel.sealed_at, 'packing.parcel_sealed',
+        const seal = base(`seal:${String(parcel.parcel_no)}`, parcel.sealed_at, 'packing.parcel_sealed',
           `Niêm phong kiện ${String(parcel.parcel_no)}: thùng ${boxCode}, ${formatKg(kg)}${parcel.platform_order_id ? ` — đơn ${parcel.platform_order_id}` : ''}`,
-          parcel.sealed_by, { parcelNo: parcel.parcel_no, box: boxCode, weightKg: kg }));
+          parcel.sealed_by, { parcelNo: parcel.parcel_no, box: boxCode, weightKg: kg });
+        out.push(parcel.seal_photo_urls?.length ? { ...seal, photoUrls: parcel.seal_photo_urls } : seal);
       }
       if (p.packed_at) out.push(base('packed', p.packed_at, 'packing.packed', `Đóng gói xong ${String(parcels.length)} kiện`, p.packed_by));
       arr(p.activity).forEach((a, index) => {
         if (a.kind === 'start' || a.kind === 'finish') return; // đã có mốc bắt đầu / xong ở trên
-        out.push(base(`act:${String(index)}`, a.at, `packing.${a.kind}`, `${PLAN_ACTIVITY_LABELS[a.kind] ?? a.kind}: ${a.detail}${a.reason ? ` — ${a.reason}` : ''}`, a.by, { parcelNo: a.parcel_no }));
+        const act = base(`act:${String(index)}`, a.at, `packing.${a.kind}`, `${PLAN_ACTIVITY_LABELS[a.kind] ?? a.kind}: ${a.detail}${a.reason ? ` — ${a.reason}` : ''}`, a.by, { parcelNo: a.parcel_no });
+        out.push(a.photo_urls?.length ? { ...act, photoUrls: a.photo_urls } : act);
       });
     }
     return out;

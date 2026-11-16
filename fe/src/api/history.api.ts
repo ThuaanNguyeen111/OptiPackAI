@@ -40,6 +40,8 @@ export type HistoryItem = {
   fromStatus: string | null
   toStatus: string | null
   details?: Record<string, unknown>
+  /** (13/11/2026) Ảnh bằng chứng của mốc (VD niêm phong kiện). */
+  photoUrls?: string[]
 }
 
 export type HistoryCategoryOption = {

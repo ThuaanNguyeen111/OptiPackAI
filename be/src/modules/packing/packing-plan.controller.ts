@@ -284,6 +284,8 @@ export interface PackingPlanResponse {
     scans: { itemKey: string; sku: string; method: string; by: string | null; at: Date }[];
     sealedBy: string | null;
     sealedAt: Date | null;
+    /** (13/11/2026) Ảnh bằng chứng lúc niêm phong; [] = không chụp / dữ liệu cũ. */
+    sealPhotoUrls: string[];
     weighings: { weightKg: number; kind: string; isAbnormal: boolean; by: string | null; at: Date }[];
     reviews: { action: string; reason: string; note: string | null; by: string; at: Date }[];
     unpack: {
@@ -316,7 +318,8 @@ export interface PackingPlanResponse {
     /** 10/11/2026 — ảnh món lỗi. */
     photoUrls: string[];
   }[];
-  activity: { kind: string; parcelNo: number | null; detail: string; reason: string | null; by: string | null; at: Date }[];
+  /** photoUrls: ảnh niêm phong của lần trước (hoàn tác / mở lại kiện); [] nếu không có. */
+  activity: { kind: string; parcelNo: number | null; detail: string; reason: string | null; by: string | null; at: Date; photoUrls: string[] }[];
   session: {
     assignedPackerId: string | null;
     /** 22/10/2026 — tên người đóng (null với kế hoạch giao trước 22/10). */
@@ -522,6 +525,7 @@ export function toPlanResponse(
       scans: p.scans.map((x) => ({ itemKey: x.item_key, sku: x.sku, method: x.method, by: x.by?.toString() ?? null, at: x.at })),
       sealedBy: p.sealed_by?.toString() ?? null,
       sealedAt: p.sealed_at,
+      sealPhotoUrls: p.seal_photo_urls ?? [],
       weighings: p.weighings.map((w) => ({
         weightKg: w.weight_kg,
         kind: w.kind,
@@ -582,6 +586,7 @@ export function toPlanResponse(
       reason: a.reason,
       by: a.by?.toString() ?? null,
       at: a.at,
+      photoUrls: a.photo_urls ?? [],
     })),
     session: {
       assignedPackerId: plan.assigned_packer_id?.toString() ?? null,

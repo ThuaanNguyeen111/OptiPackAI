@@ -21,6 +21,8 @@ export const PACKING_ERROR_CODES = {
   SCAN_NOT_FOUND: 'PACKING_SCAN_NOT_FOUND', // gỡ lần quét không tồn tại
   PARCEL_NOT_FULLY_SCANNED: 'PACKING_PARCEL_NOT_FULLY_SCANNED', // niêm phong khi chưa quét đủ
   SCAN_REQUIRED: 'PACKING_SCAN_REQUIRED', // cài đặt bắt buộc quét — lối tắt pack bị chặn
+  SEAL_PHOTO_REQUIRED: 'PACKING_SEAL_PHOTO_REQUIRED', // (13/11/2026) cài đặt bắt buộc ảnh — niêm phong thiếu ảnh
+  SEAL_PHOTO_STORAGE_MISSING: 'PACKING_SEAL_PHOTO_STORAGE_MISSING', // bật bắt buộc ảnh khi server chưa có Cloudinary
   WEIGHT_REQUIRED: 'PACKING_WEIGHT_REQUIRED', // cân lại mà không gửi cân
   SELF_REVIEW_FORBIDDEN: 'PACKING_SELF_REVIEW_FORBIDDEN', // tự chấp nhận kiện mình niêm phong
   SELF_APPROVE_FORBIDDEN: 'PACKING_SELF_APPROVE_FORBIDDEN', // (09/10/2026) tự duyệt kế hoạch thủ công do mình lập

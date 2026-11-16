@@ -107,6 +107,11 @@ export class SealParcelDto extends VersionedDto {
   @IsString({ message: 'box_source_note phải là chuỗi' })
   @MaxLength(300, { message: 'box_source_note tối đa 300 ký tự' })
   box_source_note?: string;
+
+  @ApiProperty({ required: false, type: [String], description: '(13/11/2026) Ảnh bằng chứng lúc niêm phong (tối đa 3, URL từ POST /proof-photos). Bắt buộc khi cài đặt require_seal_photo = true.' })
+  @IsOptional()
+  @IsProofPhotoUrls()
+  photo_urls?: string[];
 }
 
 export class ReviewParcelDto extends VersionedDto {
@@ -304,6 +309,11 @@ export class UpdatePackingSettingsDto {
   @IsOptional()
   @IsBoolean({ message: 'require_scan phải là true/false' })
   require_scan?: boolean;
+
+  @ApiProperty({ required: false, description: '(13/11/2026) Bắt buộc ảnh bằng chứng khi niêm phong. Bật khi server chưa có Cloudinary → 409.' })
+  @IsOptional()
+  @IsBoolean({ message: 'require_seal_photo phải là true/false' })
+  require_seal_photo?: boolean;
 
   @ApiProperty({ required: false, description: 'AOFP-224 — bật phương án túi niêm phong cho hàng mềm.' })
   @IsOptional()

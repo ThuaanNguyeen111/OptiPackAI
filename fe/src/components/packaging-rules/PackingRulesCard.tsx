@@ -31,6 +31,7 @@ function toDraft(s: PackingSettings): Draft {
     maxParcelsPerOrder: s.maxParcelsPerOrder,
     allowReusedBoxForFragile: s.allowReusedBoxForFragile,
     requireScan: s.requireScan,
+    requireSealPhoto: s.requireSealPhoto ?? false,
     mailerEnabled: s.mailerEnabled,
     mailerMarginWidthMm: s.mailerMarginWidthMm,
     mailerMarginLengthMm: s.mailerMarginLengthMm,
@@ -94,6 +95,7 @@ export function PackingRulesCard({ vi, canEdit }: { vi: boolean; canEdit: boolea
         max_parcels_per_order: draft.maxParcelsPerOrder,
         allow_reused_box_for_fragile: draft.allowReusedBoxForFragile,
         require_scan: draft.requireScan,
+        require_seal_photo: draft.requireSealPhoto,
         mailer_enabled: draft.mailerEnabled,
         mailer_margin_width_mm: draft.mailerMarginWidthMm,
         mailer_margin_length_mm: draft.mailerMarginLengthMm,
@@ -257,6 +259,14 @@ export function PackingRulesCard({ vi, canEdit }: { vi: boolean; canEdit: boolea
               onChange={(v) => patch({ requireScan: v })}
               label={vi ? 'Bắt buộc quét từng món' : 'Require scanning every item'}
               hint={vi ? 'Tắt lối đóng nhanh không quét.' : 'Disables packing without scanning.'}
+            />
+            <Toggle
+              id="require-seal-photo"
+              checked={draft.requireSealPhoto}
+              disabled={!canEdit}
+              onChange={(v) => patch({ requireSealPhoto: v })}
+              label={vi ? 'Bắt buộc chụp ảnh khi niêm phong' : 'Require a photo when sealing'}
+              hint={vi ? 'Ảnh làm bằng chứng khi khách khiếu nại thiếu món hoặc hàng bể. Hệ thống không chấm ảnh.' : 'Evidence for missing-item or damage claims. Photos are not checked automatically.'}
             />
           </SettingsRow>
 

@@ -165,11 +165,13 @@ export function sealParcel(
   expectedVersion: number,
   weightKg: number,
   boxSource?: BoxSourceInput,
+  photoUrls: string[] = [],
 ): Promise<PackingPlan> {
   return readPlan(groupId, `/parcels/${String(parcelNo)}/seal`, {
     expected_version: expectedVersion,
     weight_kg: weightKg,
     ...boxSourceBody(boxSource),
+    ...(photoUrls.length > 0 ? { photo_urls: photoUrls } : {}),
   })
 }
 
@@ -293,6 +295,7 @@ export async function packPlan(
     box_source?: string
     box_source_reason?: string
     box_source_note?: string
+    photo_urls?: string[]
   }[],
 ): Promise<{ plan: PackingPlan; completed: boolean }> {
   return apiRequest<{ plan: PackingPlan; completed: boolean }>(

@@ -38,6 +38,8 @@ export interface PackingReport {
   minimalParcelRate: number | null;
   /** Nhóm đóng bằng quét kiểm từng món / nhóm có ghi chế độ đóng. */
   scanRate: number | null;
+  /** (13/11/2026) Kiện có ảnh niêm phong / kiện đã niêm phong — xem trước khi bật bắt buộc ảnh. */
+  sealPhotoRate: number | null;
   packagingCostVnd: number;
   issues: { damaged: number; missing: number; wrongItem: number };
   byStaff: PackingStaffStats[];
@@ -97,6 +99,7 @@ export class PackingReportService {
     const durations: number[] = [];
     let parcels = 0;
     let sealedCount = 0;
+    let withPhoto = 0;
     let heldEver = 0;
     let accepted = 0;
     let intact = 0;
@@ -121,6 +124,7 @@ export class PackingReportService {
       let held = 0;
       for (const p of live) {
         sealedCount += 1;
+        if (p.seal_photo_urls?.length) withPhoto += 1;
         if (p.weighings.some((w) => w.is_abnormal) || p.is_abnormal) held += 1;
         if (p.reviews.some((r) => r.action === 'accept')) accepted += 1;
         cost += (p.box.price_vnd ?? 0) + p.materials_cost_vnd;
@@ -184,6 +188,7 @@ export class PackingReportService {
       approvedIntactRate: ratio(intact, plans.length),
       minimalParcelRate: ratio(minimal, orders),
       scanRate: ratio(scanGroups, modeGroups),
+      sealPhotoRate: ratio(withPhoto, sealedCount),
       packagingCostVnd: Math.round(cost),
       issues,
       byStaff: [...staff.entries()]

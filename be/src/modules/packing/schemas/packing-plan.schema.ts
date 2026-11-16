@@ -334,6 +334,8 @@ export class PlanParcel {
   @Prop({ type: PlanBoxSourceOverrideSchema, default: null }) box_source_override!: PlanBoxSourceOverride | null;
   @Prop({ type: SchemaTypes.ObjectId, default: null }) sealed_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) sealed_at!: Date | null;
+  /** (13/11/2026) Ảnh bằng chứng lúc niêm phong (URL Cloudinary, tối đa 3). Chỉ để người xem — không AI chấm. */
+  @Prop({ type: [String], default: undefined }) seal_photo_urls?: string[];
   @Prop({ type: [PlanWeighingSchema], default: [] }) weighings!: PlanWeighing[];
   @Prop({ type: [PlanParcelReviewSchema], default: [] }) reviews!: PlanParcelReview[];
   @Prop({ type: PlanUnpackSchema, default: null }) unpack!: PlanUnpack | null;
@@ -462,6 +464,8 @@ export class PlanActivity {
   @Prop({ type: String, default: null }) reason!: string | null;
   @Prop({ type: SchemaTypes.ObjectId, default: null }) by!: Types.ObjectId | null;
   @Prop({ type: Date, required: true }) at!: Date;
+  /** (13/11/2026) unseal/reopen: ảnh niêm phong của lần trước — hoàn tác không làm mất bằng chứng. */
+  @Prop({ type: [String], default: undefined }) photo_urls?: string[];
 }
 export const PlanActivitySchema = SchemaFactory.createForClass(PlanActivity);
 

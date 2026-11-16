@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsProofPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 import {
   ArrayMinSize,
   IsArray,
@@ -291,6 +292,11 @@ export class ParcelWeightDto {
   @IsString({ message: 'box_source_note phải là chuỗi' })
   @MaxLength(300, { message: 'box_source_note tối đa 300 ký tự' })
   box_source_note?: string;
+
+  @ApiProperty({ required: false, type: [String], description: '(13/11/2026) Ảnh bằng chứng lúc niêm phong kiện này (tối đa 3, URL từ POST /proof-photos). Bắt buộc khi require_seal_photo = true.' })
+  @IsOptional()
+  @IsProofPhotoUrls()
+  photo_urls?: string[];
 }
 
 export class PackPlanDto extends VersionedDto {

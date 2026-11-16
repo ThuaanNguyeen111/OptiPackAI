@@ -93,6 +93,7 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 import { selectParcel } from '../../utils/packing-layout'
 import { PackingSessionPanel } from './PackingSessionPanel'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
+import { SealPhotoPicker } from './SealPhotoPicker'
 import { BoxComparisonTable } from './BoxComparisonTable'
 import { GuideRating, GuideTraceButton } from './GuideFeedback'
 import { GuideSteps } from './GuideSteps'
@@ -453,6 +454,9 @@ export function PackagingWorkbench() {
   const [returnRestock, setReturnRestock] = useState(false)
   const [returnNote, setReturnNote] = useState('')
   const [requireScan, setRequireScan] = useState(false)
+  const [requireSealPhoto, setRequireSealPhoto] = useState(false)
+  /** Ảnh niêm phong của lối đóng nhanh, khoá `${planId}:${parcelNo}`. */
+  const [quickSealPhotos, setQuickSealPhotos] = useState<Record<string, string[]>>({})
   const [blockedGroups, setBlockedGroups] = useState<OrderGroup[]>([])
   const [remoteGroups, setRemoteGroups] = useState<OrderGroup[] | null>(null)
   const [remoteSearching, setRemoteSearching] = useState(false)
@@ -613,12 +617,25 @@ export function PackagingWorkbench() {
       void listPackingStaff()
         .then(setStaff)
         .catch(() => setStaff([]))
-      void getPackingSettings()
-        .then((settings) => setRequireScan(settings.requireScan))
-        .catch(() => setRequireScan(false))
     }, 0)
     return () => window.clearTimeout(timer)
   }, [canAssign])
+
+  // Nhân viên đóng gói cũng đọc được cài đặt — cần biết bắt buộc quét / bắt buộc ảnh.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void getPackingSettings()
+        .then((settings) => {
+          setRequireScan(settings.requireScan)
+          setRequireSealPhoto(settings.requireSealPhoto ?? false)
+        })
+        .catch(() => {
+          setRequireScan(false)
+          setRequireSealPhoto(false)
+        })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const counts = useMemo(() => {
     let pending = 0
@@ -1062,8 +1079,17 @@ export function PackagingWorkbench() {
         return
       }
     }
+    const photoOf = (no: number): string[] => quickSealPhotos[`${plan.id}:${String(no)}`] ?? []
+    if (requireSealPhoto) {
+      const missing = parcels.filter((row) => photoOf(row.parcel_no).length === 0).map((row) => `#${String(row.parcel_no)}`)
+      if (missing.length > 0) {
+        setActionError(vi ? `Chụp ít nhất 1 ảnh cho kiện ${missing.join(', ')}.` : `Take a photo of parcel ${missing.join(', ')}.`)
+        return
+      }
+    }
     const parcelsWithSource = parcels.map((row) => ({
       ...row,
+      ...(photoOf(row.parcel_no).length > 0 ? { photo_urls: photoOf(row.parcel_no) } : {}),
       ...(boxSourceBody(boxSourceInputs[row.parcel_no]) as {
         box_source?: string
         box_source_reason?: string
@@ -1352,6 +1378,14 @@ export function PackagingWorkbench() {
               value={boxSourceInputs[parcel.parcelNo] ?? { source: 'auto' }}
               onChange={(next) =>
                 setBoxSourceInputs((prev) => ({ ...prev, [parcel.parcelNo]: next }))
+              }
+            />
+            <SealPhotoPicker
+              vi={vi}
+              required={requireSealPhoto}
+              value={quickSealPhotos[`${plan.id}:${String(parcel.parcelNo)}`] ?? []}
+              onChange={(urls) =>
+                setQuickSealPhotos((prev) => ({ ...prev, [`${plan.id}:${String(parcel.parcelNo)}`]: urls }))
               }
             />
           </div>
@@ -1918,6 +1952,7 @@ export function PackagingWorkbench() {
                           plan={plan}
                           boxes={boxStock.map((row) => ({ code: row.code, name: row.name }))}
                           vi={vi}
+                          requireSealPhoto={requireSealPhoto}
                           onPlan={(next) => {
                             setPlan((current) => retainProfileStale(current, next))
                             setParcelWeights(weightPrefill(next))

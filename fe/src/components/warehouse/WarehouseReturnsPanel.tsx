@@ -11,6 +11,7 @@ import {
   type PackagingInspectInput,
 } from '../../api/returns.api'
 import { listShipments, receiveReturnedShipment } from '../../api/shipments.api'
+import { GroupSealPhotos } from './GroupSealPhotos'
 import type { Shipment } from '../../types/shipments'
 import { listWarehouseBinLocations } from '../../api/warehouse.api'
 import { formatApiError, getApiErrorCode, getApiErrorDetailList } from '../../lib/api'
@@ -419,6 +420,7 @@ export function WarehouseReturnsPanel({
                   </li>
                 ))}
               </ul>
+              <GroupSealPhotos groupId={selected.orderGroupId} vi={vi} />
               {mode === 'awaiting_receipt' ? (
                 <button
                   type="button"

@@ -54,6 +54,13 @@ import type {
 import { formatKg } from '../../common/utils/measure-format.util';
 
 type ParcelData = Plain<PlanParcel>;
+
+/** Kiện mở lại: ảnh niêm phong cũ chuyển sang nhật ký, lần niêm phong sau chụp mới. */
+function withoutSealPhotos(p: ParcelData): ParcelData {
+  const rest = { ...p };
+  delete rest.seal_photo_urls;
+  return rest;
+}
 type PlanData = Omit<Plain<PackingPlan>, 'parcels'> & { _id: Types.ObjectId; parcels: ParcelData[] };
 
 export interface ScanOutcome {
@@ -305,7 +312,8 @@ export class PackingSessionService {
     const settings = await this.settingsService.get();
     const choice = choiceOf(dto);
     const choices = new Map<number, BoxChoice>(choice ? [[parcelNo, choice]] : []);
-    return this.sealParcels(plan, new Map([[parcelNo, dto.weight_kg]]), settings, userId, false, choices);
+    const photos = new Map(dto.photo_urls?.length ? [[parcelNo, dto.photo_urls]] : []);
+    return this.sealParcels(plan, new Map([[parcelNo, dto.weight_kg]]), settings, userId, false, choices, photos);
   }
 
   /**
@@ -446,9 +454,11 @@ export class PackingSessionService {
     const pending = this.data(plan).parcels.filter((p) => p.status === 'pending');
     const weights = new Map<number, number>();
     const choices = new Map<number, BoxChoice>();
+    const photos = new Map<number, string[]>();
     for (const w of dto.parcels) {
       const choice = choiceOf(w);
       if (choice) choices.set(w.parcel_no, choice);
+      if (w.photo_urls?.length) photos.set(w.parcel_no, w.photo_urls);
       if (!pending.some((p) => p.parcel_no === w.parcel_no) || weights.has(w.parcel_no)) {
         throw new AppException(
           PACKING_ERROR_CODES.PACK_WEIGHTS_MISMATCH,
@@ -467,7 +477,7 @@ export class PackingSessionService {
         { expected: pending.length, received: weights.size, pending: pending.map((p) => p.parcel_no) },
       );
     }
-    return this.sealParcels(plan, weights, settings, userId, true, choices);
+    return this.sealParcels(plan, weights, settings, userId, true, choices, photos);
   }
 
   private async sealParcels(
@@ -477,12 +487,24 @@ export class PackingSessionService {
     userId: string,
     bypassScan: boolean,
     choices = new Map<number, BoxChoice>(),
+    photos = new Map<number, string[]>(),
   ): Promise<SessionResult> {
     const groupId = plan.order_group_id.toString();
     const data = this.data(plan);
     const by = new Types.ObjectId(userId);
     const now = new Date();
     const targets = data.parcels.filter((p) => weights.has(p.parcel_no));
+    if (settings.requireSealPhoto) {
+      const missing = targets.filter((p) => !photos.get(p.parcel_no)?.length).map((p) => p.parcel_no);
+      if (missing.length > 0) {
+        throw new AppException(
+          PACKING_ERROR_CODES.SEAL_PHOTO_REQUIRED,
+          `Chụp ít nhất 1 ảnh cho kiện ${missing.join(', ')} trước khi niêm phong.`,
+          HttpStatus.CONFLICT,
+          { parcelNos: missing },
+        );
+      }
+    }
     const allowReused = (p: ParcelData): boolean => reusedAllowedFor(p, settings.allowReusedBoxForFragile);
     const resolved = await this.resolveBoxChoices(data, targets, choices, settings, userId);
 
@@ -561,6 +583,7 @@ export class PackingSessionService {
           box_source_override: p.box_consumed ? p.box_source_override : (resolved.get(p.parcel_no)?.override ?? null),
           sealed_by: by,
           sealed_at: now,
+          ...(photos.get(p.parcel_no)?.length ? { seal_photo_urls: photos.get(p.parcel_no) } : {}),
           actual_weight_kg: weight,
           is_abnormal: abnormal,
           weighings: [...p.weighings, { weight_kg: weight, kind: 'seal', is_abnormal: abnormal, by, at: now }],
@@ -640,7 +663,7 @@ export class PackingSessionService {
     } else {
       // Mở ra đóng lại: thùng đã trừ tồn từ lần niêm phong trước — box_consumed giữ true.
       next = {
-        ...parcel,
+        ...withoutSealPhotos(parcel),
         status: 'pending',
         actual_weight_kg: null,
         is_abnormal: false,
@@ -651,10 +674,14 @@ export class PackingSessionService {
       };
     }
     const parcels = data.parcels.map((p) => (p.parcel_no === parcelNo ? next : p));
+    const keptPhotos =
+      dto.action === 'reopen' && parcel.seal_photo_urls?.length
+        ? { $push: { activity: this.activity('unseal', userId, `Mở kiện ${String(parcelNo)} ra đóng lại (lệch cân)`, parcelNo, dto.reason, parcel.seal_photo_urls) } }
+        : {};
     return this.runInTransaction(async (session) => {
       const updated = await this.planModel.findOneAndUpdate(
         { _id: plan._id, version: plan.version, is_active: true },
-        { $set: { parcels }, $inc: { version: 1 } },
+        { $set: { parcels }, ...keptPhotos, $inc: { version: 1 } },
         { session, returnDocument: 'after' },
       );
       if (!updated) throw this.planService.versionConflict(groupId);
@@ -713,7 +740,7 @@ export class PackingSessionService {
     const now = new Date();
     const by = new Types.ObjectId(userId);
     const next: ParcelData = {
-      ...parcel,
+      ...withoutSealPhotos(parcel),
       status: 'pending',
       actual_weight_kg: null,
       is_abnormal: false,
@@ -749,7 +776,7 @@ export class PackingSessionService {
             : { parcels },
           $push: {
             adjustments: adjustment,
-            activity: this.activity('unseal', userId, `Hoàn tác niêm phong kiện ${String(parcelNo)}`, parcelNo, dto.reason),
+            activity: this.activity('unseal', userId, `Hoàn tác niêm phong kiện ${String(parcelNo)}`, parcelNo, dto.reason, parcel.seal_photo_urls),
           },
           $inc: { version: 1 },
         },
@@ -1082,8 +1109,17 @@ export class PackingSessionService {
     detail: string,
     parcelNo: number | null = null,
     reason: string | null = null,
+    photoUrls?: string[],
   ): PackingPlan['activity'][number] {
-    return { kind, parcel_no: parcelNo, detail, reason, by: new Types.ObjectId(userId), at: new Date() };
+    return {
+      kind,
+      parcel_no: parcelNo,
+      detail,
+      reason,
+      by: new Types.ObjectId(userId),
+      at: new Date(),
+      ...(photoUrls?.length ? { photo_urls: photoUrls } : {}),
+    };
   }
 
   private async save(plan: PackingPlanDocument, set: Record<string, unknown>): Promise<PackingPlanDocument> {

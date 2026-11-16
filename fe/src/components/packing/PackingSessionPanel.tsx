@@ -35,6 +35,8 @@ import {
   parcelOrderHeading,
 } from '../../lib/parcel-order-display'
 import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
+import { SealPhotoPicker } from './SealPhotoPicker'
+import { PhotoThumbs } from '../ui/PhotoThumbs'
 
 type BoxOption = { code: string; name: string }
 
@@ -58,11 +60,13 @@ export function PackingSessionPanel({
   vi,
   onPlan,
   onError,
+  requireSealPhoto = false,
 }: {
   groupId: string
   plan: PackingPlan
   boxes: BoxOption[]
   vi: boolean
+  requireSealPhoto?: boolean
   onPlan: (plan: PackingPlan) => void
   onError: (err: unknown) => void
 }): ReactElement {
@@ -83,6 +87,8 @@ export function PackingSessionPanel({
   const [boxCondition, setBoxCondition] = useState<'reusable' | 'damaged'>('reusable')
   const [sources, setSources] = useState<PackingBoxSources | null>(null)
   const [boxChoice, setBoxChoice] = useState<Record<number, BoxSourceInput>>({})
+  // Khoá theo kế hoạch + kiện: đổi kế hoạch thì ảnh cũ không dính sang.
+  const [sealPhotos, setSealPhotos] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     if (plan.status !== 'packing') return
@@ -150,6 +156,8 @@ export function PackingSessionPanel({
         const sourceInfo = sources?.parcels.find((p) => p.parcelNo === parcel.parcelNo)
         const choice: BoxSourceInput = boxChoice[parcel.parcelNo] ?? { source: 'auto' }
         const caption = parcelOrderCaption(parcel, vi)
+        const photoKey = `${plan.id}:${String(parcel.parcelNo)}`
+        const photos = sealPhotos[photoKey] ?? []
         return (
           <div
             key={parcel.parcelNo}
@@ -246,6 +254,20 @@ export function PackingSessionPanel({
                 onChange={(next) => setBoxChoice((prev) => ({ ...prev, [parcel.parcelNo]: next }))}
               />
             ) : null}
+            {sealed && (parcel.sealPhotoUrls ?? []).length > 0 ? (
+              <div className="mt-2">
+                <PhotoThumbs urls={parcel.sealPhotoUrls ?? []} alt={vi ? 'Ảnh niêm phong' : 'Seal photo'} size="h-14 w-14" />
+              </div>
+            ) : null}
+            {pending && plan.status === 'packing' ? (
+              <SealPhotoPicker
+                vi={vi}
+                required={requireSealPhoto}
+                disabled={busy}
+                value={photos}
+                onChange={(urls) => setSealPhotos((prev) => ({ ...prev, [photoKey]: urls }))}
+              />
+            ) : null}
             {pending && plan.status === 'packing' ? (
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 <label className="text-xs text-ink-muted">
@@ -259,7 +281,8 @@ export function PackingSessionPanel({
                 </label>
                 <button
                   type="button"
-                  disabled={busy || weightOk(sealWeight) == null}
+                  disabled={busy || weightOk(sealWeight) == null || (requireSealPhoto && photos.length === 0)}
+                  title={requireSealPhoto && photos.length === 0 ? (vi ? 'Chụp ít nhất 1 ảnh kiện trước' : 'Take a parcel photo first') : undefined}
                   onClick={() => {
                     const weight = weightOk(sealWeight)
                     if (weight == null) return
@@ -275,6 +298,7 @@ export function PackingSessionPanel({
                         plan.version,
                         weight,
                         sourceInfo ? choice : undefined,
+                        photos,
                       ),
                     )
                   }}
