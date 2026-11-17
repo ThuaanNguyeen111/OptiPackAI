@@ -240,6 +240,7 @@ function toPlanParcel(
       order_id: shared.placementOwner ? shared.placementOwner(q.item_key) : null,
     })),
     fill_ratio: p.fill_ratio,
+    fill_hint: p.fill_hint ? { suggest_inner_mm: { ...p.fill_hint.suggest_inner_mm }, suggest_fill: p.fill_hint.suggest_fill } : null,
     manual_layout: false,
     items_weight_g: p.items_weight_g,
     estimated_weight_g: p.estimated_package_weight_g,
