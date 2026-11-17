@@ -237,6 +237,11 @@ export interface PackingPlanResponse {
       layer: number;
     }[];
     fillRatio: number;
+    /** (17/11/2026) Thùng đầy < 80% vì danh mục thiếu cỡ: lòng thùng nhỏ nhất xếp vừa kiện (mm). null = không có gợi ý. */
+    fillHint: {
+      suggestInnerMm: { lengthMm: number; widthMm: number; heightMm: number };
+      suggestFill: number;
+    } | null;
     /** true = kiện nhập tay, không có tọa độ xếp thật (3D không dựng được). */
     manualLayout: boolean;
     itemsWeightG: number;
@@ -467,6 +472,16 @@ export function toPlanResponse(
         layer: placementLayers(p.placements).get(q.item_key) ?? 1,
       })),
       fillRatio: p.fill_ratio,
+      fillHint: p.fill_hint
+        ? {
+            suggestInnerMm: {
+              lengthMm: p.fill_hint.suggest_inner_mm.length_mm,
+              widthMm: p.fill_hint.suggest_inner_mm.width_mm,
+              heightMm: p.fill_hint.suggest_inner_mm.height_mm,
+            },
+            suggestFill: p.fill_hint.suggest_fill,
+          }
+        : null,
       manualLayout: p.manual_layout,
       itemsWeightG: p.items_weight_g,
       estimatedWeightG: p.estimated_weight_g,

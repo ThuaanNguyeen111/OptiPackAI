@@ -172,8 +172,19 @@ describe('solveWithMailers — luật chọn bao bì theo tổ hợp hàng', () 
     // Kính 16×7×5 + đệm dễ vỡ 5 mm mỗi mặt = 17×8×6 cm, thùng S 20×15×10 chỉ đầy 27%.
     const notes = solve([kinh(1)], MAILERS).explanation.filter((e) => e.includes('< 80%'));
     expect(notes).toEqual([
-      'Kiện 1 (BOX-S) lấp đầy 27% < 80%: chồng hàng chỉ chiếm 17×8×6 cm (thùng cỡ này đầy 100%) — cần thùng sát hơn để đạt 80%.',
+      'Kiện 1 (BOX-S) lấp đầy 27% < 80%: danh mục không có thùng nhỏ hơn chứa vừa kiện. Thùng nhỏ nhất xếp vừa có lòng 17×8×6 cm (đầy 100%) — nên nhập thêm thùng cỡ này.',
     ]);
+  });
+  it('áo thun + kính: áo gập 1 lần không lọt thùng S → thùng M, gợi ý thùng chồng áo dưới kính trên', () => {
+    // (17/11/2026) Ca thật: áo 36×24×0,5 gập 1 lần còn 18×24 — không vừa đáy S 20×15; giữa S và M không có cỡ nào.
+    const aoMong = item('AO-MONG', [36, 24, 0.5], 0.22, { category: 't_shirt', fold: true });
+    const r = solve([aoMong, kinh(1)], MAILERS);
+    expect(codes(r)).toEqual(['BOX-M']);
+    const hint = r.parcels[0]?.fill_hint;
+    // Áo 18×24×1 lót đáy, kính 17×8×6 nằm trên: lòng 18×24×7 cm thay vì 35×25×10.
+    expect(hint?.suggest_inner_mm).toEqual({ length_mm: 180, width_mm: 240, height_mm: 70 });
+    expect(hint?.suggest_fill).toBeGreaterThan(0.4);
+    expect(r.explanation.at(-1)).toContain('Thùng nhỏ nhất xếp vừa có lòng 18×24×7 cm');
   });
 
   it('kiện đã lấp đầy ≥ 80% không có cảnh báo', () => {

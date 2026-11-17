@@ -58,6 +58,8 @@ export type PackingPlanParcel = {
   /** true = kiện nhập tay, không có tọa độ xếp thật — không dựng cảnh 3D. */
   manualLayout?: boolean
   fillRatio?: number
+  /** Thùng đầy < 80% vì danh mục thiếu cỡ: lòng thùng nhỏ nhất xếp vừa kiện. null = không có gợi ý. */
+  fillHint?: { suggestInnerMm: PackingMm; suggestFill: number } | null
   estimatedWeightG: number
   actualWeightKg: number | null
   materials: { name: string; quantity: number; code?: string | null; unit?: string }[]
