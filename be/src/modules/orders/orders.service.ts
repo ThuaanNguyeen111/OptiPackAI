@@ -673,17 +673,13 @@ export class OrdersService {
     if (filter.status) {
       query.status = filter.status;
     }
-    // Tận dụng ĐÚNG partial index (d) đã khai ở order.schema.ts
-    // (`{ consolidated_group_id: 1 }`, chỉ index đơn is_consolidated=true)
-    // — filter riêng field này ĐỒNG THỜI với is_consolidated=true để Mongo
-    // chắc chắn dùng partial index thay vì collection scan. KHÔNG cần tự
-    // validate định dạng ObjectId ở đây — ListOrdersQueryDto đã có
-    // @IsMongoId() chặn ở tầng ValidationPipe trước khi vào tới service.
+    // Index thường (d) `{ consolidated_group_id: 1 }` ở order.schema.ts. KHÔNG lọc thêm
+    // is_consolidated (AOFP-313): nhóm 1 đơn có consolidated_group_id nhưng is_consolidated=false,
+    // lọc thêm thì trả rỗng. ListOrdersQueryDto đã @IsMongoId() nên không tự validate ở đây.
     if (filter.consolidatedGroupId) {
       query.consolidated_group_id = new Types.ObjectId(
         filter.consolidatedGroupId,
       );
-      query.is_consolidated = true;
     }
     if (filter.before) {
       query.created_at = { $lt: filter.before };

@@ -16,7 +16,7 @@ export class ListOrdersQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Lọc lấy tất cả đơn thuộc CÙNG 1 gói hàng đã gộp (giá trị consolidatedGroupId trả về từ GET /orders hoặc GET /orders/:id). Chỉ trả đơn có is_consolidated=true.',
+      'Lọc lấy tất cả đơn thuộc CÙNG 1 gói hàng đã gộp (giá trị consolidatedGroupId trả về từ GET /orders hoặc GET /orders/:id), kể cả nhóm chỉ có 1 đơn.',
   })
   @IsOptional()
   @IsMongoId()

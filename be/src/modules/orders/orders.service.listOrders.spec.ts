@@ -40,4 +40,12 @@ describe('OrdersService.listOrders — tìm theo q', () => {
   it('q rỗng thì không lọc', async () => {
     expect((await queryOf('   ')).$or).toBeUndefined();
   });
+
+  // (AOFP-313) Nhóm 1 đơn có consolidated_group_id nhưng is_consolidated=false — lọc thêm is_consolidated thì trả rỗng.
+  it('lọc theo nhóm không thêm is_consolidated', async () => {
+    const groupId = '665f1c2a9b1e8a0012345678';
+    await service.listOrders({ consolidatedGroupId: groupId, limit: 20 });
+    expect(String(lastQuery.consolidated_group_id)).toBe(groupId);
+    expect(lastQuery).not.toHaveProperty('is_consolidated');
+  });
 });
