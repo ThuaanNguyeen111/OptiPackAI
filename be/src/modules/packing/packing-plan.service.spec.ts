@@ -12,6 +12,7 @@ import { sunglasses } from '../packaging/engine/scenarios/order-scenarios';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import type { PackingPlanDocument } from './schemas/packing-plan.schema';
 import { toPlanResponse } from './packing-plan.controller';
+import { isFillNote } from './solver';
 
 jest.setTimeout(60_000);
 
@@ -934,6 +935,24 @@ describe('PackingPlanService', () => {
       expect(updated.adjustments).toHaveLength(1);
       const order = updated.orders.find((o) => o.order_id.equals(target.order_id));
       expect(order?.proof).toBe('heuristic');
+    });
+
+    it('AOFP-310 — đổi thùng xoá gợi ý cỡ thùng cũ: kiện mới không có fill_hint, giải thích bỏ câu lấp đầy cũ', async () => {
+      const plan = await computed();
+      const target = plan.parcels[0];
+      if (!target) throw new Error('thiếu kiện');
+      const before = plan.orders.find((o) => o.order_id.equals(target.order_id));
+      expect(before?.explanation.some(isFillNote)).toBe(true); // ca mẫu có kiện đầy < 80%
+      const updated = await service.changeBox(
+        groupId,
+        target.parcel_no,
+        { box_code: 'BOX-L', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', expected_version: plan.version },
+        userId,
+      );
+      expect(updated.parcels[0]?.fill_hint ?? null).toBeNull();
+      const order = updated.orders.find((o) => o.order_id.equals(target.order_id));
+      expect(order?.explanation.some(isFillNote)).toBe(false);
+      expect(order?.explanation.at(-1)).toContain('Đã chỉnh tay');
     });
 
     it('05/11/2026 — đổi thùng tính lại bảng so sánh của kiện đó: dòng được chọn là thùng mới', async () => {

@@ -109,6 +109,14 @@ export class PlanMaterial {
 }
 export const PlanMaterialSchema = SchemaFactory.createForClass(PlanMaterial);
 
+/** (17/11/2026) Kiện đầy thấp vì danh mục thiếu cỡ: lòng thùng nhỏ nhất xếp vừa kiện. */
+@Schema({ _id: false })
+export class PlanFillHint {
+  @Prop({ type: BoxDimensionsMmSchema, required: true }) suggest_inner_mm!: BoxDimensionsMm;
+  @Prop({ type: Number, required: true }) suggest_fill!: number;
+}
+export const PlanFillHintSchema = SchemaFactory.createForClass(PlanFillHint);
+
 @Schema({ _id: false })
 export class PlanShortfall {
   @Prop({ required: true }) code!: string;
@@ -304,6 +312,8 @@ export class PlanParcel {
   @Prop({ type: PlanBoxSchema, required: true }) box!: PlanBox;
   @Prop({ type: [PlanPlacementSchema], default: [] }) placements!: PlanPlacement[];
   @Prop({ type: Number, required: true }) fill_ratio!: number;
+  /** Chỉ bộ giải ghi; chỉnh tay (đổi thùng, chuyển món) dựng kiện mới nên gợi ý cũ tự mất. */
+  @Prop({ type: PlanFillHintSchema, default: null }) fill_hint?: PlanFillHint | null;
   /** true = kiện nhập tay, không có tọa độ xếp thật (placements chỉ liệt kê món). */
   @Prop({ type: Boolean, default: false }) manual_layout!: boolean;
   @Prop({ type: Number, required: true }) items_weight_g!: number;

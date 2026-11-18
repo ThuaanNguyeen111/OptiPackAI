@@ -12,8 +12,10 @@ export {
   DEFAULT_SPLIT_MIN_SAVING_VND,
   estimateFeeVnd,
   estimateTotalVnd,
+  isFillNote,
   packIntoMailers,
   solveWithMailers,
+  withFreshFillNotes,
   type FeeEstimate,
   type MailerSolveOptions,
 } from './solve-with-mailers';

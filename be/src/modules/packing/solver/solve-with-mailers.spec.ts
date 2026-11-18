@@ -1,7 +1,7 @@
 import { expandToUnits } from '../../packaging/engine/units';
 import { customBox, item, sampleBoxes, shoebox, tee } from '../../packaging/engine/scenarios/order-scenarios';
 import type { BoxSpec, MailerSpec } from '../../packaging/engine/types';
-import { estimateFeeVnd, packIntoMailers, solveWithMailers } from './solve-with-mailers';
+import { estimateFeeVnd, isFillNote, packIntoMailers, solveWithMailers, withFreshFillNotes } from './solve-with-mailers';
 import { solveOrder } from './solve-order';
 import type { PackableItem } from '../../../common/interfaces/packaging.interface';
 import type { SolveResult } from './types';
@@ -167,13 +167,48 @@ describe('solveWithMailers — luật chọn bao bì theo tổ hợp hàng', () 
     const notes = solve([ao(2)]).explanation.filter((e) => e.includes('< 80%'));
     expect(notes).toEqual([expect.stringContaining('Kiện 1 (BOX-M) lấp đầy 39% < 80%')]);
     expect(notes[0]).toContain('kho chưa có túi niêm phong');
+    // AC5 — lỗi do thiếu túi, không phải thiếu cỡ thùng → không gợi ý cỡ thùng.
+    expect(solve([ao(2)]).parcels[0]?.fill_hint).toBeUndefined();
+  });
+  it('AOFP-310 AC3 — không cỡ nào nhỏ hơn xếp vừa → không gợi ý, báo đã là thùng sát nhất', () => {
+    // Khối 10,1 cm trong lòng 11 cm: đầy 77%, nhưng làm tròn lên cm thì cỡ sát nhất vẫn là 11×11×11.
+    const khoi = item('KHOI', [10.1, 10.1, 10.1], 0.5, { category: 'shoes' });
+    const r = solveWithMailers(expandToUnits([khoi]), [customBox('BOX-11', [110, 110, 110])], {}, { mailers: MAILERS });
+    expect(codes(r)).toEqual(['BOX-11']);
+    expect(r.parcels[0]?.fill_hint).toBeUndefined();
+    expect(r.explanation.filter(isFillNote)).toEqual([
+      'Kiện 1 (BOX-11) lấp đầy 77% < 80%: không xếp được vào thùng nào nhỏ hơn — đây đã là thùng sát nhất có thể cho kiện này.',
+    ]);
+  });
+  it('AOFP-310 — CP-SAT thay kiện: withFreshFillNotes bỏ câu cũ, tính lại theo kiện hiện tại', () => {
+    const r = solve([kinh(1)], MAILERS);
+    const stale: SolveResult = {
+      ...r,
+      parcels: r.parcels.map((p) => ({ ...p, fill_hint: undefined })),
+      explanation: [...r.explanation, 'Kiện 2 (BOX-L) lấp đầy 12% < 80%: câu của kiện không còn tồn tại.'],
+    };
+    const fresh = withFreshFillNotes(stale, true, {});
+    expect(fresh.explanation.filter(isFillNote)).toEqual(r.explanation.filter(isFillNote));
+    expect(fresh.parcels[0]?.fill_hint).toEqual(r.parcels[0]?.fill_hint);
+    expect(fresh.parcels[0]?.fill_hint).toBeDefined();
   });
   it('kiện lấp đầy < 80% vì thùng trong kho rộng hơn hàng → gợi ý cỡ thùng sát hàng', () => {
     // Kính 16×7×5 + đệm dễ vỡ 5 mm mỗi mặt = 17×8×6 cm, thùng S 20×15×10 chỉ đầy 27%.
     const notes = solve([kinh(1)], MAILERS).explanation.filter((e) => e.includes('< 80%'));
     expect(notes).toEqual([
-      'Kiện 1 (BOX-S) lấp đầy 27% < 80%: chồng hàng chỉ chiếm 17×8×6 cm (thùng cỡ này đầy 100%) — cần thùng sát hơn để đạt 80%.',
+      'Kiện 1 (BOX-S) lấp đầy 27% < 80%: danh mục không có thùng nhỏ hơn chứa vừa kiện. Thùng nhỏ nhất xếp vừa có lòng 17×8×6 cm (đầy 100%) — nên nhập thêm thùng cỡ này.',
     ]);
+  });
+  it('áo thun + kính: áo gập 1 lần không lọt thùng S → thùng M, gợi ý thùng chồng áo dưới kính trên', () => {
+    // (17/11/2026) Ca thật: áo 36×24×0,5 gập 1 lần còn 18×24 — không vừa đáy S 20×15; giữa S và M không có cỡ nào.
+    const aoMong = item('AO-MONG', [36, 24, 0.5], 0.22, { category: 't_shirt', fold: true });
+    const r = solve([aoMong, kinh(1)], MAILERS);
+    expect(codes(r)).toEqual(['BOX-M']);
+    const hint = r.parcels[0]?.fill_hint;
+    // Áo 18×24×1 lót đáy, kính 17×8×6 nằm trên: lòng 18×24×7 cm thay vì 35×25×10.
+    expect(hint?.suggest_inner_mm).toEqual({ length_mm: 180, width_mm: 240, height_mm: 70 });
+    expect(hint?.suggest_fill).toBeGreaterThan(0.4);
+    expect(r.explanation.at(-1)).toContain('Thùng nhỏ nhất xếp vừa có lòng 18×24×7 cm');
   });
 
   it('kiện đã lấp đầy ≥ 80% không có cảnh báo', () => {

@@ -1,5 +1,6 @@
 import type {
   BoxSpec,
+  DimensionsMm,
   MaterialLine,
   MaterialPlanning,
   NoFitCode,
@@ -75,6 +76,16 @@ export interface SolvedParcel {
   volumetric_weight_g: number;
   /** Cân tính cước: max(cân kiện, quy đổi) làm tròn lên theo bước của hãng. */
   billable_weight_g: number;
+  /** (17/11/2026) Thùng đầy thấp vì danh mục thiếu cỡ: cỡ lòng thùng nhỏ nhất xếp vừa kiện. */
+  fill_hint?: FillHint;
+}
+
+/** Gợi ý cỡ thùng cho kiện lấp đầy dưới FILL_TARGET (danh mục không có thùng sát hơn). */
+export interface FillHint {
+  /** Lòng thùng nhỏ nhất (mm, làm tròn lên cm) xếp vừa cả kiện, đúng luật xếp chồng. */
+  suggest_inner_mm: DimensionsMm;
+  /** Tỉ lệ lấp đầy nếu dùng thùng cỡ đó (0..1). */
+  suggest_fill: number;
 }
 
 export interface UnplacedUnit {

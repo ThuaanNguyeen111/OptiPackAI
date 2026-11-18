@@ -181,6 +181,7 @@ interface PackingPlan {
     placements: { itemKey: string; sku: string; step: number; x:number;y:number;z:number; dx:number;dy:number;dz:number; orientation: string; folded: boolean }[]; // tọa độ mm cho 3D
     manualLayout: boolean;               // true ⇒ không có tọa độ thật, đừng dựng 3D
     fillRatio: number; estimatedWeightG: number; actualWeightKg: number | null;
+    fillHint: { suggestInnerMm: Dims; suggestFill: number } | null; // 🆕 17/11 thùng đầy < 80% vì danh mục thiếu cỡ → cỡ lòng thùng nhỏ nhất xếp vừa
     isAbnormal: boolean;                 // lệch cân vượt ngưỡng
     materials: { name: string; quantity: number; unit: string; costVnd: number }[];
     materialsShortfall: { code: string; missing: number }[];   // thiếu thùng/vật tư/túi lúc niêm phong

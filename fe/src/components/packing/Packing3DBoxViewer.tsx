@@ -432,6 +432,12 @@ export function Packing3DBoxViewer({
         parcel.fillRatio != null ? ` · ${vi ? 'lấp đầy' : 'fill'} ${String(Math.round(parcel.fillRatio * 100))}%` : ''
       }`
     : ''
+  // Thùng rộng hơn hàng vì danh mục thiếu cỡ — nói rõ lý do thay vì để con số "lấp đầy" thấp đứng một mình.
+  const hint = parcel?.fillHint
+  const hintDims = hint
+    ? formatDimsMmAsCm(hint.suggestInnerMm.lengthMm, hint.suggestInnerMm.widthMm, hint.suggestInnerMm.heightMm)
+    : ''
+  const hintPct = hint ? String(Math.round(hint.suggestFill * 100)) : ''
 
   return (
     <div
@@ -446,6 +452,18 @@ export function Packing3DBoxViewer({
           {label}
           {sub ? <span className="ml-2 text-xs font-normal text-slate-600 dark:text-slate-300">{sub}</span> : null}
         </p>
+        {hint ? (
+          <span
+            className="shrink-0 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900 dark:bg-amber-400/15 dark:text-amber-200"
+            title={
+              vi
+                ? `Danh mục không có thùng nhỏ hơn chứa vừa kiện này. Thùng lòng ${hintDims} sẽ đầy ${hintPct}% — nên nhập thêm cỡ này.`
+                : `No smaller box in the catalogue fits this parcel. A ${hintDims} box would be ${hintPct}% full — consider stocking that size.`
+            }
+          >
+            {vi ? `Thiếu thùng sát hơn · vừa nhất ${hintDims}` : `No tighter box · best fit ${hintDims}`}
+          </span>
+        ) : null}
       {parcels.length > 1 ? (
         <div className="flex shrink-0 flex-wrap gap-1">
           {parcels.map((p) => (
