@@ -59,6 +59,23 @@ export function signCloudinaryParams(params: Record<string, string>, apiSecret: 
   return createHash('sha1').update(toSign + apiSecret).digest('hex');
 }
 
+/** (AOFP-311) pHash cách nhau ≤ 5 bit → ảnh nghi chụp lại cùng phiếu: gắn cờ, không chặn. */
+export const PHASH_SUSPECT_DISTANCE = 5;
+
+/** Số bit khác nhau giữa 2 pHash hex cùng độ dài; khác độ dài hoặc không phải hex → null. */
+export function phashDistance(a: string, b: string): number | null {
+  if (a.length !== b.length || !/^[0-9a-f]+$/i.test(a) || !/^[0-9a-f]+$/i.test(b)) return null;
+  let bits = 0;
+  for (let i = 0; i < a.length; i++) {
+    let x = parseInt(a[i] ?? '0', 16) ^ parseInt(b[i] ?? '0', 16);
+    while (x) {
+      bits += x & 1;
+      x >>= 1;
+    }
+  }
+  return bits;
+}
+
 /** URL có đúng là ảnh bằng chứng trên cloud của mình không (https, đúng cloud, đúng thư mục). */
 export function isOwnProofPhotoUrl(url: string, cloudName: string, folder: PhotoFolder = PROOF_PHOTO_FOLDER): boolean {
   const prefix = `https://res.cloudinary.com/${cloudName}/image/upload/`;

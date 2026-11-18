@@ -32,6 +32,8 @@ export class PackagingMovement {
   @Prop({ type: String, default: null }) ocr_text!: string | null;
   @Prop({ type: Number, default: null }) ocr_quantity!: number | null;
   @Prop({ type: String, default: null }) mismatch_reason!: string | null;
+  // 19/11/2026 (AOFP-311) — ảnh phiếu rất giống ảnh đã dùng (pHash ≤ 5 bit); không chặn, chỉ gắn cờ.
+  @Prop({ type: Boolean, default: false }) photo_suspect!: boolean;
   @Prop({ type: Date, required: true }) created_at!: Date;
 }
 export type PackagingMovementDocument = HydratedDocument<PackagingMovement>;

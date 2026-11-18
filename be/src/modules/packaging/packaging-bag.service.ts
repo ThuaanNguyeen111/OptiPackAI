@@ -180,6 +180,7 @@ export class PackagingBagService {
         );
       }
       if (intake.mismatch && this.receiptOcr) await this.receiptOcr.notifyMaterialMismatch(current.code, intake.mismatch);
+      if (this.receiptOcr) await this.receiptOcr.afterMaterialIntake(current.code, intake.fields);
       return updated;
     } finally {
       await session.endSession();

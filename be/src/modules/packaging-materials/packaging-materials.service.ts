@@ -218,6 +218,7 @@ export class PackagingMaterialsService {
       : { fields: materialIntakeFields(requireMaterialPhotos(dto.document_photo_urls), dto.supplier, NOT_CHECKED), mismatch: null };
     const updated = await this.writeStockIn(material._id, dto.quantity, actorId, dto.note, intake.fields);
     if (updated && intake.mismatch && this.receiptOcr) await this.receiptOcr.notifyMaterialMismatch(material.code, intake.mismatch);
+    if (updated && this.receiptOcr) await this.receiptOcr.afterMaterialIntake(material.code, intake.fields);
     return updated;
   }
 

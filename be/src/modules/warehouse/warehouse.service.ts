@@ -1863,6 +1863,7 @@ export class WarehouseService {
       actorId: string;
       documentPhotoUrls?: string[];
       ocr?: ResolvedOcrChecks;
+      photoSuspect?: boolean;
     },
     session: ClientSession,
   ): Promise<StockReceiptDocument | null> {
@@ -1885,6 +1886,7 @@ export class WarehouseService {
           ocr_scan_id: r.ocr?.scanId ?? null,
           ocr: r.ocr?.snapshot ?? null,
           ocr_checks: r.ocr?.checks ?? [],
+          photo_suspect: r.photoSuspect ?? false,
         },
       ],
       { session },
@@ -1911,6 +1913,8 @@ export class WarehouseService {
     }
     const warehouse = await this.assertWarehouseActive(warehouseId);
     const receivedAt = this.parseReceivedAt(dto.received_at);
+    // AOFP-311 — ảnh đã dùng cho lần nhập khác → 409; ảnh nghi chụp lại → gắn cờ.
+    const photoCheck = this.receiptOcr ? await this.receiptOcr.checkPhotos(photoUrls) : { suspect: false };
 
     // 1. Tìm dòng tồn cho từng dòng phiếu; gộp các dòng trùng.
     const perAssignment = new Map<string, { doc: SkuBinAssignmentDocument; quantity: number }>();
@@ -1966,11 +1970,12 @@ export class WarehouseService {
         }
         lines.push(await this.receiveIntoLot(updated, quantity, { receivedAt, lotCode, receiptId }, actorId, session));
       }
+      await this.receiptOcr?.markPhotosUsed(photoUrls, { kind: 'stock_receipt', ref: receiptId.toString() }, session);
       return this.saveReceipt(
         {
           _id: receiptId, receiptCode, warehouseId: warehouse._id, lotCode, receivedAt,
           supplier: trimOrNull(dto.supplier) ?? ocr.snapshot?.supplier ?? null, note: trimOrNull(dto.note), lines, actorId,
-          documentPhotoUrls: photoUrls, ocr,
+          documentPhotoUrls: photoUrls, ocr, photoSuspect: photoCheck.suspect,
         },
         session,
       );
@@ -1985,6 +1990,7 @@ export class WarehouseService {
         entityId: receiptId.toString(),
       });
     }
+    if (photoCheck.suspect && this.receiptOcr) await this.receiptOcr.notifyPhotoSuspect(`phiếu nhập ${receiptCode}`, 'stock_receipt', receiptId.toString());
     return receipt;
   }
 

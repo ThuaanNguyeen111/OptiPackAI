@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import axios from 'axios';
-import { Model, Types } from 'mongoose';
+import { type ClientSession, Model, Types } from 'mongoose';
 import type { AiProviderConfig } from '../../config/ai.config';
 import { AiSettingsService } from '../ai-settings/ai-settings.service';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -9,6 +9,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { extractJsonContent } from '../orders/consolidation-rule-ai.service';
+import { ProofPhotosService, type ReceiptPhotoCheck } from '../proof-photos/proof-photos.service';
 import { RECEIPT_OCR_ERROR_CODES as E } from './receipt-ocr.errors';
 import {
   checkAgainstScan,
@@ -78,6 +79,7 @@ export class ReceiptOcrService {
     private readonly aiSettings: AiSettingsService,
     @InjectModel(ReceiptOcrScan.name) private readonly scanModel: Model<ReceiptOcrScanDocument>,
     @Optional() private readonly notificationsService?: NotificationsService,
+    @Optional() private readonly proofPhotos?: ProofPhotosService,
   ) {}
 
   async scan(photoUrls: string[], actorId: string): Promise<ReceiptOcrScanView> {
@@ -97,6 +99,14 @@ export class ReceiptOcrService {
     if (!parsed) {
       this.logger.warn(`AI "${provider.name}/${model}" trả kết quả đọc phiếu sai định dạng.`);
       throw new AppException(E.OCR_FAILED, 'Không đọc được phiếu lúc này — hãy nhập số tay, phiếu sẽ ghi "chưa đối chiếu".', HttpStatus.BAD_GATEWAY);
+    }
+    // R1 (AOFP-311): 0 dòng hàng, hoặc không đọc được cả NCC lẫn ngày → ảnh không phải phiếu.
+    if (parsed.lines.length === 0 || (!parsed.supplier && !parsed.document_date)) {
+      throw new AppException(E.NOT_A_SLIP, 'Ảnh không giống phiếu giao hàng — chụp lại rõ cả phiếu.', HttpStatus.UNPROCESSABLE_ENTITY, {
+        lines: parsed.lines.length,
+        supplier: parsed.supplier !== null,
+        documentDate: parsed.document_date !== null,
+      });
     }
     const doc = await this.scanModel.create({
       photo_urls: photoUrls,
@@ -160,17 +170,52 @@ export class ReceiptOcrService {
     };
   }
 
-  /** Nhập vật tư từ NCC (1 mã = 1 dòng phiếu): bắt ảnh, đối chiếu, trả field ghi sổ + dòng lệch (nếu có). */
+  /** (AOFP-311) Ảnh phiếu đã dùng cho lần nhập khác → 409; ảnh nghi chụp lại → `suspect`. */
+  async checkPhotos(photoUrls: string[]): Promise<ReceiptPhotoCheck> {
+    return this.proofPhotos ? this.proofPhotos.checkReceiptPhotos(photoUrls) : { suspect: false, similarTo: [] };
+  }
+
+  /** Gắn ảnh vào phiếu vừa lưu (trong transaction của phiếu nếu có). Trùng với phiếu khác → 409. */
+  async markPhotosUsed(photoUrls: string[], usage: { kind: 'stock_receipt' | 'material_intake'; ref: string }, session?: ClientSession): Promise<void> {
+    await this.proofPhotos?.markReceiptPhotosUsed(photoUrls, usage, session);
+  }
+
+  /** Nhập vật tư từ NCC (1 mã = 1 dòng phiếu): bắt ảnh, kiểm ảnh dùng lại, đối chiếu, trả field ghi sổ + dòng lệch (nếu có). */
   async prepareMaterialIntake(
     code: string,
     quantity: number,
     ev: SupplierReceiptEvidenceDto,
   ): Promise<{ fields: MaterialIntakeFields; mismatch: ReceiptOcrCheck | null }> {
     const photos = requireMaterialPhotos(ev.document_photo_urls);
+    const photoCheck = await this.checkPhotos(photos);
     const ocr = await this.resolveChecks(ev.ocr_scan_id, photos, [
       { lineIndex: 0, label: code, quantity, ocrLineIndex: ev.ocr_line_index, mismatchReason: ev.mismatch_reason },
     ]);
-    return { fields: materialIntakeFields(photos, ev.supplier, ocr), mismatch: ocr.status === 'mismatch' ? (ocr.checks[0] ?? null) : null };
+    return { fields: materialIntakeFields(photos, ev.supplier, ocr, photoCheck.suspect), mismatch: ocr.status === 'mismatch' ? (ocr.checks[0] ?? null) : null };
+  }
+
+  /**
+   * Gọi SAU khi ghi sổ vật tư: gắn ảnh vào lần nhập và báo nếu ảnh nghi trùng. Sổ đã ghi nên lỗi chỉ log.
+   * shortcut: kiểm (prepareMaterialIntake) và gắn tách nhau, 2 lần nhập cùng ảnh trong cùng tích tắc có thể cùng qua;
+   * muốn kín thì truyền session của transaction ghi sổ vào markPhotosUsed như phiếu nhập kho.
+   */
+  async afterMaterialIntake(code: string, fields: MaterialIntakeFields): Promise<void> {
+    try {
+      await this.markPhotosUsed(fields.document_photo_urls, { kind: 'material_intake', ref: code });
+    } catch (error: unknown) {
+      this.logger.warn(`Ảnh phiếu nhập vật tư ${code} trùng lần nhập khác (lưu cùng lúc): ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (fields.photo_suspect) await this.notifyPhotoSuspect(`nhập vật tư ${code}`, 'packaging_material', code);
+  }
+
+  /** Báo Store Owner + Admin: ảnh phiếu rất giống ảnh đã dùng (pHash gần). */
+  async notifyPhotoSuspect(what: string, entityType: string, entityId: string): Promise<void> {
+    await this.notifyMismatch({
+      title: `Ảnh phiếu ${what} nghi dùng lại`,
+      message: `Ảnh phiếu của ${what} rất giống ảnh đã dùng cho lần nhập trước — kiểm tra lại phiếu gốc.`,
+      entityType,
+      entityId,
+    });
   }
 
   async notifyMaterialMismatch(code: string, check: ReceiptOcrCheck): Promise<void> {

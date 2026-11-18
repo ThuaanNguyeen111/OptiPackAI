@@ -549,7 +549,7 @@ Thông báo gửi đích danh người được giao (`related_entity_type: orde
 
 | # | Màn | Việc FE | BE |
 |---|---|---|---|
-| 20.1 | Khối ảnh phiếu (`ReceiptEvidencePanel`, cả nhập kho và vật liệu) | **Nhập mù:** bỏ `onQuantityFromSlip`, ô số lượng để trống, **không** hiện số trên phiếu trước khi nhân viên nhập số. Sau khi nhập mới hiện bảng Theo phiếu – Đã nhập – Lệch. Vẫn điền sẵn được nhà cung cấp (không ảnh hưởng kiểm đếm) | Không cần (R3) |
+| 20.1 | Khối ảnh phiếu (`ReceiptEvidencePanel`, cả nhập kho và vật liệu) | **Nhập mù:** bỏ `onQuantityFromSlip`, ô số lượng để trống, **không** hiện số trên phiếu trước khi nhân viên nhập số. Sau khi nhập mới hiện bảng Theo phiếu – Đã nhập – Lệch. Vẫn điền sẵn được nhà cung cấp (không ảnh hưởng kiểm đếm) | Không cần (R3) — ✅ xong AOFP-311 |
 | 20.2 | Khối ảnh phiếu | Lỗi `RECEIPT_OCR_NOT_A_SLIP` → báo đỏ "Ảnh không giống phiếu giao hàng, chụp lại", giữ nút chụp / chọn ảnh | R1 |
 | 20.3 | Khối ảnh phiếu | Dòng không tự khớp (lỗi `WH_RECEIPT_LINE_UNMATCHED`) → ô chọn dòng trên phiếu + lựa chọn **"Không có trên phiếu"** (bắt lý do, tính là lệch). Thay phần tự khớp mã đang làm ở web bằng kết quả BE trả | R2 |
 | 20.4 | Khối ảnh phiếu | Quét lỗi ≥ 2 lần hoặc BE báo AI không khả dụng → hiện nút **"Nhập không đối chiếu"** + ô lý do (AI không khả dụng: BE tự điền, chỉ hiện). Câu giải thích: "Ảnh phiếu vẫn được lưu, chủ shop sẽ kiểm lại". Bỏ câu vàng cũ "Vẫn lưu được…" của mục 18.1 | R4 |

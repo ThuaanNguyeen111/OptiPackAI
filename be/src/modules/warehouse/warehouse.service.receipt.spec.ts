@@ -240,4 +240,40 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
       ),
     ).rejects.toMatchObject({ errorCode: RECEIPT_OCR_ERROR_CODES.OCR_SCAN_INVALID });
   });
+
+  // AOFP-311 — ảnh phiếu đã dùng cho phiếu khác bị chặn trước khi cộng tồn; ảnh nghi trùng chỉ gắn cờ.
+  describe('ảnh phiếu dùng lại (AOFP-311)', () => {
+    let proofPhotos: { checkReceiptPhotos: jest.Mock; markReceiptPhotosUsed: jest.Mock };
+    beforeEach(() => {
+      proofPhotos = { checkReceiptPhotos: jest.fn().mockResolvedValue({ suspect: false, similarTo: [] }), markReceiptPhotosUsed: jest.fn().mockResolvedValue(undefined) };
+      Object.assign(receiptOcr, { proofPhotos });
+    });
+    const savedReceipt = (): { _id: Types.ObjectId; photo_suspect: boolean } =>
+      (receiptModel.create.mock.calls[0] as { _id: Types.ObjectId; photo_suspect: boolean }[][])[0]?.[0] ?? { _id: new Types.ObjectId(), photo_suspect: false };
+    const save = (): Promise<unknown> =>
+      service.createReceipt(warehouseId.toString(), { document_photo_urls, lines: [{ assignment_id: String(rows[0]?._id), quantity: 3 }] }, actor);
+
+    it('ảnh đã dùng → 409 WH_RECEIPT_PHOTO_REUSED, không cộng tồn, không tạo phiếu', async () => {
+      proofPhotos.checkReceiptPhotos.mockRejectedValue(Object.assign(new Error('reused'), { errorCode: RECEIPT_OCR_ERROR_CODES.PHOTO_REUSED }));
+      await expect(save()).rejects.toMatchObject({ errorCode: RECEIPT_OCR_ERROR_CODES.PHOTO_REUSED });
+      expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(receiptModel.create).not.toHaveBeenCalled();
+    });
+
+    it('lưu được → gắn ảnh vào phiếu trong cùng transaction', async () => {
+      await save();
+      const receipt = savedReceipt();
+      expect(proofPhotos.markReceiptPhotosUsed).toHaveBeenCalledWith(document_photo_urls, { kind: 'stock_receipt', ref: receipt._id.toString() }, expect.anything());
+      expect(receipt.photo_suspect).toBe(false);
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('ảnh nghi chụp lại phiếu cũ → vẫn lưu, photo_suspect = true, báo Store Owner + Admin', async () => {
+      proofPhotos.checkReceiptPhotos.mockResolvedValue({ suspect: true, similarTo: [{ url: photo, distance: 3 }] });
+      await save();
+      expect(savedReceipt().photo_suspect).toBe(true);
+      expect(notify).toHaveBeenCalledTimes(2);
+      expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('nghi dùng lại') as unknown }));
+    });
+  });
 });
