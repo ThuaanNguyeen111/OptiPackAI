@@ -34,7 +34,7 @@ Mức ưu tiên: **P0** sửa trước khi demo/bảo vệ · **P1** nên sửa 
 | Ưu tiên | Vấn đề | Chi tiết | Đề xuất |
 |---|---|---|---|
 | ~~P0~~ ✅ 15/10 | ~~Sync Lazada chỉ lấy 100 đơn đầu~~ | Đã lặp trang 100, tối đa 50 trang/lượt; quá thì giữ mốc cũ | — |
-| **P0** | **Index `orders.consolidated_group_id` không dùng được** | Index partial `is_consolidated: true`, nhưng nhóm 1 đơn có `consolidated_group_id` mà `is_consolidated=false`, và mọi truy vấn (đếm đơn, documents, packing-queue, returns, order-groups) không lọc `is_consolidated` → quét toàn collection | Index thường `{ consolidated_group_id: 1 }` (partial `$type: 'objectId'`), bỏ index cũ |
+| **P0** | **Index `orders.consolidated_group_id` không dùng được** | Index partial `is_consolidated: true`, nhưng nhóm 1 đơn có `consolidated_group_id` mà `is_consolidated=false`, và mọi truy vấn (đếm đơn, documents, packing-queue, returns, order-groups) không lọc `is_consolidated` → quét toàn collection | ✅ **Đã sửa:** index thường `{ consolidated_group_id: 1 }` (AOFP-271, script `be/scripts/rebuild-orders-group-index.ts --apply` cho DB cũ); `GET /orders?consolidated_group_id=` bỏ lọc `is_consolidated` (AOFP-313) |
 | ~~P0~~ ✅ 21/10 | ~~FE gọi route đã gỡ~~ | Màn đóng gói đã chuyển hết sang `packing-plan` (FE nhánh Việt, AOFP-133). Còn sót **mã chết không màn nào gọi**: `api/packaging.api.ts`, `packOrderGroup`, `retryLazadaPack` | Xoá theo `GUIDE_DOC/FE_UPDATE_CHECKLIST.md` mục 3 |
 | ~~P1~~ ✅ 21/10 | ~~Khóa giữ chỗ không đổi khi nối/bỏ nối/thay SKU nội bộ~~ | Chuyển giữ chỗ sang khóa mới cùng transaction (`reservation-key.util.ts`) | — |
 | ~~P1~~ ✅ 21/10 | ~~Phiếu hoàn lấy `seller_sku` từ sổ cái pick~~ | Lấy từ `pick_events` (mã SKU của đơn) | — |
@@ -75,7 +75,7 @@ Mức ưu tiên: **P0** sửa trước khi demo/bảo vệ · **P1** nên sửa 
 
 | Ưu tiên | Vấn đề | Đề xuất |
 |---|---|---|
-| P0 | Index `consolidated_group_id` (mục 2) | Như trên |
+| ✅ P0 | Index `consolidated_group_id` (mục 2) | Đã sửa (AOFP-271, AOFP-313) |
 | P1 | Nhiều module ghi thẳng collection của module khác (VD `shipments` ghi `OrderGroup`, `InventoryMovement`) | Chỉ module sở hữu ghi; module khác gọi service |
 | P1 | Service rất lớn (`shipments.service.ts`, `order-groups.service.ts`, `warehouse.service.ts`, `packing-plan.service.ts` > 1.500 dòng) | Tách theo nhóm chức năng (VD `CarrierBookingService`) |
 | P1 | Toàn bộ test dùng model giả lập | Thêm e2e với Mongo replica set thật cho phân quyền, transaction, luồng lấy → đóng → giao → hoàn |
