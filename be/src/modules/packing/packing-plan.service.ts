@@ -40,9 +40,11 @@ import {
   SOLVER_VERSION,
   compareBoxes,
   httpCpSatChecker,
+  isFillNote,
   solveOrder,
   solveWithMailers,
   upgradeWithCpSat,
+  withFreshFillNotes,
   type MailerSolveOptions,
   type ChargeRule,
   type CompareBoxesOptions,
@@ -119,6 +121,8 @@ export interface CpSatTask {
   /** AOFP-224 — cùng luật cước + ưu tiên với lúc giải BRKGA (bỏ qua = mặc định). */
   charge?: ChargeRule;
   prefer?: 'fewest_parcels' | 'cheapest';
+  /** AOFP-310 — danh mục có túi niêm phong lúc giải; cần khi tính lại câu lấp đầy sau CP-SAT. */
+  hasMailers?: boolean;
 }
 
 /** C6 (14/10/2026) — phương án thùng xếp vừa cho 1 kiện (chưa có phí ship). */
@@ -691,7 +695,15 @@ export class PackingPlanService {
           });
         }
         if (cpSat === 'pending')
-          pending.push({ orderId: head.order_id, units, result, availability: stockForOrder, charge, prefer });
+          pending.push({
+            orderId: head.order_id,
+            units,
+            result,
+            availability: stockForOrder,
+            charge,
+            prefer,
+            hasMailers: mailers.length > 0,
+          });
       }
 
       const zipBags = await this.bagService.list(true);
@@ -1705,7 +1717,8 @@ export class PackingPlanService {
             ...this.plain(o),
             proof: 'heuristic' as const,
             cp_sat: 'skipped' as const,
-            explanation: [...o.explanation, `Đã chỉnh tay: ${adjustment.detail}.`],
+            // Câu lấp đầy/gợi ý cỡ thùng mô tả kiện của bộ giải, chỉnh tay xong không còn đúng.
+            explanation: [...o.explanation.filter((l) => !isFillNote(l)), `Đã chỉnh tay: ${adjustment.detail}.`],
           }
         : this.plain(o),
     );
@@ -2022,6 +2035,14 @@ export class PackingPlanService {
 
       const changed = upgraded !== null && upgraded.parcels !== task.result.parcels;
       const canReplace = changed && plan.status === 'ready';
+      // AOFP-310 — CP-SAT đổi kiện: câu lấp đầy + gợi ý cỡ thùng phải tính lại theo thùng mới.
+      const replaced = canReplace
+        ? withFreshFillNotes(upgraded, task.hasMailers ?? false, {
+            materials: ctx.materials,
+            charge: task.charge,
+            prefer: task.prefer,
+          })
+        : null;
       const orders = plan.orders.map((o) => {
         if (o.order_id.toString() !== task.orderId) return this.plain(o);
         if (!upgraded) return { ...this.plain(o), cp_sat: 'unavailable' as const };
@@ -2034,17 +2055,17 @@ export class PackingPlanService {
               'CP-SAT tìm được phương án tốt hơn sau khi kế hoạch đã duyệt — không tự thay; có thể tính lại nếu cần.',
             ],
           };
-        return { ...this.plain(o), cp_sat: 'done' as const, proof: upgraded.proof, explanation: upgraded.explanation };
+        return { ...this.plain(o), cp_sat: 'done' as const, proof: upgraded.proof, explanation: (replaced ?? upgraded).explanation };
       });
       const update: Record<string, unknown> = { orders };
-      if (canReplace) {
+      if (replaced) {
         const orderId = new Types.ObjectId(task.orderId);
         const kept = plan.parcels.filter((p) => !p.order_id.equals(orderId)).map((p) => this.plain(p));
         const unitByKey = new Map(task.units.map((u) => [u.item_key, u]));
-        const fresh = upgraded.parcels.map((p, i) =>
+        const fresh = replaced.parcels.map((p, i) =>
           toPlanParcel(p, orderId, order.platform_order_id, 10_000 + i, fragileKeysOf(task.units), {},
             comparisonOf(p, unitsOfSolved(p, unitByKey), ctx.boxes, {
-              availability: stockForAlternatives(task.availability, upgraded.parcels, i),
+              availability: stockForAlternatives(task.availability, replaced.parcels, i),
               materials: ctx.materials,
               charge: task.charge,
               prefer: task.prefer,

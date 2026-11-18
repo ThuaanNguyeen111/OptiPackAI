@@ -1,7 +1,7 @@
 import { expandToUnits } from '../../packaging/engine/units';
 import { customBox, item, sampleBoxes, shoebox, tee } from '../../packaging/engine/scenarios/order-scenarios';
 import type { BoxSpec, MailerSpec } from '../../packaging/engine/types';
-import { estimateFeeVnd, packIntoMailers, solveWithMailers } from './solve-with-mailers';
+import { estimateFeeVnd, isFillNote, packIntoMailers, solveWithMailers, withFreshFillNotes } from './solve-with-mailers';
 import { solveOrder } from './solve-order';
 import type { PackableItem } from '../../../common/interfaces/packaging.interface';
 import type { SolveResult } from './types';
@@ -167,6 +167,30 @@ describe('solveWithMailers — luật chọn bao bì theo tổ hợp hàng', () 
     const notes = solve([ao(2)]).explanation.filter((e) => e.includes('< 80%'));
     expect(notes).toEqual([expect.stringContaining('Kiện 1 (BOX-M) lấp đầy 39% < 80%')]);
     expect(notes[0]).toContain('kho chưa có túi niêm phong');
+    // AC5 — lỗi do thiếu túi, không phải thiếu cỡ thùng → không gợi ý cỡ thùng.
+    expect(solve([ao(2)]).parcels[0]?.fill_hint).toBeUndefined();
+  });
+  it('AOFP-310 AC3 — không cỡ nào nhỏ hơn xếp vừa → không gợi ý, báo đã là thùng sát nhất', () => {
+    // Khối 10,1 cm trong lòng 11 cm: đầy 77%, nhưng làm tròn lên cm thì cỡ sát nhất vẫn là 11×11×11.
+    const khoi = item('KHOI', [10.1, 10.1, 10.1], 0.5, { category: 'shoes' });
+    const r = solveWithMailers(expandToUnits([khoi]), [customBox('BOX-11', [110, 110, 110])], {}, { mailers: MAILERS });
+    expect(codes(r)).toEqual(['BOX-11']);
+    expect(r.parcels[0]?.fill_hint).toBeUndefined();
+    expect(r.explanation.filter(isFillNote)).toEqual([
+      'Kiện 1 (BOX-11) lấp đầy 77% < 80%: không xếp được vào thùng nào nhỏ hơn — đây đã là thùng sát nhất có thể cho kiện này.',
+    ]);
+  });
+  it('AOFP-310 — CP-SAT thay kiện: withFreshFillNotes bỏ câu cũ, tính lại theo kiện hiện tại', () => {
+    const r = solve([kinh(1)], MAILERS);
+    const stale: SolveResult = {
+      ...r,
+      parcels: r.parcels.map((p) => ({ ...p, fill_hint: undefined })),
+      explanation: [...r.explanation, 'Kiện 2 (BOX-L) lấp đầy 12% < 80%: câu của kiện không còn tồn tại.'],
+    };
+    const fresh = withFreshFillNotes(stale, true, {});
+    expect(fresh.explanation.filter(isFillNote)).toEqual(r.explanation.filter(isFillNote));
+    expect(fresh.parcels[0]?.fill_hint).toEqual(r.parcels[0]?.fill_hint);
+    expect(fresh.parcels[0]?.fill_hint).toBeDefined();
   });
   it('kiện lấp đầy < 80% vì thùng trong kho rộng hơn hàng → gợi ý cỡ thùng sát hàng', () => {
     // Kính 16×7×5 + đệm dễ vỡ 5 mm mỗi mặt = 17×8×6 cm, thùng S 20×15×10 chỉ đầy 27%.

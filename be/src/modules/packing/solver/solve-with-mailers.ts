@@ -311,8 +311,20 @@ export function solveWithMailers(
   mailerOptions: MailerSolveOptions,
 ): SolveResult {
   const result = solveWithMailersCore(units, boxes, options, mailerOptions);
-  const { parcels, notes } = withFillNotes(result.parcels, mailerOptions.mailers.length > 0, options);
-  return notes.length === 0 ? result : { ...result, parcels, explanation: [...result.explanation, ...notes] };
+  return withFreshFillNotes(result, mailerOptions.mailers.length > 0, options);
+}
+
+/** Câu do `withFillNotes` viết ("Kiện N (MÃ) lấp đầy X% < 80%…") — để gỡ khi kiện đổi. */
+export const isFillNote = (line: string): boolean => /^Kiện \d+ \(.+?\) lấp đầy \d+% < \d+%/.test(line);
+
+/**
+ * (19/11/2026) Gỡ câu lấp đầy + gợi ý cũ rồi tính lại theo các kiện hiện tại — dùng khi
+ * CP-SAT thay kiện, để câu chữ và `fill_hint` khớp với thùng thật đang dùng.
+ */
+export function withFreshFillNotes(result: SolveResult, hasMailers: boolean, options: SolveOptions): SolveResult {
+  const bare = result.parcels.map((p) => ({ ...p, fill_hint: undefined }));
+  const { parcels, notes } = withFillNotes(bare, hasMailers, options);
+  return { ...result, parcels, explanation: [...result.explanation.filter((l) => !isFillNote(l)), ...notes] };
 }
 
 function solveWithMailersCore(
