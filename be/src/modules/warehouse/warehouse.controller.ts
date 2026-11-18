@@ -99,6 +99,8 @@ interface StockReceiptResponse {
   }[];
   // 11/11/2026 — ảnh phiếu NCC + đối chiếu OCR
   documentPhotoUrls: string[];
+  /** (AOFP-311) Ảnh phiếu rất giống ảnh đã dùng cho lần nhập trước (nghi dùng lại). */
+  photoSuspect: boolean;
   ocrStatus: OcrStatus;
   ocr: { model: string; readAt: Date; supplier: string | null; documentDate: string | null; lines: { index: number; text: string; code: string | null; quantity: number; unit: string | null }[] } | null;
   ocrChecks: { lineIndex: number; label: string; ocrLineIndex: number; ocrText: string; ocrQuantity: number; quantity: number; mismatchReason: string | null }[];
@@ -126,6 +128,7 @@ function toReceiptResponse(doc: StockReceiptDocument): StockReceiptResponse {
       quantity: l.quantity,
     })),
     documentPhotoUrls: doc.document_photo_urls,
+    photoSuspect: doc.photo_suspect,
     ocrStatus: doc.ocr_status,
     ocr: doc.ocr
       ? {

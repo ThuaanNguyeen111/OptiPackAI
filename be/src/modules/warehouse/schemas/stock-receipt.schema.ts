@@ -47,6 +47,8 @@ export class StockReceipt {
   @Prop({ type: SchemaTypes.ObjectId, default: null }) ocr_scan_id!: Types.ObjectId | null;
   @Prop({ type: ReceiptOcrSnapshotSchema, default: null }) ocr!: ReceiptOcrSnapshot | null;
   @Prop({ type: [ReceiptOcrCheckSchema], default: [] }) ocr_checks!: ReceiptOcrCheck[];
+  // 19/11/2026 (AOFP-311) — ảnh phiếu rất giống ảnh đã dùng (pHash ≤ 5 bit); không chặn, chỉ gắn cờ.
+  @Prop({ type: Boolean, default: false }) photo_suspect!: boolean;
   created_at?: Date;
 }
 

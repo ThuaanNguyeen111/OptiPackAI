@@ -107,6 +107,7 @@ export interface MaterialIntakeFields {
   ocr_text: string | null;
   ocr_quantity: number | null;
   mismatch_reason: string | null;
+  photo_suspect: boolean; // (AOFP-311) ảnh phiếu nghi chụp lại phiếu đã dùng
 }
 
 /** Nhập vật tư từ NCC phải kèm ảnh phiếu (Q3). Trả mảng ảnh đã kiểm. */
@@ -117,7 +118,7 @@ export function requireMaterialPhotos(urls: string[] | undefined): string[] {
   return urls;
 }
 
-export function materialIntakeFields(photoUrls: string[], supplier: string | undefined, ocr: ResolvedOcrChecks): MaterialIntakeFields {
+export function materialIntakeFields(photoUrls: string[], supplier: string | undefined, ocr: ResolvedOcrChecks, photoSuspect = false): MaterialIntakeFields {
   const check = ocr.checks[0];
   const typed = supplier?.trim() ?? '';
   return {
@@ -128,6 +129,7 @@ export function materialIntakeFields(photoUrls: string[], supplier: string | und
     ocr_text: check?.ocr_text ?? null,
     ocr_quantity: check?.ocr_quantity ?? null,
     mismatch_reason: check?.mismatch_reason ?? null,
+    photo_suspect: photoSuspect,
   };
 }
 
@@ -139,6 +141,7 @@ export interface IntakeEvidenceResponse {
   ocrText: string | null;
   ocrQuantity: number | null;
   mismatchReason: string | null;
+  photoSuspect: boolean;
 }
 
 export function toIntakeEvidenceResponse(m: { [K in keyof MaterialIntakeFields]?: MaterialIntakeFields[K] | null }): IntakeEvidenceResponse {
@@ -149,5 +152,6 @@ export function toIntakeEvidenceResponse(m: { [K in keyof MaterialIntakeFields]?
     ocrText: m.ocr_text ?? null,
     ocrQuantity: m.ocr_quantity ?? null,
     mismatchReason: m.mismatch_reason ?? null,
+    photoSuspect: m.photo_suspect ?? false,
   };
 }

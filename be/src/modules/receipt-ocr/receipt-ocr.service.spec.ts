@@ -45,4 +45,17 @@ describe('ReceiptOcrService.scan', () => {
     await expect(make().scan([photo], 'u1')).rejects.toMatchObject({ errorCode: E.OCR_FAILED });
     expect(create).not.toHaveBeenCalled();
   });
+
+  // R1 (AOFP-311): 0 dòng, hoặc không đọc được cả NCC lẫn ngày → 422, không lưu scan.
+  it('ảnh không phải phiếu → 422 WH_RECEIPT_OCR_NOT_A_SLIP', async () => {
+    const line = { text: 'Áo thun', code: '', quantity: 5, unit: '' };
+    post.mockResolvedValue(reply({ supplier: 'Xưởng A', document_date: '2026-11-10', lines: [] }));
+    await expect(make().scan([photo], 'u1')).rejects.toMatchObject({ errorCode: E.NOT_A_SLIP, status: 422 });
+    post.mockResolvedValue(reply({ supplier: '', document_date: '', lines: [line] }));
+    await expect(make().scan([photo], 'u1')).rejects.toMatchObject({ errorCode: E.NOT_A_SLIP });
+    expect(create).not.toHaveBeenCalled();
+    // Chỉ thiếu ngày (còn NCC + dòng) vẫn là phiếu.
+    post.mockResolvedValue(reply({ supplier: 'Xưởng A', document_date: '', lines: [line] }));
+    await expect(make().scan([photo], 'u1')).resolves.toMatchObject({ supplier: 'Xưởng A' });
+  });
 });

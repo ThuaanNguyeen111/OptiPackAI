@@ -58,9 +58,8 @@ export function ReceiptEvidencePanel({
     try {
       const scan = await scanReceipt(photoUrls)
       const index = guessLine(scan, itemCodes)
+      // Nhập mù (R3, AOFP-311): không điền số trên phiếu — nhân viên đếm và nhập trước, rồi mới đối chiếu.
       onChange({ ...base, photoUrls, scan, ocrLineIndex: index, ocrError: null })
-      const picked = scan.lines.find((l) => l.index === index)
-      if (picked) onQuantityChange(picked.quantity)
     } catch (err: unknown) {
       onChange({ ...base, photoUrls, scan: null, ocrLineIndex: null, ocrError: formatApiError(err) })
     } finally {
@@ -285,14 +284,13 @@ export function ReceiptEvidencePanel({
             onChange={(e) => {
               const next = e.target.value === '' ? null : Number(e.target.value)
               onChange({ ...value, ocrLineIndex: next })
-              const picked = value.scan?.lines.find((l) => l.index === next)
-              if (picked) onQuantityChange(picked.quantity)
             }}
           >
             <option value="">{t('— Không đối chiếu —', '— Do not check —')}</option>
+            {/* Nhập mù: chỉ hiện tên + mã hàng, không hiện số lượng trên phiếu. */}
             {value.scan.lines.map((l) => (
               <option key={l.index} value={l.index}>
-                {`${l.index + 1}. ${l.text}${l.code ? ` (${l.code})` : ''} — ${l.quantity}${l.unit ? ` ${l.unit}` : ''}`}
+                {`${l.index + 1}. ${l.text}${l.code ? ` (${l.code})` : ''}`}
               </option>
             ))}
           </select>
@@ -312,7 +310,7 @@ export function ReceiptEvidencePanel({
           inputMode="numeric"
           min={1}
           value={quantity > 0 ? quantity : ''}
-          placeholder={line ? String(line.quantity) : t('Đếm hàng thật rồi nhập', 'Count the goods')}
+          placeholder={t('Đếm hàng thật rồi nhập', 'Count the goods')}
           onChange={(e) => {
             const n = Math.floor(Number(e.target.value))
             onQuantityChange(Number.isFinite(n) && n > 0 ? n : 0)
