@@ -70,6 +70,7 @@ export type Shipment = {
     carrierOrderCode: string | null
     sortCode: string | null
     feeTotalVnd: number | null
+    carrierStatus?: string | null
     carrierStatusLabel: string | null
     bookingError: string | null
     recipientName?: string | null

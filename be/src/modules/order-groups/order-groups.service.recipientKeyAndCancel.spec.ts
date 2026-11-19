@@ -335,12 +335,12 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
     const groupId = new Types.ObjectId().toString();
     const session = {} as never;
     orderGroupModel.findById.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.RETURNED, __v: 6 });
-    orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.CANCELED, __v: 7 });
-    await service.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.CANCELED, 6, session);
+    orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.DELIVERED, __v: 7 });
+    await service.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.DELIVERED, 6, session);
     expect(orderGroupModel.findById).toHaveBeenCalledWith(groupId, null, { session });
     expect(orderGroupModel.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: groupId, __v: 6 },
-      { $set: { fulfillment_status: GroupFulfillmentStatus.CANCELED }, $inc: { __v: 1 } },
+      { $set: { fulfillment_status: GroupFulfillmentStatus.DELIVERED }, $inc: { __v: 1 } },
       { returnDocument: 'after', session },
     );
   });

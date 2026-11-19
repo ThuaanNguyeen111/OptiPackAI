@@ -29,6 +29,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
   let config: Record<string, unknown>;
   let service: ShipmentsService;
   let outboxModel: { updateOne: jest.Mock };
+  let returnsService: { createFromFailedDelivery: jest.Mock };
 
   const liveShipment = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
     _id: shipmentId,
@@ -90,13 +91,14 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       deleteOne: jest.fn().mockResolvedValue({}),
     };
     config = { 'carrier.manualStatusEnabled': true, 'carrier.ghn.webhookSecret': 's3cret', 'carrier.ghn.shopId': '227609' };
+    returnsService = { createFromFailedDelivery: jest.fn().mockResolvedValue(undefined) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     service = new ShipmentsService(
       shipmentModel as never,
       eventModel as never,
       orderGroupsService as never,
       { startSession: jest.fn().mockResolvedValue(session) } as never,
-      { createFromFailedDelivery: jest.fn() } as never,
+      returnsService as never,
       { notify: jest.fn().mockResolvedValue({}) } as never,
       shippingService as never,
       liveCarrier as never,
@@ -350,6 +352,88 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
         { orderId: a, status: 'delivered' },
         { orderId: b, status: 'delivered' },
       ]);
+    });
+  });
+
+  //!=============================================
+  // AOFP-326 — vận đơn nhiều kiện: huỷ lẻ / hoàn lẻ tính theo từng kiện, từng đơn.
+  //!=============================================
+  describe('AOFP-326 — huỷ lẻ, hoàn lẻ theo kiện', () => {
+    const orderB = new Types.ObjectId();
+    const twoParcels = (a: string, b: string, over: Record<string, unknown> = {}): Record<string, unknown> => liveShipment({
+      status: ShipmentStatus.OUT_FOR_DELIVERY,
+      carrier_parcels: [
+        { parcel_no: 1, order_id: orderId, order_ids: [orderId], client_order_code: 'SHP-X-1', carrier_order_code: 'GHN1', carrier_status: a },
+        { parcel_no: 2, order_id: orderB, order_ids: [orderB], client_order_code: 'SHP-X-2', carrier_order_code: 'GHN2', carrier_status: b },
+      ],
+      ...over,
+    });
+    const evt = (code: string, status: string): Record<string, unknown> => ({
+      OrderCode: code, Type: 'switch_status', Status: status, Time: '2026-11-19T03:00:00.000Z',
+    });
+    const keys = (): string[] => outboxModel.updateOne.mock.calls.map((c) => (c as [{ idempotency_key: string }])[0].idempotency_key);
+
+    it('AC1 — kiện 2 đã huỷ, kiện 1 giao xong → nhóm KHÔNG delivered, có sự cố "Kiện 2 đã hủy"', async () => {
+      shipmentModel.findOne.mockResolvedValue(twoParcels('delivering', 'cancel'));
+
+      const result = await service.processCarrierEvent(evt('GHN1', 'delivered'), 'carrier_webhook', actor);
+
+      expect(result).toContain('recorded:out_for_delivery');
+      expect(shipmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(orderGroupsService.transitionFulfillmentStatus).not.toHaveBeenCalled();
+      const set = (shipmentModel.updateOne.mock.calls.at(-1) as [unknown, { $set: Record<string, unknown> }])[1].$set;
+      expect(set.carrier_incident).toBe('Kiện 2 đã hủy');
+    });
+
+    it('AC2 — kiện 2 đã huỷ (vận đơn đang chạy) → "Tạo lại ở hãng" đặt lại kiện 2 với client_order_code mới', async () => {
+      const current = twoParcels('delivering', 'cancel', { carrier_incident: 'Kiện 2 đã hủy' });
+      shipmentModel.findById.mockResolvedValue(current);
+      shipmentModel.findOneAndUpdate.mockImplementation((_f: unknown, u: { $set: Record<string, unknown> }) => Promise.resolve({ ...current, ...u.$set }));
+      shippingService.parcelsOfGroup.mockResolvedValue([
+        { orderId: orderId.toString(), cartonIndex: 0, parcelNo: 1, actualG: 300, outer: { length_mm: 300, width_mm: 250, height_mm: 40 } },
+        { orderId: orderB.toString(), cartonIndex: 0, parcelNo: 2, actualG: 300, outer: { length_mm: 300, width_mm: 250, height_mm: 40 } },
+      ]);
+      liveCarrier.bookParcel.mockResolvedValue({
+        result: { carrier_order_code: 'GHN2B', sort_code: null, fee: { total: 20000 }, expected_delivery_at: null },
+        carrierParcel: { weight_g: 300, length_cm: 30, width_cm: 25, height_cm: 4 },
+      });
+
+      const updated = await service.bookCarrierParcels(shipmentId.toString());
+
+      expect(liveCarrier.bookParcel).toHaveBeenCalledTimes(1);
+      const input = (liveCarrier.bookParcel.mock.calls[0] as [{ clientOrderCode: string }])[0];
+      expect(input.clientOrderCode).not.toBe('SHP-X-2');
+      const parcels = updated.carrier_parcels as unknown as { parcel_no: number; carrier_order_code: string; client_order_code: string; carrier_status: string }[];
+      expect(parcels[1]).toMatchObject({ carrier_order_code: 'GHN2B', client_order_code: input.clientOrderCode, carrier_status: 'ready_to_pick' });
+      expect(parcels[0]).toMatchObject({ carrier_order_code: 'GHN1', carrier_status: 'delivering' });
+      const set = (shipmentModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: Record<string, unknown> }])[1].$set;
+      expect(set.carrier_incident).toBeNull();
+      expect(set.carrier_status).toBeUndefined(); // vận đơn đang giao — không kéo lùi về "ready_to_pick"
+    });
+
+    it('AC3 — kiện 1 (đơn A) đã giao, kiện 2 (đơn B) hoàn → phiếu hoàn chỉ đơn B, chỉ đơn B báo "returned", nhóm giữ "đã giao"', async () => {
+      const current = twoParcels('delivered', 'returned', { status: ShipmentStatus.RETURNING_TO_WAREHOUSE });
+      shipmentModel.findById.mockResolvedValue(current);
+      shipmentModel.findOneAndUpdate.mockImplementation((_f: unknown, u: { $set: Record<string, unknown> }) => Promise.resolve({ ...current, ...u.$set }));
+
+      await service.receiveReturn(shipmentId.toString(), 0, actor);
+
+      expect(returnsService.createFromFailedDelivery).toHaveBeenCalledWith(groupId.toString(), shipmentId.toString(), actor.userId, expect.anything(), [orderB]);
+      expect(orderGroupsService.transitionFulfillmentStatus).toHaveBeenCalledWith(groupId.toString(), GroupFulfillmentStatus.DELIVERED, 5, expect.anything());
+      expect(keys()).toHaveLength(1);
+      expect(keys()[0]).toMatch(new RegExp(`^ord:${orderB.toString()}:returned:`));
+    });
+
+    it('mọi kiện hoàn → nhóm returned, báo "returned" cho từng đơn', async () => {
+      const current = twoParcels('returned', 'returned', { status: ShipmentStatus.RETURNING_TO_WAREHOUSE });
+      shipmentModel.findById.mockResolvedValue(current);
+      shipmentModel.findOneAndUpdate.mockImplementation((_f: unknown, u: { $set: Record<string, unknown> }) => Promise.resolve({ ...current, ...u.$set }));
+
+      await service.receiveReturn(shipmentId.toString(), 0, actor);
+
+      expect(returnsService.createFromFailedDelivery).toHaveBeenCalledWith(groupId.toString(), shipmentId.toString(), actor.userId, expect.anything(), [orderId, orderB]);
+      expect(orderGroupsService.transitionFulfillmentStatus).toHaveBeenCalledWith(groupId.toString(), GroupFulfillmentStatus.RETURNED, 5, expect.anything());
+      expect(keys().map((k) => k.split(':').slice(0, 3).join(':')).sort()).toEqual([`ord:${orderB.toString()}:returned`, `ord:${orderId.toString()}:returned`].sort());
     });
   });
 });
