@@ -78,7 +78,7 @@ import type {
 } from '../types/shipments'
 import { isShipmentDeliveryOverdue, SHIPMENT_STATUS_LABELS } from '../types/shipments'
 import { formatCurrency, formatDateTime } from '../utils/format'
-import { formatKg } from '../utils/units'
+import { formatKg, formatKgNumber } from '../utils/units'
 import { sessionUserId } from '../lib/session-user'
 import { uploadProofPhotos } from '../api/proof-photos.api'
 import { ProofPhotoPicker } from '../components/proof/ProofPhotoPicker'
@@ -110,6 +110,28 @@ const TABS: { id: QueueTab; vi: string; en: string }[] = [
   { id: 'returned_to_warehouse', vi: 'Đã về kho', en: 'Back at WH' },
   { id: 'cancelled', vi: 'Đã huỷ', en: 'Cancelled' },
 ]
+
+/** Sự kiện vận đơn (BE `ShipmentEventType`) → câu cho người đọc, không hiện mã máy. */
+const SHIPMENT_EVENT_LABELS: Record<string, { vi: string; en: string }> = {
+  start_delivery: { vi: 'Bắt đầu giao', en: 'Delivery started' },
+  delivered: { vi: 'Giao thành công', en: 'Delivered' },
+  delivery_failed: { vi: 'Giao thất bại', en: 'Delivery failed' },
+  retry: { vi: 'Giao lại', en: 'Retry delivery' },
+  auto_return: { vi: 'Tự chuyển hoàn về kho', en: 'Auto return' },
+  return_received: { vi: 'Kho đã nhận hàng hoàn', en: 'Return received' },
+  legacy_backfill: { vi: 'Tạo bù vận đơn cũ', en: 'Legacy backfill' },
+  legacy_return: { vi: 'Hoàn hàng (luồng cũ)', en: 'Legacy return' },
+  carrier_booked: { vi: 'Đã tạo vận đơn ở hãng', en: 'Booked with carrier' },
+  carrier_status: { vi: 'Hãng cập nhật trạng thái', en: 'Carrier status update' },
+  carrier_cancelled: { vi: 'Đã huỷ ở hãng', en: 'Cancelled at carrier' },
+  carrier_incident: { vi: 'Hãng báo sự cố', en: 'Carrier incident' },
+}
+
+function eventLabel(eventType: string, vi: boolean): string {
+  const known = SHIPMENT_EVENT_LABELS[eventType]
+  if (!known) return vi ? 'Cập nhật vận đơn' : 'Shipment update'
+  return vi ? known.vi : known.en
+}
 
 function statusLabel(status: string, vi: boolean): string {
   const known = SHIPMENT_STATUS_LABELS[status]
@@ -832,8 +854,7 @@ export function ShippingPage() {
             photoUrls,
             labelBroken ? { scanSkippedReason: labelSkipReason } : { scannedCode: labelCode },
           )
-          setTab('delivered')
-          setSelectedKey(`shp:${next.id}`)
+          focusShipment(next)
           setResultDialog({
             tone: 'success',
             title: vi ? 'Giao hàng thành công' : 'Delivered successfully',
@@ -850,8 +871,7 @@ export function ShippingPage() {
             undefined,
             photoUrls,
           )
-          setTab(next.status as QueueTab)
-          setSelectedKey(`shp:${next.id}`)
+          focusShipment(next)
           const returning = next.status === 'returning_to_warehouse'
           setResultDialog({
             tone: 'warning',
@@ -875,8 +895,7 @@ export function ShippingPage() {
             actionNote,
             retryTooEarly ? actionNote.trim() : undefined,
           )
-          setTab('out_for_delivery')
-          setSelectedKey(`shp:${next.id}`)
+          focusShipment(next)
           setResultDialog({
             tone: 'success',
             title: vi ? 'Đã mở lượt giao lại' : 'Retry started',
@@ -1062,6 +1081,12 @@ export function ShippingPage() {
     const nextTab = TABS.some((item) => item.id === next.status)
       ? (next.status as QueueTab)
       : tab
+    // Ghi trạng thái mới vào danh sách ngay: chưa có thì tab mới không thấy dòng này và tự chọn dòng đầu.
+    setShipments((list) =>
+      list.some((item) => item.id === next.id)
+        ? list.map((item) => (item.id === next.id ? next : item))
+        : [next, ...list],
+    )
     setTab(nextTab)
     setSelectedKey(`shp:${next.id}`)
   }
@@ -2054,7 +2079,7 @@ export function ShippingPage() {
                       {vi ? 'Tổng trọng lượng' : 'Total weight'}
                     </span>
                     <p className="mt-1.5 font-mono text-3xl font-extrabold leading-none tracking-tight tabular-nums text-slate-900 dark:text-[var(--ls-ink)]">
-                      {sessionTotalWeight}
+                      {formatKgNumber(boxWeightKg(packRec))}
                       <span className="ml-1 text-sm font-bold text-slate-500 dark:text-[var(--ls-muted)]">
                         kg
                       </span>
@@ -2092,11 +2117,8 @@ export function ShippingPage() {
                       events.map((event) => (
                         <div key={event.id} className="flex items-start justify-between gap-2">
                           <span className="min-w-0 text-[var(--ls-ink)]">
-                            {event.actorId === 'system'
-                              ? vi
-                                ? 'Hệ thống'
-                                : 'System'
-                              : event.eventType}
+                            {eventLabel(event.eventType, vi)}
+                            {event.actorId === 'system' ? (vi ? ' · Hệ thống' : ' · System') : ''}
                             {event.reasonLabel ? ` · ${event.reasonLabel}` : ''}
                           </span>
                           <span className="shrink-0 font-mono text-[var(--ls-muted)]">
@@ -2590,12 +2612,17 @@ export function ShippingPage() {
       )}
 
       {modalMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shipping-action-title"
+        >
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <Truck className="h-5 w-5 text-[var(--ls-cta)]" />
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                <h3 id="shipping-action-title" className="font-bold text-sm text-slate-900 dark:text-slate-100">
                   {modalMode === 'start'
                     ? vi
                       ? 'Xác nhận bắt đầu giao'

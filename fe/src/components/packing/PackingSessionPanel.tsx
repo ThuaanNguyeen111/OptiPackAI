@@ -249,6 +249,7 @@ export function PackingSessionPanel({
       } else {
         setScanNote(null)
         onError(err)
+        scanInputRef.current?.select() // giữ mã để sửa tay, nhưng lần bắn súng kế tiếp ghi đè thay vì nối vào
       }
     } finally {
       setBusy(false)
@@ -405,6 +406,7 @@ export function PackingSessionPanel({
                                 itemKey: scan.itemKey,
                                 reason: unscanReason.trim(),
                               }),
+                              () => setUnscanReason(''),
                             )
                           }
                           className="rounded border border-hairline px-2 py-1 disabled:opacity-50"
