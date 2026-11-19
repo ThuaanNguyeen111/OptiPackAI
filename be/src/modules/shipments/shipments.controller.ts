@@ -22,7 +22,7 @@ import {
 } from './dto/shipment-action.dto';
 import type { ToLocationDto } from '../shipping/dto/shipping.dto';
 import type { ToLocationInput } from '../shipping/live-carrier.service';
-import { GHN_STATUS_LABELS, SIMULATABLE_GHN_STATUSES } from './carrier-status.util';
+import { GHN_STATUS_LABELS } from './carrier-status.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -73,6 +73,8 @@ export interface ShipmentResponse {
   carrierStatusLabel: string | null;
   carrierBookingError: string | null;
   carrierIncident: string | null;
+  /** AOFP-325 — sự cố hãng bằng tiếng Việt (VD "Thất lạc hàng: ..."), null = không có. */
+  carrierIncidentLabel: string | null;
   bookingRound: number;
   toLocation: { street: string | null; wardName: string | null; provinceName: string | null; phone: string | null } | null;
   carrierParcels: {
@@ -134,6 +136,7 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     carrierStatusLabel: doc.carrier_status ? (GHN_STATUS_LABELS[doc.carrier_status] ?? doc.carrier_status) : null,
     carrierBookingError: doc.carrier_booking_error ?? null,
     carrierIncident: doc.carrier_incident ?? null,
+    carrierIncidentLabel: incidentLabel(doc.carrier_incident ?? null),
     bookingRound: doc.booking_round ?? 1,
     toLocation: doc.to_location
       ? {
@@ -162,6 +165,14 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     carrierReturnedAt: doc.carrier_returned_at ?? null,
     cancelledAt: doc.cancelled_at ?? null,
   };
+}
+
+/** `carrier_incident` lưu dạng "<mã GHN>: <lý do>" → đổi mã sang nhãn tiếng Việt. */
+function incidentLabel(incident: string | null): string | null {
+  if (!incident) return null;
+  const [status = '', ...rest] = incident.split(': ');
+  const label = GHN_STATUS_LABELS[status] ?? status;
+  return rest.length > 0 ? `${label}: ${rest.join(': ')}` : label;
 }
 
 /** Body địa chỉ → ToLocationInput (bỏ field không gửi). */
@@ -316,7 +327,8 @@ export class ShipmentsController {
   @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'C5 — Trạng thái hãng (GHN) mô phỏng được + nhãn tiếng Việt (dropdown nút mô phỏng).' })
   carrierStatuses(): { status: string; label: string }[] {
-    return SIMULATABLE_GHN_STATUSES.map((status) => ({ status, label: GHN_STATUS_LABELS[status] ?? status }));
+    // AOFP-325 — rỗng khi cờ mô phỏng tắt (môi trường thật) → web ẩn nút "Mô phỏng GHN".
+    return this.shipmentsService.simulatableCarrierStatuses();
   }
 
   @Get(':id')

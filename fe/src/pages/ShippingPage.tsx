@@ -81,6 +81,8 @@ import { formatCurrency, formatDateTime } from '../utils/format'
 import { formatKg } from '../utils/units'
 import { uploadProofPhotos } from '../api/proof-photos.api'
 import { ProofPhotoPicker } from '../components/proof/ProofPhotoPicker'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { carrierBookingProblems, hasUnbookedParcels, humanCarrierError } from '../lib/carrier-display'
 
 type QueueTab = 'packed' | ShipmentStatus
 type ModalMode = 'start' | 'deliver' | 'fail' | 'retry' | null
@@ -346,6 +348,9 @@ export function ShippingPage() {
   const [nowMs, setNowMs] = useState(() => Date.now())
   const [ghnStatuses, setGhnStatuses] = useState<{ status: string; label: string }[]>([])
   const [simulateStatus, setSimulateStatus] = useState('')
+  // AOFP-325 — banner sửa địa chỉ đang mở cho vận đơn nào; hộp xác nhận huỷ ở hãng.
+  const [fixingShipmentId, setFixingShipmentId] = useState<string | null>(null)
+  const [confirmCarrierCancel, setConfirmCarrierCancel] = useState(false)
   const [batchIds, setBatchIds] = useState<string[]>([])
   const [compareText, setCompareText] = useState<string | null>(null)
   const [shipStrategy, setShipStrategy] = useState<'cheapest' | 'fastest' | 'fixed'>('cheapest')
@@ -1003,6 +1008,64 @@ export function ShippingPage() {
         ? selected.shipment.orderGroupId
         : null
 
+  /** Ô địa chỉ gửi hãng — dùng ở bước chọn hãng và ở banner sửa địa chỉ (AOFP-325). */
+  const addressFields = () => (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input
+                        value={addrProvince}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            province_name: e.target.value,
+                          }
+                          setAddrProvince(e.target.value)
+                        }}
+                        placeholder={vi ? 'Tỉnh / thành (nếu địa chỉ bị che)' : 'Province if masked'}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
+                      />
+                      <input
+                        value={addrWard}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            ward_name: e.target.value,
+                          }
+                          setAddrWard(e.target.value)
+                        }}
+                        placeholder={vi ? 'Phường' : 'Ward'}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
+                      />
+                      <input
+                        value={addrStreet}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            street: e.target.value,
+                          }
+                          setAddrStreet(e.target.value)
+                        }}
+                        placeholder={vi ? 'Số nhà, đường' : 'Street'}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
+                      />
+                      <input
+                        value={addrPhone}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            phone: e.target.value,
+                          }
+                          setAddrPhone(e.target.value)
+                        }}
+                        placeholder={vi ? 'SĐT 10–11 số, bắt đầu bằng 0' : 'Phone starting with 0'}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
+                      />
+                    </div>
+  )
+
   const locationBody = () => ({
     ...(addrStreet.trim() ? { street: addrStreet.trim() } : {}),
     ...(addrWard.trim() ? { ward_name: addrWard.trim() } : {}),
@@ -1173,6 +1236,7 @@ export function ShippingPage() {
         showToast(vi ? 'Đã mở nhãn hãng.' : 'Opened carrier label.')
       } else if (action === 'location') {
         const next = await updateShipmentLocation(id, locationBody())
+        setFixingShipmentId(null)
         focusShipment(next)
         showToast(vi ? 'Đã gửi lại địa chỉ cho hãng.' : 'Address sent to the carrier.')
       } else if (action === 'book') {
@@ -1484,60 +1548,7 @@ export function ShippingPage() {
 
                 {chosenCarrier && selected?.kind === 'packed' ? (
                   <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]">
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <input
-                        value={addrProvince}
-                        onChange={(e) => {
-                          addrEditedRef.current = true
-                          locationOverrideRef.current = {
-                            ...locationOverrideRef.current,
-                            province_name: e.target.value,
-                          }
-                          setAddrProvince(e.target.value)
-                        }}
-                        placeholder={vi ? 'Tỉnh / thành (nếu địa chỉ bị che)' : 'Province if masked'}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
-                      />
-                      <input
-                        value={addrWard}
-                        onChange={(e) => {
-                          addrEditedRef.current = true
-                          locationOverrideRef.current = {
-                            ...locationOverrideRef.current,
-                            ward_name: e.target.value,
-                          }
-                          setAddrWard(e.target.value)
-                        }}
-                        placeholder={vi ? 'Phường' : 'Ward'}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
-                      />
-                      <input
-                        value={addrStreet}
-                        onChange={(e) => {
-                          addrEditedRef.current = true
-                          locationOverrideRef.current = {
-                            ...locationOverrideRef.current,
-                            street: e.target.value,
-                          }
-                          setAddrStreet(e.target.value)
-                        }}
-                        placeholder={vi ? 'Số nhà, đường' : 'Street'}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
-                      />
-                      <input
-                        value={addrPhone}
-                        onChange={(e) => {
-                          addrEditedRef.current = true
-                          locationOverrideRef.current = {
-                            ...locationOverrideRef.current,
-                            phone: e.target.value,
-                          }
-                          setAddrPhone(e.target.value)
-                        }}
-                        placeholder={vi ? 'SĐT 10–11 số, bắt đầu bằng 0' : 'Phone starting with 0'}
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
-                      />
-                    </div>
+                    {addressFields()}
                     {recipientHint?.errorMessage ? (
                       <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-medium text-rose-800">
                         {recipientHint.errorMessage}
@@ -2125,8 +2136,59 @@ export function ShippingPage() {
                           ? ` · ${formatCurrency(selected.shipment.estimatedCostVnd)}`
                           : ''}
                       </p>
-                      {selected.shipment.carrierBookingError ? (
-                        <p className="text-xs text-red-600">{selected.shipment.carrierBookingError}</p>
+                      {carrierBookingProblems(selected.shipment, vi).length > 0 ? (
+                        // AOFP-325 — lỗi đặt hãng: câu cho người đọc + nút chính sửa địa chỉ rồi tạo lại.
+                        <div role="alert" className="space-y-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {carrierBookingProblems(selected.shipment, vi).map((line) => (
+                            <p key={line} className="font-medium">{line}</p>
+                          ))}
+                          {fixingShipmentId === selected.shipment.id ? (
+                            <div className="space-y-2">
+                              {addressFields()}
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={actionBusy}
+                                  onClick={() => void runCarrier('location')}
+                                  className="rounded-lg bg-[var(--ls-cta)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                                >
+                                  {vi ? 'Gửi địa chỉ và tạo lại ở hãng' : 'Send address and rebook'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={actionBusy}
+                                  onClick={() => setFixingShipmentId(null)}
+                                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold"
+                                >
+                                  {vi ? 'Thôi' : 'Cancel'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => {
+                                const loc = selected.shipment.toLocation
+                                setAddrStreet(loc?.street ?? '')
+                                setAddrWard(loc?.wardName ?? '')
+                                setAddrProvince(loc?.provinceName ?? '')
+                                setAddrPhone(loc?.phone ?? '')
+                                setFixingShipmentId(selected.shipment.id)
+                              }}
+                              className="rounded-lg bg-[var(--ls-cta)] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                            >
+                              {vi ? 'Sửa địa chỉ và tạo lại' : 'Fix address and rebook'}
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+                      {selected.shipment.carrierIncident ? (
+                        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                          {vi
+                            ? `Hãng báo sự cố: ${selected.shipment.carrierIncidentLabel ?? humanCarrierError(selected.shipment.carrierIncident)}. Liên hệ ${selected.shipment.carrierName ?? 'hãng'} để xử lý.`
+                            : `Carrier reported an incident: ${selected.shipment.carrierIncidentLabel ?? selected.shipment.carrierIncident}. Contact ${selected.shipment.carrierName ?? 'the carrier'}.`}
+                        </p>
                       ) : null}
                       {namesDiffer ? (
                         <p className="rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 text-[11px] font-medium text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100">
@@ -2167,30 +2229,35 @@ export function ShippingPage() {
                           <p key={parcel.parcelNo} className="font-mono text-[11px] text-[var(--ls-muted)]">
                             {line}
                             {parcel.sortCode ? ` · ${parcel.sortCode}` : ''}
-                            {parcel.bookingError ? ` · ${parcel.bookingError}` : ''}
+                            {parcel.bookingError ? ` · ${humanCarrierError(parcel.bookingError)}` : ''}
                           </p>
                         )
                       })}
                       <div className="flex flex-wrap gap-2 pt-1">
-                        <select
-                          value={simulateStatus}
-                          onChange={(e) => setSimulateStatus(e.target.value)}
-                          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-transparent"
-                        >
-                          {ghnStatuses.map((row) => (
-                            <option key={row.status} value={row.status}>
-                              {vi ? `Mô phỏng GHN: ${row.label}` : row.label}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          disabled={actionBusy || !simulateStatus}
-                          onClick={() => void runCarrier('simulate')}
-                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold"
-                        >
-                          {vi ? 'Mô phỏng' : 'Simulate'}
-                        </button>
+                        {/* AOFP-325 — chỉ hiện "Mô phỏng GHN" khi BE bật cờ (danh sách trạng thái không rỗng). */}
+                        {ghnStatuses.length > 0 ? (
+                          <>
+                            <select
+                              value={simulateStatus}
+                              onChange={(e) => setSimulateStatus(e.target.value)}
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-transparent"
+                            >
+                              {ghnStatuses.map((row) => (
+                                <option key={row.status} value={row.status}>
+                                  {vi ? `Mô phỏng GHN: ${row.label}` : row.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={actionBusy || !simulateStatus}
+                              onClick={() => void runCarrier('simulate')}
+                              className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold"
+                            >
+                              {vi ? 'Mô phỏng' : 'Simulate'}
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
                           disabled={actionBusy}
@@ -2209,31 +2276,41 @@ export function ShippingPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={actionBusy}
+                          disabled={actionBusy || !hasUnbookedParcels(selected.shipment)}
+                          title={hasUnbookedParcels(selected.shipment) ? undefined : vi ? 'Mọi kiện đã có mã hãng' : 'Every parcel already has a carrier code'}
                           onClick={() => void runCarrier('book')}
-                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold"
+                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold disabled:opacity-50"
                         >
-                          {vi ? 'Đặt lại' : 'Rebook'}
+                          {vi ? 'Tạo lại ở hãng' : 'Rebook at carrier'}
                         </button>
                         {selected.shipment.status === 'awaiting_pickup' ? (
                           <button
                             type="button"
                             disabled={actionBusy}
-                            onClick={() => void runCarrier('cancel')}
+                            onClick={() => setConfirmCarrierCancel(true)}
                             className="rounded-lg border border-red-300 px-2 py-1 text-xs font-semibold text-red-600"
                           >
                             {vi ? 'Huỷ ở hãng' : 'Cancel at carrier'}
                           </button>
                         ) : null}
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() => void runCarrier('location')}
-                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold"
-                        >
-                          {vi ? 'Gửi địa chỉ' : 'Send address'}
-                        </button>
                       </div>
+                      <ConfirmDialog
+                        open={confirmCarrierCancel}
+                        title={vi ? 'Huỷ vận đơn ở hãng?' : 'Cancel the carrier shipment?'}
+                        description={
+                          vi
+                            ? `Mọi kiện sẽ bị huỷ ở ${selected.shipment.carrierName ?? 'hãng'}, nhóm đơn quay về "đã đóng gói" để tạo vận đơn mới.`
+                            : 'Every parcel is cancelled at the carrier and the group goes back to "packed".'
+                        }
+                        confirmLabel={vi ? 'Huỷ ở hãng' : 'Cancel at carrier'}
+                        cancelLabel={vi ? 'Giữ vận đơn' : 'Keep shipment'}
+                        loading={actionBusy}
+                        onCancel={() => setConfirmCarrierCancel(false)}
+                        onConfirm={() => {
+                          setConfirmCarrierCancel(false)
+                          void runCarrier('cancel')
+                        }}
+                      />
                     </div>
                   ) : null}
                   <span className="block text-[10px] font-bold tracking-wider text-[var(--ls-cta)] uppercase sm:text-[11px]">

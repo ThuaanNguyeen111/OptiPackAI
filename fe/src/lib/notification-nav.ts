@@ -53,6 +53,7 @@ export function resolveNotificationPath(
   }
   if (
     type === 'delivery_failed' ||
+    type === 'carrier_booking_failed' ||
     type === 'delivery_returning' ||
     type === 'delivery_overdue'
   ) {
