@@ -6,7 +6,7 @@ import type { Shipment } from '../types/shipments'
 const parcel = (no: number, code: string | null, bookingError: string | null) => ({
   parcelNo: no, orderId: 'o1', clientOrderCode: `SHP-${String(no)}`, carrierOrderCode: code, sortCode: null,
   weightG: null, dimensionsCm: null, feeTotalVnd: null, expectedDeliveryAt: null,
-  carrierStatus: null, carrierStatusLabel: null, bookingError,
+  carrierStatus: null as string | null, carrierStatusLabel: null, bookingError,
 })
 const shipment = (parcels: ReturnType<typeof parcel>[]): Shipment =>
   ({ carrierName: 'GHN', carrierParcels: parcels }) as unknown as Shipment

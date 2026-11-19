@@ -8,7 +8,13 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
-import { PackingSessionService, type BoxSourcePreview, type ScanOutcome, type SessionResult } from './packing-session.service';
+import {
+  PackingSessionService,
+  type BoxSourcePreview,
+  type ReplacementWarehouse,
+  type ScanOutcome,
+  type SessionResult,
+} from './packing-session.service';
 import type { BoxSourcePlan } from './utils/box-source.util';
 import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
 import { PackingReportService, type PackingReport } from './packing-report.service';
@@ -717,6 +723,13 @@ export class PackingPlanController {
       this.planService.catalogChanges(plan),
     ]);
     return { plan: toPlanResponse(plan, profileStale, catalogChanges) };
+  }
+
+  @Get('replacement-warehouses')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'AOFP-332 — kho đang hoạt động để chọn chỗ lấy món thay khi báo sự cố lúc đóng. Chỉ đọc.' })
+  replacementWarehouses(): Promise<ReplacementWarehouse[]> {
+    return this.sessionService.replacementWarehouses();
   }
 
   @Get('box-sources')

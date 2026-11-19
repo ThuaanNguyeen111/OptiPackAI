@@ -291,14 +291,25 @@ export function unpackParcel(
   input: {
     expectedVersion: number
     boxCondition: 'reusable' | 'damaged'
+    /** AOFP-332 — vật tư chèn còn dùng lại được. */
+    recoveredMaterials?: { code: string; quantity: number }[]
     note?: string
   },
 ): Promise<PackingPlan> {
   return readPlan(groupId, `/parcels/${String(parcelNo)}/unpack`, {
     expected_version: input.expectedVersion,
     box_condition: input.boxCondition,
+    ...(input.recoveredMaterials?.length ? { recovered_materials: input.recoveredMaterials } : {}),
     ...(input.note ? { note: input.note } : {}),
   })
+}
+
+export type ReplacementWarehouse = { id: string; code: string; name: string }
+
+/** AOFP-332 — kho để lấy món thay khi báo sự cố (Staff đóng gói không gọi được API kho). */
+export async function listReplacementWarehouses(groupId: string): Promise<ReplacementWarehouse[]> {
+  const rows = await apiRequest<unknown>(groupPath(groupId, '/replacement-warehouses'), { auth: true })
+  return Array.isArray(rows) ? (rows as ReplacementWarehouse[]) : []
 }
 
 export async function packPlan(

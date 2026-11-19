@@ -1,3 +1,5 @@
+import { Warehouse, type WarehouseDocument } from '../warehouse/schemas/warehouse.schema';
+
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -52,6 +54,13 @@ import type {
   UnscanItemDto,
 } from './dto/packing-session.dto';
 import { formatKg } from '../../common/utils/measure-format.util';
+
+/** AOFP-332 — kho chọn được khi lấy món thay. */
+export interface ReplacementWarehouse {
+  id: string;
+  code: string;
+  name: string;
+}
 
 type ParcelData = Plain<PlanParcel>;
 
@@ -147,7 +156,20 @@ export class PackingSessionService {
     private readonly notificationsService: NotificationsService,
     private readonly bagService: PackagingBagService,
     private readonly stockAlerts: PackagingStockAlertService,
+    // AOFP-332 — spec cũ dựng bằng `new` không truyền → undefined.
+    @InjectModel(Warehouse.name) private readonly warehouseModel?: Model<WarehouseDocument>,
   ) {}
+
+  /** AOFP-332 — kho đang hoạt động để chọn chỗ lấy món thay (Staff đóng gói không gọi được API kho). */
+  async replacementWarehouses(): Promise<ReplacementWarehouse[]> {
+    if (!this.warehouseModel) return [];
+    const rows = await this.warehouseModel
+      .find({ is_active: true })
+      .select('warehouse_code warehouse_name')
+      .sort({ warehouse_code: 1 })
+      .lean();
+    return rows.map((w) => ({ id: String(w._id), code: w.warehouse_code, name: w.warehouse_name }));
+  }
 
   // ------------------------------------------------------------------ bắt đầu / hoàn tất
 
@@ -936,6 +958,8 @@ export class PackingSessionService {
     const parcel = this.parcelOf(data, parcelNo);
     if (parcel.status !== 'to_unpack') throw this.parcelWrongStatus(groupId, parcel, 'tháo kiện');
     const recovered = this.validateRecoveredMaterials(parcel, dto.recovered_materials ?? []);
+    // AOFP-332 (Q6) — thùng đã cắt hạ không còn là thùng nguyên cỡ: không về ngăn tái sử dụng.
+    const boxCondition = parcel.box.cut_from_inner_height_mm != null ? 'damaged' : dto.box_condition;
     const counts = new Map<string, number>();
     for (const p of parcel.placements) counts.set(p.sku, (counts.get(p.sku) ?? 0) + 1);
     const now = new Date();
@@ -956,7 +980,7 @@ export class PackingSessionService {
       if (parcel.box_consumed) {
         const results = await this.materialsService.recoverFromUnpack(
           [
-            { code: parcel.box.code, quantity: 1, condition: dto.box_condition },
+            { code: parcel.box.code, quantity: 1, condition: boxCondition },
             // Vật tư chèn chỉ thu hồi phần người dùng khai còn dùng được; phần còn lại coi như đã dùng.
             ...recovered.map((r) => ({ code: r.code, quantity: r.quantity, condition: 'reusable' as const, strict: true })),
           ],
@@ -976,7 +1000,7 @@ export class PackingSessionService {
               unpack: {
                 reason: p.unpack?.reason ?? 'Đơn bị hủy sau khi đã bắt đầu đóng gói',
                 requested_at: p.unpack?.requested_at ?? now,
-                box_condition: parcel.box_consumed ? dto.box_condition : null,
+                box_condition: parcel.box_consumed ? boxCondition : null,
                 units_restocked: adjusted.restocked,
                 recovered_materials: parcel.box_consumed
                   ? [{ code: parcel.box.code, quantity: 1, outcome: box as 'reused' | 'discarded' | 'unknown' }, ...materials]
