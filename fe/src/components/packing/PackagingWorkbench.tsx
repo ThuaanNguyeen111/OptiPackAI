@@ -54,6 +54,7 @@ import {
   parcelOrderHeading,
 } from '../../lib/parcel-order-display'
 import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
+import { missingReportLine } from '../../utils/missing-report'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
@@ -2000,9 +2001,14 @@ export function PackagingWorkbench() {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
                   <p className="text-sm font-medium text-amber-950 dark:text-amber-100">
                     {vi
-                      ? 'Warehouse đã báo thiếu hàng. Chọn tiếp tục với phần còn lại hoặc hủy làm lại.'
-                      : 'Warehouse reported missing items. Continue with available stock or cancel to restart.'}
+                      ? 'Kho đã báo thiếu hàng. Chọn giao phần có sẵn hoặc lấy lại.'
+                      : 'Warehouse reported missing items. Ship what is available or pick again.'}
                   </p>
+                  {group?.missingReport ? (
+                    <p className="mt-1 text-sm text-amber-950 dark:text-amber-100">
+                      {missingReportLine(group.missingReport, vi, formatDateTime)}
+                    </p>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -2020,7 +2026,7 @@ export function PackagingWorkbench() {
                       className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink disabled:opacity-50"
                     >
                       <XCircle className="h-4 w-4" />
-                      {vi ? 'Hủy làm lại' : 'Cancel & restart'}
+                      {vi ? 'Lấy lại (trả hàng đã lấy về kệ)' : 'Pick again (return picked items)'}
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-amber-900 dark:text-amber-200">

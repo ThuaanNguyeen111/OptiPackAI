@@ -96,6 +96,8 @@ export type OrderGroup = {
   isOverdue: boolean
   stockShortage: boolean
   stockShortageItems: StockShortageItem[]
+  /** AOFP-329 — báo thiếu hàng gần nhất (null = chưa báo / BE cũ). */
+  missingReport: MissingReport | null
   /** Liên kết tay (null = không có). Liên kết tự động xem `linkedGroupCount`. */
   manualLink: ManualLink | null
   /** Chỉ có ở chi tiết nhóm. Danh sách trả 0. */
@@ -202,6 +204,17 @@ export type DecidePartialInput = {
 export type ScanMethod = 'barcode' | 'manual'
 
 /** Khớp `PackableItem` — hợp đồng snake_case, không camelCase. */
+export type MissingReport = {
+  sku: string
+  quantity: number
+  stillNeeded: number
+  ordered: number
+  note: string | null
+  reporterName: string | null
+  pickRound: number
+  at: string | null
+}
+
 export type PackableItem = {
   sku: string
   quantity: number

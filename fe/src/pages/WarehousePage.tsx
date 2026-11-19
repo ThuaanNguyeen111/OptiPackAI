@@ -1275,7 +1275,7 @@ export function WarehousePage() {
       setMissingNote('')
       showToast(
         vi
-          ? 'Đã báo thiếu hàng. Đơn dừng lại, chờ Packaging Staff duyệt.'
+          ? 'Đã báo thiếu hàng. Nhóm đơn tạm dừng, chờ nhân viên đóng gói quyết định.'
           : 'Missing item reported. Group paused for packaging review.',
       )
       navigate(`/app/warehouse?groupId=${latest.id}`)
