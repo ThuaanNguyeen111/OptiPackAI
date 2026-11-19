@@ -187,6 +187,64 @@ describe('UsersService', () => {
     });
   });
 
+  // AOFP-335 AC2 — Admin cuối cùng + tự thao tác + ghi sổ hoạt động.
+  describe('bảo vệ tài khoản Admin', () => {
+    let activityModel: { create: jest.Mock };
+    beforeEach(() => {
+      activityModel = { create: jest.fn().mockResolvedValue({}) };
+      service = new UsersService(
+        userModel as never,
+        connection as unknown as Connection,
+        tokenService as unknown as TokenService,
+        redisCache as unknown as RedisCacheService,
+        mailService as unknown as MailService,
+        notificationsService as unknown as NotificationsService,
+        activityModel as never,
+      );
+    });
+
+    it('khoá Admin cuối cùng → 409 USR_LAST_ADMIN, không ghi gì', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.ADMIN, is_active: true });
+      userModel.countDocuments.mockResolvedValue(1);
+      await expect(service.deactivate(adminId, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.LAST_ADMIN,
+        status: 409,
+      });
+      expect(userModel.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('hạ quyền Admin cuối cùng → 409 USR_LAST_ADMIN; sửa tên thì không chặn', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.ADMIN, is_active: true });
+      userModel.countDocuments.mockResolvedValue(1);
+      await expect(service.adminUpdateUser(userId, { role: UserRole.STORE_OWNER }, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.LAST_ADMIN,
+      });
+      userModel.findByIdAndUpdate.mockResolvedValue({ id: adminId, email: 'a@x' });
+      await expect(service.adminUpdateUser(adminId, { name: 'A' }, adminId)).resolves.toBeDefined();
+    });
+
+    it('còn Admin khác: tự khoá / tự reset mật khẩu → 403 USR_SELF_ACTION_FORBIDDEN', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.ADMIN, is_active: true });
+      userModel.countDocuments.mockResolvedValue(2);
+      await expect(service.deactivate(adminId, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.SELF_ACTION_FORBIDDEN,
+        status: 403,
+      });
+      await expect(service.adminResetPassword(adminId, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.SELF_ACTION_FORBIDDEN,
+      });
+    });
+
+    it('khoá nhân viên khác → ghi sổ hoạt động user.deactivated', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.WAREHOUSE_STAFF, is_active: true });
+      userModel.findByIdAndUpdate.mockResolvedValue({ id: userId, email: 'kho@x' });
+      await service.deactivate(userId, adminId);
+      expect(activityModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'user.deactivated', actor_id: adminId, entity_code: 'kho@x' }),
+      );
+    });
+  });
+
   describe('reactivate / adminDisableMfa / adminUpdateUser', () => {
     it('reactivate: user tồn tại -> is_active=true, xóa cache', async () => {
       userModel.findByIdAndUpdate.mockResolvedValue({ id: userId });

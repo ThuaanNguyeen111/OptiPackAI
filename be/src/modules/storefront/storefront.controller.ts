@@ -9,9 +9,11 @@ import { StorefrontExpressService } from './storefront-express.service';
 import { StorefrontReturnsService } from './storefront-returns.service';
 import { CustomerJwtGuard } from './customer-jwt.guard';
 import { StorefrontCartService } from './storefront-cart.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 type CustomerRequest = Request & { user: { customerId: string } };
 @ApiTags('Storefront')
+@NoFeatureGate('Khách AURELLE, không dùng tài khoản nhân viên')
 @Controller('storefront')
 export class StorefrontController {
   constructor(

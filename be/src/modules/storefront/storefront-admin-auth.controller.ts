@@ -7,8 +7,10 @@ import { LoginCustomerDto } from './dto/storefront.dto';
 import { ADMIN_COOKIE, ADMIN_SESSION_MS, StorefrontAdminAuthService } from './storefront-admin-auth.service';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
 import type { AdminRequest } from './storefront-admin.guard';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 @ApiTags('Storefront Admin')
+@NoFeatureGate('Admin website AURELLE, đăng nhập riêng')
 @Controller('storefront/admin/auth')
 @UseGuards(StorefrontAdminOriginGuard)
 export class StorefrontAdminAuthController {

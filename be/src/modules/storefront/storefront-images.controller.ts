@@ -9,6 +9,7 @@ import type { Response } from 'express';
 import { Model, Types } from 'mongoose';
 import { StorefrontImage, StorefrontImageDocument } from './schemas/storefront.schema';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 interface UploadedImage { buffer: Buffer; mimetype: string; size: number }
@@ -21,6 +22,7 @@ export function imageContentType(data: Buffer): string | null {
 }
 
 @ApiTags('Storefront Images')
+@NoFeatureGate('Ảnh công khai của website AURELLE')
 @Controller('storefront')
 export class StorefrontImagesController {
   constructor(@InjectModel(StorefrontImage.name) private readonly images: Model<StorefrontImageDocument>) {}

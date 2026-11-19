@@ -4,12 +4,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { Features } from '../role-permissions/feature-scope';
 import { MarketplaceWritebackService, type FailedWritebackRow } from './marketplace-writeback.service';
 
 /** AOFP-330 — Admin xem các dòng báo website đã dừng (failed) và gửi lại. */
 @ApiTags('Marketplace Writeback')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('order_sync')
 @Controller('admin/writeback')
 export class MarketplaceWritebackController {
   constructor(private readonly writeback: MarketplaceWritebackService) {}

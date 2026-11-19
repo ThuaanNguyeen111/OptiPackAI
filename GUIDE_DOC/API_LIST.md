@@ -96,6 +96,13 @@ Error response chuẩn:
 | PATCH  | `/users/:id`                | Admin              | Sửa tên/role/phone/address/mã NV/phòng ban |
 | DELETE | `/users/:id`                | Admin              | Xóa mềm 1 user                             |
 
+🔄 ĐÃ ĐỔI (19/11/2026, AOFP-335) — bảo vệ tài khoản Admin:
+- `PATCH /users/:id` (đổi `role` khác Admin) và `DELETE /users/:id` với **Admin cuối cùng còn hoạt động** → 409 `USR_LAST_ADMIN`.
+- Admin tự `DELETE /users/:id`, tự đổi `role`, tự `POST /users/:id/reset-password` → 403 `USR_SELF_ACTION_FORBIDDEN` (sửa tên/SĐT của mình vẫn được).
+- Tạo tài khoản, đổi vai trò, vô hiệu hóa, reset mật khẩu ghi sổ hoạt động (nhóm `auth`, action `user.created` / `user.role_changed` / `user.deactivated` / `user.password_reset`).
+- **Mật khẩu tạm chặn mọi API có JWT** (trước chỉ `/users`): `must_change_password = true` → mọi route trả 403 `AUTH_PASSWORD_CHANGE_REQUIRED`, trừ `POST /auth/change-password`, `POST /auth/logout`, `GET /users/me`, `GET /role-permissions/me`.
+- Phân quyền trang: `PUT /packing/settings` theo trang **Quy tắc đóng gói** (`packaging_rules`); `GET /packing/reports/summary` theo **Báo cáo** hoặc **Tổng quan**; `GET /packing/reports/feedback` theo **Báo cáo**. `GET /packing-plans/summary`, `/packing/staff`, `/packing/settings` (đọc), `/master-skus/*`, `/marketplace/:platform/shops`, `/marketplace-writeback/*` giờ cũng bật/tắt theo trang. Controller không theo trang (auth, webhook, website AURELLE, chỉ Admin…) được đánh dấu `@NoFeatureGate(lý do)`.
+
 🔄 ĐÃ ĐỔI (09/10/2026) — `GET /users` (`?role&page&limit`) trả `{ data, total, page, limit }`, mỗi phần tử **đã map** (không còn `_id`, `__v`, `failed_login_attempts`, `reset_password_expires`, `created_by`): `id, name, email, role, avatar, phone, address, employee_code, department, is_active, mfa_enabled, login_type, must_change_password, must_change_password_by, locked_until, last_login_at, created_at` (snake_case như `/users/me`). Id không tồn tại ở mọi route `/users/:id` → 404 `USER_NOT_FOUND`.
 
 ## 3. Marketplace Integration (`/marketplace`)
@@ -882,7 +889,7 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - `GET /users` thêm `on_leave` (đã tính hạn), `on_leave_until`, `on_leave_note`. `GET /order-groups/staff/search`, `GET /packing/staff` thêm `onLeave`, `onLeaveUntil`.
 - Tự giao lấy hàng / đóng gói bỏ qua người đang nghỉ (kể cả "giữ người cũ" khi tính lại kế hoạch). Việc đang giữ không tự chuyển.
 
-**Mã lỗi mới 22/10:** `RMA_SIMULATION_DISABLED` (410), `MKT_SHOP_NOT_FOUND` (404), `ORD_GROUP_STAFF_ON_LEAVE` (409), `PACKING_PACKER_ON_LEAVE` (409), `USER_LEAVE_NOT_STAFF` (422), `USER_LEAVE_UNTIL_PAST` (400). Loại thông báo mới: `packing_blocked`.
+**Mã lỗi mới 22/10:** `RMA_SIMULATION_DISABLED` (410), `MKT_SHOP_NOT_FOUND` (404), `ORD_GROUP_STAFF_ON_LEAVE` (409), `PACKING_PACKER_ON_LEAVE` (409), `USER_LEAVE_NOT_STAFF` (422), `USER_LEAVE_UNTIL_PAST` (400). Loại thông báo mới: `packing_blocked`. (19/11, AOFP-335: `USR_LAST_ADMIN` (409), `USR_SELF_ACTION_FORBIDDEN` (403).)
 
 ## 21. 🆕 22/10/2026 (trưa) — SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, SKU sàn ngừng dùng
 

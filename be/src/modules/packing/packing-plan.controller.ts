@@ -1114,6 +1114,7 @@ export interface PackingPlanSummary {
 /** Tóm tắt kế hoạch của nhiều nhóm — bảng "Hàng chờ đóng gói" gọi 1 lần thay vì N lần. */
 @ApiTags('Packing plan')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'shipping', 'order_groups')
 @Controller('packing-plans')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingPlansController {
@@ -1168,6 +1169,7 @@ export class PackingPlansController {
 /** Luật đóng gói Store Owner/Admin chỉnh được (05/10/2026). */
 @ApiTags('Packing settings & reports')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'packaging_rules', 'order_groups')
 @Controller('packing')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingSettingsController {
@@ -1199,6 +1201,7 @@ export class PackingSettingsController {
 
   @Put('settings')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Features('packaging_rules') // AOFP-335 — sửa cài đặt chỉ theo trang "Quy tắc đóng gói"
   @ApiOperation({ summary: 'Lưu cài đặt mới (tạo version mới, giữ lịch sử). Trường không gửi giữ nguyên.' })
   async updateSettings(
     @Body() dto: UpdatePackingSettingsDto,
@@ -1209,6 +1212,7 @@ export class PackingSettingsController {
 
   @Get('reports/summary')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Features('analytics', 'dashboard') // AOFP-335 — trang Báo cáo + Tổng quan, không ngầm theo packaging_rules
   @ApiOperation({
     summary:
       'Hiệu suất đóng gói trong khoảng ngày (?from&to ISO, mặc định 30 ngày; ?staff_id lọc 1 người): thời gian, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt số kiện tối thiểu, quét kiểm, chi phí, theo nhân viên.',
@@ -1223,6 +1227,7 @@ export class PackingSettingsController {
 
   @Get('reports/feedback')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Features('analytics')
   @ApiOperation({
     summary:
       'Vòng phản hồi (08/10/2026): gom các lần nhân viên làm KHÁC gợi ý (chỉnh tay, từ chối, lệch cân) theo lý do × SKU × thùng và ĐỀ XUẤT việc Admin nên sửa (hồ sơ SKU, danh mục thùng, cài đặt). ?from&to ISO (mặc định 30 ngày); ?min_count số lần tối thiểu để sinh đề xuất (mặc định 3).',

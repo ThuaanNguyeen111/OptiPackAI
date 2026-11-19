@@ -46,8 +46,10 @@ import {
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/authenticated-request.interface';
 import type { RequestMeta, TokenPair } from './services/token.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 @ApiTags('Auth')
+@NoFeatureGate('Đăng nhập / token — mọi người dùng')
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
