@@ -20,6 +20,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:admin": "ts-node -r tsconfig-paths/register scripts/seed-admin.ts",
+    "dataset:packing": "ts-node --transpile-only scripts/packing-dataset.ts",
     "db:script": "ts-node -r tsconfig-paths/register scripts/init-db.ts"
   },
   "dependencies": {

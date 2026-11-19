@@ -71,6 +71,11 @@ jobs:
         working-directory: be
         run: npm run test
 
+      # AOFP-314 — bộ dữ liệu đóng gói: sinh lại mẫu nhỏ + replay qua solver và validator (offline, không cần DB).
+      - name: Packing dataset check
+        working-directory: be
+        run: npm run dataset:packing -- check
+
   # AOFP-312 — e2e trên MongoDB replica set thật (transaction, rollback, khoá phiên bản).
   # Service container không truyền được --replSet nên chạy mongo bằng docker run.
   be-e2e:
