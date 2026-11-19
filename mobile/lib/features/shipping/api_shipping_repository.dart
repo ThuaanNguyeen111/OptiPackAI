@@ -19,7 +19,13 @@ ShipmentView? parseShipment(Object? raw) {
     code: pickString(m, ['shipmentCode'], id),
     groupShortId: _short(pickString(m, ['orderGroupId'])),
     groupId: pickString(m, ['orderGroupId']),
-    recipientName: shipper != null ? 'Shipper: $shipper' : 'Nhóm ${_short(pickString(m, ['orderGroupId']))}',
+    // AOFP-336 — thẻ hiện người nhận (BE trả từ đơn của nhóm), không phải tên shipper.
+    recipientName: pickStringOrNull(m, ['recipientName']) ??
+        (shipper != null ? 'Shipper: $shipper' : 'Nhóm ${_short(pickString(m, ['orderGroupId']))}'),
+    recipientPhone: pickStringOrNull(m, ['recipientPhone']),
+    recipientAddress: pickStringOrNull(m, ['recipientAddress']),
+    codVnd: pickInt(m, ['recipientCodVnd']),
+    nextAttemptAt: pickDate(m, ['nextAttemptNotBefore']),
     status: status,
     carrierName: carrierCode == null ? 'Shop tự giao' : pickString(m, ['carrierName'], carrierCode),
     trackingCode: pickString(m, ['trackingCode'], pickString(m, ['shipmentCode'])),
@@ -148,8 +154,8 @@ class ApiShippingRepository implements ShippingRepository {
       });
 
   @override
-  Future<List<ShipmentView>> shipments() => _guard(() async {
-        final raw = asMap(await api.get('/shipments', query: {'limit': 100}));
+  Future<List<ShipmentView>> shipments({bool mine = false}) => _guard(() async {
+        final raw = asMap(await api.get('/shipments', query: {'limit': 100, if (mine) 'shipper_id': 'me'}));
         final list = [
           for (final r in (raw?['items'] as List? ?? const [])) ?parseShipment(r),
         ];
@@ -181,15 +187,18 @@ class ApiShippingRepository implements ShippingRepository {
       });
 
   @override
-  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []}) =>
+  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const [], DateTime? rescheduleAt}) =>
       _act(id, 'fail', {
         'reason_code': reason.code,
         if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
         if (photoUrls.isNotEmpty) 'photo_urls': photoUrls,
+        if (rescheduleAt != null) 'reschedule_at': rescheduleAt.toUtc().toIso8601String(),
       });
 
   @override
-  Future<ShipmentView> retry(String id) => _act(id, 'retry', const {});
+  Future<ShipmentView> retry(String id, {String? overrideReason}) => _act(id, 'retry', {
+        if (overrideReason != null && overrideReason.trim().isNotEmpty) 'override_reason': overrideReason.trim(),
+      });
 
   @override
   Future<List<int>> shippingLabel(String groupId) => _guard(
