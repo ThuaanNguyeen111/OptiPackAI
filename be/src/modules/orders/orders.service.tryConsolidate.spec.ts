@@ -98,7 +98,7 @@ describe('OrdersService — tryConsolidate()', () => {
 
     expect(await run(order)).toBe(true);
     expect(orderModel.updateOne).toHaveBeenCalledWith(
-      { _id: order._id },
+      { _id: order._id, consolidated_group_id: null },
       { $set: { is_consolidated: true, consolidated_group_id: groupId } },
     );
   });
@@ -117,7 +117,7 @@ describe('OrdersService — tryConsolidate()', () => {
 
     expect(await run(order)).toBe(true);
     expect(orderModel.updateOne).toHaveBeenCalledWith(
-      { _id: order._id },
+      { _id: order._id, consolidated_group_id: null },
       { $set: { is_consolidated: true, consolidated_group_id: openGroup } },
     );
   });

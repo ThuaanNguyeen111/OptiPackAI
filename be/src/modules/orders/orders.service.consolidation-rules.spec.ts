@@ -94,7 +94,7 @@ describe('tryConsolidate — gộp theo khoá cơ bản HOẶC khoá quy tắc',
     mockCandidates([{ _id: new Types.ObjectId(), platform_order_id: 'AU-1', consolidation_key: 'base-1', consolidation_keys: [ruleKey], consolidated_group_id: groupId }]);
     expect(await run()).toBe(true);
     expect(orderModel.updateOne).toHaveBeenCalledWith(
-      { _id: order._id },
+      { _id: order._id, consolidated_group_id: null },
       { $set: { is_consolidated: true, consolidated_group_id: groupId } },
     );
   });

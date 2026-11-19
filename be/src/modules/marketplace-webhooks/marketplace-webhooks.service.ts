@@ -107,7 +107,19 @@ export class MarketplaceWebhooksService {
       throw error;
     }
 
-    await this.dispatch(platform, body);
+    try {
+      await this.dispatch(platform, body);
+    } catch (error: unknown) {
+      // AOFP-330 — xử lý lỗi thì xoá bản ghi chống trùng, để lần sàn gửi lại (5xx) được xử lý thay vì bị coi là trùng.
+      await this.processedEventModel
+        .deleteOne({ platform, event_id: body.message_id })
+        .catch((cleanupError: unknown) => {
+          this.logger.error(
+            `Không xoá được bản ghi chống trùng ${platform}/${body.message_id}: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          );
+        });
+      throw error;
+    }
     return { received: true };
   }
 

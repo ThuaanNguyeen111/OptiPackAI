@@ -1,3 +1,5 @@
+import { MarketplaceWritebackController } from './marketplace-writeback.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
@@ -29,9 +31,10 @@ import { MarketplaceWritebackScheduler } from './marketplace-writeback.scheduler
       { name: MasterSku.name, schema: MasterSkuSchema }, // 22/10/2026 — SKU nội bộ vô hiệu → đẩy 0
     ]),
     MarketplaceIntegrationModule,
+    NotificationsModule, // AOFP-330 — báo Admin khi báo website dừng hẳn
     OrderGroupsModule, // 21/10/2026 — StockReservationService (tồn khả dụng); order-groups không import ngược module này
   ],
-  controllers: [MarketplaceStockPushController],
+  controllers: [MarketplaceStockPushController, MarketplaceWritebackController],
   providers: [MarketplaceWritebackService, MarketplaceWritebackScheduler, MarketplaceStockPushService],
   exports: [MarketplaceWritebackService],
 })
