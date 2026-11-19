@@ -315,7 +315,7 @@ export function ShippingPage() {
   const toastTimerRef = useRef<number | null>(null)
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [events, setEvents] = useState<ShipmentEvent[]>([])
+  const [eventsOf, setEventsOf] = useState<{ shipmentId: string; items: ShipmentEvent[] } | null>(null)
   const [packRecByGroupId, setPackRecByGroupId] = useState<
     Record<string, PackingPlan | null>
   >({})
@@ -336,8 +336,8 @@ export function ShippingPage() {
   const [carriers, setCarriers] = useState<ShippingCarrier[]>([])
   const [carrierChoice, setCarrierChoice] = useState('own')
   const [serviceCode, setServiceCode] = useState('')
-  const [quotes, setQuotes] = useState<ShippingServiceQuote[]>([])
-  const [quoteError, setQuoteError] = useState<string | null>(null)
+  const [fetchedQuotes, setQuotes] = useState<ShippingServiceQuote[]>([])
+  const [fetchedQuoteError, setQuoteError] = useState<string | null>(null)
   const [quoteTick, setQuoteTick] = useState(0)
   const [addrStreet, setAddrStreet] = useState('')
   const [addrWard, setAddrWard] = useState('')
@@ -383,11 +383,10 @@ export function ShippingPage() {
     )
   }
 
-  const reload = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const [groups, shipmentPage, reasons, returnPage] = await Promise.all([
+  // Chuỗi .then (không async/await): setState chỉ nằm trong callback, effect tải lần đầu không render dây chuyền.
+  const loadData = useCallback(
+    (): Promise<void> =>
+      Promise.all([
         listOrderGroups({ fulfillment_status: 'packed' }),
         listShipments({ page: 1, limit: 100 }),
         listFailureReasonCodes(),
@@ -398,26 +397,36 @@ export function ShippingPage() {
           limit: 100,
         })),
       ])
-      setPackedGroups(groups)
-      setShipments(shipmentPage.items)
-      setReasonCodes(reasons)
-      const grouped: Record<string, { rmaCode: string; status: string }[]> = {}
-      for (const slip of returnPage.items) {
-        const bucket = grouped[slip.orderGroupId] ?? []
-        bucket.push({ rmaCode: slip.rmaCode, status: slip.status })
-        grouped[slip.orderGroupId] = bucket
-      }
-      setReturnsByGroup(grouped)
-    } catch (err: unknown) {
-      setLoadError(formatApiError(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+        .then(([groups, shipmentPage, reasons, returnPage]) => {
+          setPackedGroups(groups)
+          setShipments(shipmentPage.items)
+          setReasonCodes(reasons)
+          const grouped: Record<string, { rmaCode: string; status: string }[]> = {}
+          for (const slip of returnPage.items) {
+            const bucket = grouped[slip.orderGroupId] ?? []
+            bucket.push({ rmaCode: slip.rmaCode, status: slip.status })
+            grouped[slip.orderGroupId] = bucket
+          }
+          setReturnsByGroup(grouped)
+        })
+        .catch((err: unknown) => {
+          setLoadError(formatApiError(err))
+        })
+        .finally(() => {
+          setLoading(false)
+        }),
+    [],
+  )
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    await loadData()
+  }, [loadData])
 
   useEffect(() => {
-    void reload()
-  }, [reload])
+    void loadData()
+  }, [loadData])
 
   useEffect(() => {
     scanInputRef.current?.focus()
@@ -513,15 +522,25 @@ export function ShippingPage() {
     selected?.kind === 'packed' && selected.group.requiresSelfDelivery === true
   // Tiki dropship: shipper Tiki tự tới lấy — không chọn hãng, không báo giá, không hẹn lấy (BE trả 409 SHP_MARKETPLACE_PICKUP).
   const marketplacePickup = selectedGroup?.platform === 'tiki'
+  const noQuote = expressSelf || marketplacePickup
+  const quotes = noQuote ? [] : fetchedQuotes
+  const quoteError = noQuote ? null : fetchedQuoteError
 
-  useEffect(() => {
-    addrEditedRef.current = false
-    locationOverrideRef.current = {}
+  // Đổi nhóm / hãng → xoá địa chỉ cũ ngay lúc render (không đợi effect, tránh render thừa).
+  const addrKey = `${packedGroupId ?? ''}|${carrierChoice}|${String(noQuote)}`
+  const [addrKeySeen, setAddrKeySeen] = useState(addrKey)
+  if (addrKeySeen !== addrKey) {
+    setAddrKeySeen(addrKey)
     setAddrStreet('')
     setAddrWard('')
     setAddrProvince('')
     setAddrPhone('')
     setRecipientHint(null)
+  }
+
+  useEffect(() => {
+    addrEditedRef.current = false
+    locationOverrideRef.current = {}
     if (!packedGroupId || expressSelf || marketplacePickup || carrierChoice === 'own') return
     let cancelled = false
     void getShippingRecipients(packedGroupId)
@@ -562,11 +581,7 @@ export function ShippingPage() {
   }, [packedGroupId, carrierChoice, expressSelf, marketplacePickup])
 
   useEffect(() => {
-    if (expressSelf || marketplacePickup) {
-      setQuotes([])
-      setQuoteError(null)
-      return
-    }
+    if (noQuote) return
     if (carrierChoice === 'own' || !packedGroupId) return
     let cancelled = false
     const timer = window.setTimeout(() => {
@@ -604,15 +619,13 @@ export function ShippingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carrierChoice, packedGroupId, quoteTick, expressSelf, marketplacePickup])
 
-  useEffect(() => {
-    const groupId = searchParams.get('groupId')
-    if (!groupId || packedGroups.length === 0) return
-    const match = packedGroups.find((group) => group.id === groupId)
-    if (match) {
-      setTab('packed')
-      setSelectedKey(`packed:${match.id}`)
-    }
-  }, [searchParams, packedGroups])
+  const urlGroupId = searchParams.get('groupId')
+  const [urlGroupApplied, setUrlGroupApplied] = useState<string | null>(null)
+  if (urlGroupId && urlGroupApplied !== urlGroupId && packedGroups.some((group) => group.id === urlGroupId)) {
+    setUrlGroupApplied(urlGroupId)
+    setTab('packed')
+    setSelectedKey(`packed:${urlGroupId}`)
+  }
 
   useEffect(() => {
     const ids = [...new Set(visibleRows.map(rowGroupId))]
@@ -642,24 +655,24 @@ export function ShippingPage() {
   }, [visibleRows, packRecByGroupId])
 
   useEffect(() => {
-    if (!selected || selected.kind !== 'shipment') {
-      setEvents([])
-      return
-    }
+    if (!selected || selected.kind !== 'shipment') return
     const shipmentId = selected.shipment.id
     let cancelled = false
     void (async () => {
       try {
         const nextEvents = await listShipmentEvents(shipmentId)
-        if (!cancelled) setEvents(nextEvents)
+        if (!cancelled) setEventsOf({ shipmentId, items: nextEvents })
       } catch {
-        if (!cancelled) setEvents([])
+        if (!cancelled) setEventsOf({ shipmentId, items: [] })
       }
     })()
     return () => {
       cancelled = true
     }
   }, [selected])
+
+  const events =
+    selected?.kind === 'shipment' && eventsOf?.shipmentId === selected.shipment.id ? eventsOf.items : []
 
   const packRec = selected ? (packRecByGroupId[rowGroupId(selected)] ?? null) : null
 
