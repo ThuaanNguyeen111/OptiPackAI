@@ -317,7 +317,7 @@ Role: Store Owner, Admin. Query `from`, `to` (ISO, mặc định 30 ngày gần 
 
 Báo cáo feedback có thêm `waste {events, costVnd, byBox[]}` — hao hụt thùng hỏng khi đang đóng. Sổ kho vật tư có loại movement `waste`. `adjustments[]` thêm `oldBoxOutcome`, `wasteCostVnd`.
 
-Response kế hoạch thêm: `rejection {reasonCode, ownerId, dueAt, overdue, resolution, resolvedAt}`, `source` (`solver`|`manual`), `parcels[].manualLayout` (true = kiện nhập tay, không có tọa độ để dựng 3D), `adjustments[].skus/boxCodes`.
+Response kế hoạch thêm: `rejection {reasonCode, rejectedBy, rejectedByName (🆕 AOFP-322 — tên người từ chối, null với kế hoạch từ chối trước 19/11), ownerId, dueAt, overdue, resolution, resolvedAt}`, `source` (`solver`|`manual`), `parcels[].manualLayout` (true = kiện nhập tay, không có tọa độ để dựng 3D), `adjustments[].skus/boxCodes`.
 
 ### 8a.7 Bảng ánh xạ cho FE bản `main` (route cũ đã gỡ → route mới)
 

@@ -553,6 +553,8 @@ export class PackingPlan {
   @Prop({ type: SchemaTypes.ObjectId, default: null }) approved_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) approved_at!: Date | null;
   @Prop({ type: SchemaTypes.ObjectId, default: null }) rejected_by!: Types.ObjectId | null;
+  // 19/11/2026 (AOFP-322) — tên người từ chối lúc từ chối, để thẻ "Kế hoạch đã bị từ chối" hiện "bởi <người>".
+  @Prop({ type: String, default: null }) rejected_by_name!: string | null;
   @Prop({ type: Date, default: null }) rejected_at!: Date | null;
   @Prop({ type: String, default: null }) rejection_reason!: string | null;
   // ---- từ chối có kiểm soát (08/10/2026)

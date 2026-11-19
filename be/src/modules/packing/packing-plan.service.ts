@@ -1013,6 +1013,7 @@ export class PackingPlanService {
     const now = new Date();
     const dueAt = addBusinessHours(now, REJECTION_DUE_BUSINESS_HOURS);
     const readable = trimmedNote ? `${reason}: ${trimmedNote}` : reason;
+    const rejectedByName = await this.packerAssignment.packerName(new Types.ObjectId(userId));
     const updated = await this.runInTransaction(async (session) => {
       const doc = await this.planModel.findOneAndUpdate(
         { _id: plan._id, version: expectedVersion, status: 'ready', is_active: true },
@@ -1020,6 +1021,7 @@ export class PackingPlanService {
           $set: {
             status: 'rejected',
             rejected_by: new Types.ObjectId(userId),
+            rejected_by_name: rejectedByName,
             rejected_at: now,
             rejection_reason: readable,
             rejection_reason_code: reason,

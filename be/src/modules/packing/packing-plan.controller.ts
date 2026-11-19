@@ -358,6 +358,9 @@ export interface PackingPlanResponse {
   /** Mã lý do từ chối + người xử lý + hạn + đã xử lý bằng cách nào (null = chưa). */
   rejection: {
     reasonCode: string | null;
+    /** (AOFP-322) Người từ chối — tên lưu lúc từ chối; kế hoạch từ chối trước 19/11 không có tên. */
+    rejectedBy: string | null;
+    rejectedByName: string | null;
     ownerId: string | null;
     dueAt: Date | null;
     overdue: boolean;
@@ -652,6 +655,8 @@ export function toPlanResponse(
     rejection: plan.rejected_at
       ? {
           reasonCode: plan.rejection_reason_code,
+          rejectedBy: plan.rejected_by?.toString() ?? null,
+          rejectedByName: plan.rejected_by_name ?? null,
           ownerId: plan.rejection_owner_id?.toString() ?? null,
           dueAt: plan.rejection_due_at,
           overdue:
