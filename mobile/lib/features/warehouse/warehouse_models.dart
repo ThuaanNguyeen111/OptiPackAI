@@ -80,9 +80,11 @@ class OrderGroupSummary {
 }
 
 class OtherBin {
-  const OtherBin({required this.binCode, required this.quantityOnHand});
+  const OtherBin({required this.binCode, required this.quantityOnHand, this.binLocationId});
   final String binCode;
   final int quantityOnHand;
+  /// AOFP-327 — id ô phụ: quét khớp ô này thì gửi id này để BE trừ tồn đúng ô.
+  final String? binLocationId;
 }
 
 class PickLine {
@@ -160,6 +162,7 @@ class PickLine {
                   OtherBin(
                     binCode: pickString(m, ['bin_code']),
                     quantityOnHand: pickInt(m, ['quantity_on_hand']),
+                    binLocationId: pickStringOrNull(m, ['bin_location_id']),
                   ),
             ]
           : const [],

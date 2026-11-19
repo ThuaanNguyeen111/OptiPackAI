@@ -210,6 +210,8 @@ export type PackableItem = {
   height_cm: number
   weight_kg: number
   is_fragile: boolean
+  /** AOFP-327 — số đã quét trong lượt lấy hiện tại (server); null = BE cũ chưa trả. */
+  picked_quantity?: number | null
 }
 
 export type PickItemInput = {

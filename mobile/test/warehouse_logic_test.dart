@@ -109,6 +109,19 @@ void main() {
       expect(lineMatchesScan(l, 'KA-D1-P01-T01-1 AOPOLO-030-BE-L'), isTrue);
     });
 
+    test('AOFP-327: quét mã ô phụ → trả ô phụ (gửi id ô phụ); SKU / ô chính → null (ô chính)', () {
+      final l = line(
+        'AOPOLO-030-BE-L',
+        master: 'ATHUN-005-DEN-M',
+        others: const [OtherBin(binCode: 'KA-D2-P02-T01-1', quantityOnHand: 4, binLocationId: 'bin2')],
+      );
+      expect(otherBinForScan(l, ' ka-d2-p02-t01-1 ')?.binLocationId, 'bin2');
+      expect(otherBinForScan(l, 'KA-D1-P01-T01-1'), isNull);
+      expect(otherBinForScan(l, 'AOPOLO-030-BE-L'), isNull);
+      expect(otherBinForScan(l, 'athun-005-den-m'), isNull);
+      expect(otherBinForScan(l, ''), isNull);
+    });
+
     test('mã sai hoặc rỗng thì không khớp', () {
       final l = line('SKU-1');
       expect(lineMatchesScan(l, 'SKU-2'), isFalse);

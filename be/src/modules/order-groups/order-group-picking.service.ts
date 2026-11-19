@@ -221,6 +221,16 @@ export class OrderGroupPickingService {
         const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
           ? new Types.ObjectId(warehouseId)
           : warehouseId;
+        // AOFP-327 — không lấy phần tồn đang giữ cho nhóm khác (nhóm giữ trước được giữ trước).
+        if (warehouseObjectId instanceof Types.ObjectId) {
+          await this.stockReservationService.assertNotReservedByOthers(
+            group._id,
+            { master: masterSku, platform: group.platform, shopId: group.shop_id, sku },
+            warehouseObjectId,
+            scannedQuantity,
+            session,
+          );
+        }
         // Atomic check-and-decrement — điều kiện `quantity_on_hand: {$gte}` trong
         // CÙNG 1 lệnh. Phạm vi tồn: kho + (SKU nội bộ | sàn+shop+SKU) [+ ô nếu chỉ định].
         const scope = {

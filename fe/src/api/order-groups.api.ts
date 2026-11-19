@@ -263,6 +263,7 @@ function mapPackableItem(value: unknown): PackableItem | null {
     height_cm: pickNumber(row.height_cm),
     weight_kg: pickNumber(row.weight_kg),
     is_fragile: row.is_fragile === true,
+    picked_quantity: typeof row.picked_quantity === 'number' ? row.picked_quantity : null,
   }
 }
 

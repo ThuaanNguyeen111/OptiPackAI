@@ -104,8 +104,10 @@ class WarehouseRepository {
     required int quantity,
     required ScanMethod method,
     required String warehouseId,
+    String? binLocationId, // AOFP-327 — ô phụ vừa quét; null = ô chính của dòng
   }) {
     final id = _uuid.v4();
+    final bin = binLocationId ?? line.binLocationId;
     return PendingAction(
       id: id,
       kind: 'pick_item',
@@ -116,7 +118,7 @@ class WarehouseRepository {
         'scanned_quantity': quantity,
         'scan_method': method.name,
         'warehouse_id': warehouseId,
-        if (line.binLocationId != null) 'bin_location_id': line.binLocationId,
+        if (bin != null) 'bin_location_id': bin,
         'client_event_id': id,
       },
       createdAt: DateTime.now(),
