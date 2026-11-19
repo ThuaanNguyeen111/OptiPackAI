@@ -1093,6 +1093,15 @@ export class OrderGroupsService {
     }
   }
 
+  versionConflict(groupId: string, expectedVersion: number): AppException {
+    return new AppException(
+      ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
+      `Order Group đã bị thay đổi bởi thao tác khác trong lúc bạn đang xử lý (version không khớp) — vui lòng tải lại dữ liệu mới nhất rồi thử lại.`,
+      HttpStatus.CONFLICT,
+      { groupId, expectedVersion },
+    );
+  }
+
   async findOrderGroupById(groupId: string, session?: ClientSession): Promise<OrderGroupDocument> {
     if (!Types.ObjectId.isValid(groupId)) {
       throw new AppException(
@@ -1147,6 +1156,9 @@ export class OrderGroupsService {
     session?: ClientSession,
   ): Promise<OrderGroupDocument> {
     const group = await this.findOrderGroupById(groupId, session); // đọc cùng snapshot với lần ghi
+    // AOFP-312 — version cũ báo 409 TRƯỚC khi xét luồng: bên thua đến sau khi bên thắng đã
+    // đổi trạng thái không được nhận 400 "sai luồng" (FE cần biết để tải lại).
+    if (group.__v !== expectedVersion) throw this.versionConflict(groupId, expectedVersion);
 
     if (!isValidStatusTransition(group.fulfillment_status, targetStatus)) {
       throw new AppException(
@@ -1170,14 +1182,7 @@ export class OrderGroupsService {
       { returnDocument: 'after', session },
     );
 
-    if (!updated) {
-      throw new AppException(
-        ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
-        `Order Group đã bị thay đổi bởi thao tác khác trong lúc bạn đang xử lý (version không khớp) — vui lòng tải lại dữ liệu mới nhất rồi thử lại.`,
-        HttpStatus.CONFLICT,
-        { groupId, expectedVersion },
-      );
-    }
+    if (!updated) throw this.versionConflict(groupId, expectedVersion);
 
     this.logger.log(
       `Order Group ${groupId}: ${group.fulfillment_status} -> ${targetStatus} (version ${String(expectedVersion)} -> ${String(expectedVersion + 1)}).`,
