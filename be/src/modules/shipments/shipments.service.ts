@@ -28,11 +28,13 @@ import { deliveryDueBusinessHours, minRetryGapMinutes } from './shipment-config'
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { ShippingService } from '../shipping/shipping.service';
 import type { ServiceQuote } from '../shipping/utils/shipping-cost.util';
-import { codOrderIdsPerParcel } from '../shipping/utils/cod.util';
+import { codAmountOf, codOrderIdsPerParcel } from '../shipping/utils/cod.util';
 import { LiveCarrierService, type ToLocationInput } from '../shipping/live-carrier.service';
 import { CarrierWebhookEvent, CarrierWebhookEventDocument } from './schemas/carrier-webhook-event.schema';
 import { RawPayload, RawPayloadDocument } from './schemas/raw-payload.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
+import { Order, OrderDocument } from '../orders/schemas/order.schema';
+import { notPackableStatuses } from '../orders/order-sync-policy';
 import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
 import { ActivityLog, ActivityLogDocument } from '../activity-log/schemas/activity-log.schema';
 import { recordActivity } from '../activity-log/activity-log.util';
@@ -231,6 +233,15 @@ interface TransitionStep {
  * - Tối thiểu 2 lần giao rồi hệ thống TỰ chuyển hoàn về (không có nút hoàn
  *   sớm); riêng "khách từ chối nhận" hoàn về ngay.
  */
+/** AOFP-336 — người nhận của nhóm đơn trên vận đơn (app giao hàng). */
+export interface ShipmentRecipient {
+  name: string;
+  phone: string | null;
+  address: string | null;
+  /** Tổng tiền thu hộ các đơn COD của nhóm (0 = khách đã trả trước). */
+  codAmountVnd: number;
+}
+
 @Injectable()
 export class ShipmentsService {
   private readonly logger = new Logger(ShipmentsService.name);
@@ -256,7 +267,41 @@ export class ShipmentsService {
     @Optional() @InjectModel(ActivityLog.name) private readonly activityLogModel?: Model<ActivityLogDocument>,
     // AOFP-324 — payload gốc webhook hãng (tách khỏi sổ chống trùng). Optional: test cũ dựng service bằng tay.
     @Optional() @InjectModel(RawPayload.name) private readonly rawPayloadModel?: Model<RawPayloadDocument>,
+    // AOFP-336 — người nhận + tiền thu hộ cho app giao hàng. Optional: test cũ dựng service bằng tay.
+    @Optional() @InjectModel(Order.name) private readonly orderModel?: Model<OrderDocument>,
   ) {}
+
+  /**
+   * AOFP-336 — người nhận (đơn cũ nhất còn giao được) và tổng tiền thu hộ của từng nhóm, theo
+   * id nhóm. Nhóm gộp nhiều đơn cùng người nhận nên lấy 1 tên / SĐT / địa chỉ.
+   */
+  async recipientsByGroup(groupIds: string[]): Promise<Map<string, ShipmentRecipient>> {
+    const out = new Map<string, ShipmentRecipient>();
+    const ids = [...new Set(groupIds)].filter((id) => Types.ObjectId.isValid(id)).map((id) => new Types.ObjectId(id));
+    if (!this.orderModel || ids.length === 0) return out;
+    const orders = await this.orderModel
+      .find({ consolidated_group_id: { $in: ids }, status: { $nin: notPackableStatuses() } })
+      .select('consolidated_group_id platform payment_method total_amount recipient')
+      .sort({ created_at: 1 })
+      .lean<(Pick<Order, 'platform' | 'total_amount' | 'recipient'> & { consolidated_group_id?: Types.ObjectId | null; payment_method?: string | null })[]>();
+    for (const order of orders) {
+      const key = order.consolidated_group_id?.toString();
+      if (!key) continue;
+      const cod = codAmountOf(order);
+      const known = out.get(key);
+      if (known) {
+        known.codAmountVnd += cod;
+        continue;
+      }
+      const r = order.recipient;
+      const address = [r.address_line1, r.address_line2, r.ward_name, r.district_name, r.province_name ?? r.city]
+        .map((part) => part?.trim())
+        .filter((part): part is string => !!part)
+        .join(', ');
+      out.set(key, { name: r.full_name, phone: r.phone || null, address: address || null, codAmountVnd: cod });
+    }
+    return out;
+  }
 
   /** 29/10/2026 — người đi giao được: Shipping Coordinator đang hoạt động, không nghỉ phép. */
   async listShippers(now: Date = new Date()): Promise<{ id: string; name: string; phone: string | null; email: string }[]> {

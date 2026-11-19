@@ -633,6 +633,8 @@ Bảng tra nhanh theo module (chi tiết "khi nào xảy ra" vẫn ở guide tr�
 
 > 🔄 ĐÃ ĐỔI (09/10/2026): `GET /shipments` validate query — `status` (enum trạng thái vận đơn), `order_group_id` (ObjectId), `overdue` (`true`/`false`), `trip_code`, `carrier_code`, `page` ≥ 1, `limit` 1–100 (mặc định 20). Sai → 400 `VALIDATION_ERROR` (trước đây id sai định dạng lọt thành 500). 🆕 10/11/2026: `shipper_id` (`me` = người đang đăng nhập, hoặc id người dùng — chỉ là bộ lọc, quyền xem không đổi) và `before` (ISO = `updatedAt` của vận đơn cuối trang trước; có `before` thì bỏ qua `page`, `total` vẫn là tổng theo bộ lọc). App shipper: `GET /shipments?shipper_id=me&status=out_for_delivery`.
 
+> 🆕 19/11/2026 (AOFP-336): `GET /shipments` và `GET /shipments/:id` trả thêm `recipientName`, `recipientPhone`, `recipientAddress` (người nhận của nhóm đơn; `null` khi không đọc được đơn) và `recipientCodVnd` (tổng tiền thu hộ các đơn COD của nhóm, 0 = đã trả trước). `POST /returns/:id/reject`: `note` phải ≥ 3 ký tự (thiếu → 400 `RMA_NOTE_REQUIRED`).
+
 > 🆕 Gộp 04/10/2026: response vận đơn có thêm `tripCode`, `trackingCode` (= `shipmentCode`), `carrierCode/Name`, `serviceCode/Name`, `parcelCount`, `chargeableWeightG`, `estimatedCostVnd`, `isSampleRate`, `etaFrom/To`, `pickupAt` (null khi giao đội xe nhà). `GET /shipments` lọc thêm `trip_code`, `carrier_code`. Lỗi mới: `SHP_EMPTY_GROUP_LIST`, `SHP_RECIPIENT_MISMATCH`, `SHP_PICKUP_IN_PAST`, `SHP_CARRIER_REQUIRED`. Đã bỏ collection/route giao chung chuyến riêng của thi_dev — dùng chung `shipments` của G1.
 
 ## 10b. 🆕 Vận chuyển — hãng, bảng cước, báo giá (`/shipping`) — 30/09/2026

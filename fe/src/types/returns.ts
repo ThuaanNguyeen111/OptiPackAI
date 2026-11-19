@@ -124,7 +124,7 @@ export const RETURNS_ERROR_MESSAGES: Record<string, string> = {
   RMA_INVALID_ITEMS: 'SKU/số lượng trả không hợp lệ.',
   RMA_INVALID_STATUS: 'Không làm được bước này ở trạng thái hiện tại.',
   RMA_STATE_CONFLICT: 'Dữ liệu vừa đổi. Tải lại rồi thử lại.',
-  RMA_SELF_APPROVAL: 'Người tạo phiếu không được tự duyệt — dùng tài khoản Store Owner khác.',
+  RMA_SELF_APPROVAL: 'Người tạo phiếu không tự duyệt được, cần chủ shop khác duyệt.',
   RMA_NOTE_REQUIRED: 'Từ chối phải ghi lý do.',
   RMA_INSPECTION_MISMATCH: 'Số lượng kiểm không khớp số lượng trên phiếu.',
   RMA_BIN_REQUIRED: 'Nhập lại kho phải chọn kho và ô.',

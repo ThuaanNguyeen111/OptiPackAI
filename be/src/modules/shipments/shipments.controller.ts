@@ -1,7 +1,7 @@
 import { ListShipmentsQueryDto } from './dto/list-query.dto';
 import { Body, Controller, Get, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { ShipmentsService, ShipmentActor, type CarrierChoice, type ShipmentBatchResult } from './shipments.service';
+import { ShipmentsService, ShipmentActor, type CarrierChoice, type ShipmentBatchResult, type ShipmentRecipient } from './shipments.service';
 import { CreateShipmentBatchDto } from './dto/create-shipment-batch.dto';
 import { AppException } from '../../common/exceptions/app-exception';
 import { SHIPMENT_ERROR_CODES } from './shipments.errors';
@@ -97,9 +97,15 @@ export interface ShipmentResponse {
   pickedUpAt: Date | null;
   carrierReturnedAt: Date | null;
   cancelledAt: Date | null;
+  /** AOFP-336 — người nhận của nhóm đơn; null khi không đọc được đơn. */
+  recipientName: string | null;
+  recipientPhone: string | null;
+  recipientAddress: string | null;
+  /** AOFP-336 — tổng tiền thu hộ (đơn COD) của nhóm; shipper tự giao thu số này. */
+  recipientCodVnd: number;
 }
 
-export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
+export function toShipmentResponse(doc: ShipmentDocument, recipient?: ShipmentRecipient | null): ShipmentResponse {
   return {
     id: doc._id.toString(),
     shipmentCode: doc.shipment_code,
@@ -169,6 +175,10 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     pickedUpAt: doc.picked_up_at ?? null,
     carrierReturnedAt: doc.carrier_returned_at ?? null,
     cancelledAt: doc.cancelled_at ?? null,
+    recipientName: recipient?.name ?? null,
+    recipientPhone: recipient?.phone ?? null,
+    recipientAddress: recipient?.address ?? null,
+    recipientCodVnd: recipient?.codAmountVnd ?? 0,
   };
 }
 
@@ -283,7 +293,8 @@ export class ShipmentsController {
       page: p,
       limit: l,
     });
-    return { items: items.map(toShipmentResponse), total, page: p, limit: l };
+    const recipients = await this.shipmentsService.recipientsByGroup(items.map((s) => s.order_group_id.toString()));
+    return { items: items.map((s) => toShipmentResponse(s, recipients.get(s.order_group_id.toString()))), total, page: p, limit: l };
   }
 
   @Post('overdue-scan')
@@ -340,7 +351,9 @@ export class ShipmentsController {
   @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Chi tiết vận đơn.' })
   async get(@Param('id') id: string): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.getShipment(id));
+    const doc = await this.shipmentsService.getShipment(id);
+    const recipients = await this.shipmentsService.recipientsByGroup([doc.order_group_id.toString()]);
+    return toShipmentResponse(doc, recipients.get(doc.order_group_id.toString()));
   }
 
   @Get(':id/events')
