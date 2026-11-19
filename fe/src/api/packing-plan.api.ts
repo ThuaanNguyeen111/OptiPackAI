@@ -134,16 +134,31 @@ export function startPackingSession(
   return readPlan(groupId, '/start', { expected_version: expectedVersion })
 }
 
+/** Kết quả 1 lần quét (BE `ScanOutcome`). */
+export type ScanOutcome = {
+  parcelNo: number
+  sku: string
+  itemKeys: string[]
+  /** Món của kiện còn chưa quét. */
+  remainingInParcel: number
+  /** Gửi lại cùng client_event_id — không đếm thêm. */
+  duplicate: boolean
+}
+
 export function scanParcelItem(
   groupId: string,
   parcelNo: number,
   input: { code: string; quantity: number; clientEventId: string },
-): Promise<PackingPlan> {
-  return readPlan(groupId, `/parcels/${String(parcelNo)}/scan`, {
-    code: input.code,
-    quantity: input.quantity,
-    scan_method: 'manual',
-    client_event_id: input.clientEventId,
+): Promise<{ plan: PackingPlan; scan: ScanOutcome }> {
+  return apiRequest<{ plan: PackingPlan; scan: ScanOutcome }>(groupPath(groupId, `/parcels/${String(parcelNo)}/scan`), {
+    method: 'POST',
+    auth: true,
+    body: {
+      code: input.code,
+      quantity: input.quantity,
+      scan_method: 'manual',
+      client_event_id: input.clientEventId,
+    },
   })
 }
 

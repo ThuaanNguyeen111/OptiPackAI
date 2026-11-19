@@ -270,6 +270,16 @@ export async function apiRequestBlob(
  */
 export const CARRIER_REQUEST_TIMEOUT_MS = 60_000
 
+/**
+ * AOFP-323 — lệnh ghi có thể ĐÃ tới máy chủ nhưng không nhận được trả lời (mất mạng, hết giờ,
+ * gateway lỗi) → không biết đã lưu hay chưa, phải tải lại dữ liệu. Huỷ chủ động thì không tính.
+ */
+export function isUncertainWrite(err: unknown): boolean {
+  if (err instanceof RequestCanceledError) return false
+  if (err instanceof ApiError) return err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504
+  return err instanceof TypeError
+}
+
 export function getApiErrorCode(err: unknown): string | null {
   return err instanceof ApiError ? err.errorCode : null
 }
