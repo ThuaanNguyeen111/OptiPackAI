@@ -298,9 +298,20 @@ export class Order {
   // (nguồn gốc `any`) mỗi lần đọc created_at ở service/controller.
   created_at?: Date;
   updated_at?: Date;
+
+  /**
+   * AOFP-330 — đơn đã hủy nhưng nhóm đơn CHƯA xử lý xong (nhả giữ chỗ, tháo kiện, hủy nhóm).
+   * Ghi cùng transaction với việc hủy đơn; xoá khi xử lý nhóm xong. Cron 5 phút quét lại.
+   * Không có default → vắng mặt ở đơn bình thường.
+   */
+  @Prop({ type: Boolean })
+  group_resync_pending?: boolean;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
+
+// AOFP-330 — chỉ index đơn đang chờ xử lý nhóm (rất ít) cho cron quét lại.
+OrderSchema.index({ group_resync_pending: 1 }, { partialFilterExpression: { group_resync_pending: true } });
 
 /**
  * (a) UNIQUE compound index — 1 đơn trên 1 sàn chỉ tồn tại ĐÚNG 1 bản

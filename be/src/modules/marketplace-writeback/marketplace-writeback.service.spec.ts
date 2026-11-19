@@ -1,3 +1,4 @@
+import { UserRole } from '../../common/enums/user-role.enum';
 import { Types } from 'mongoose';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import {
@@ -46,11 +47,13 @@ function build(options: {
   rma?: Record<string, unknown> | null;
   single?: Record<string, unknown> | null;
   updateReturnStatus?: jest.Mock<Promise<void>, [string, Record<string, unknown>]>;
+  notify?: jest.Mock;
 }) {
   const outboxUpdate = jest.fn<Promise<object>, [Record<string, unknown>, { $set: Record<string, unknown> }]>().mockResolvedValue({});
   const outboxModel = {
     find: jest.fn(() => chain(options.rows)),
     updateOne: outboxUpdate,
+    exists: jest.fn().mockResolvedValue(null), // AOFP-330 — không có dòng cũ hơn đang chờ
   };
   const orderModel = { find: jest.fn(() => chain(options.orders ?? [])), findOne: jest.fn(() => chain(options.single ?? null)) };
   const shipmentModel = { findById: jest.fn(() => chain(options.shipment ?? null)) };
@@ -67,8 +70,9 @@ function build(options: {
     integration as never,
     { [MarketplacePlatform.AURELLE]: { updateOrderStatus, updateReturnStatus } } as never,
     returnModel as never,
+    (options.notify ? { notify: options.notify } : undefined) as never,
   );
-  return { service, outboxUpdate, updateOrderStatus, updateReturnStatus, integration, orderModel };
+  return { service, outboxUpdate, updateOrderStatus, updateReturnStatus, integration, orderModel, outboxModel };
 }
 
 describe('MarketplaceWritebackService.processPending', () => {
@@ -225,7 +229,10 @@ describe('Vận đơn qua hãng thật (21/10/2026)', () => {
     const result = await service.processPending();
     expect(result.retrying).toBe(1);
     expect(updateOrderStatus).not.toHaveBeenCalled();
-    expect(outboxUpdate.mock.calls[0]?.[1]).toMatchObject({ $set: { state: 'pending', attempts: 1 } });
+    // AOFP-330 — chờ mã hãng không phải lỗi: không tăng attempts, không đổi state.
+    const set = outboxUpdate.mock.calls[0]?.[1].$set ?? {};
+    expect(set).not.toHaveProperty('attempts');
+    expect(set).not.toHaveProperty('state');
   });
 
   it('gửi mã GHN của đúng kiện từng đơn + tên hãng', async () => {
@@ -315,5 +322,43 @@ describe('trackingCodeForOrder', () => {
     // AOFP-224 — kiện gộp: đơn phụ (không phải đơn chủ) vẫn nhận đúng mã kiện của mình.
     const b = new Types.ObjectId();
     expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: a, order_ids: [a, b], carrier_order_code: 'X9' }, { order_id: new Types.ObjectId(), carrier_order_code: 'X2' }] }, b)).toBe('X9');
+  });
+});
+
+describe('MarketplaceWritebackService — AOFP-330 AC3', () => {
+  const orders = [{ _id: new Types.ObjectId(), platform_order_id: '720000001', shop_id: 'S1' }];
+
+  it('còn dòng cũ hơn của cùng nhóm đang chờ → dòng này đợi, không gọi sàn', async () => {
+    const { service, updateOrderStatus, outboxModel } = build({ rows: [makeRow()], orders });
+    outboxModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
+    const result = await service.processPending();
+    expect(result.skipped).toBe(1);
+    expect(updateOrderStatus).not.toHaveBeenCalled();
+  });
+
+  it('lỗi lần thứ 8 → failed + báo Admin', async () => {
+    const notify = jest.fn().mockResolvedValue(undefined);
+    const { service, outboxUpdate } = build({
+      rows: [makeRow({ attempts: MAX_WRITEBACK_ATTEMPTS - 1 })],
+      orders,
+      updateOrderStatus: jest.fn<Promise<void>, [string, Record<string, unknown>]>().mockRejectedValue(new Error('500')),
+      notify,
+    });
+    const result = await service.processPending();
+    expect(result.failed).toBe(1);
+    expect(outboxUpdate.mock.calls.at(-1)?.[1].$set.state).toBe('failed');
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ recipientRole: UserRole.ADMIN, severity: 'critical' }));
+  });
+
+  it('retry: chỉ dòng failed về pending với attempts 0; không còn failed → 404', async () => {
+    const { service, outboxUpdate } = build({ rows: [] });
+    const id = new Types.ObjectId().toHexString();
+    outboxUpdate.mockResolvedValueOnce({ matchedCount: 1 });
+    await expect(service.retry(id)).resolves.toEqual({ id, state: 'pending' });
+    expect(outboxUpdate.mock.calls[0]?.[0]).toEqual({ _id: new Types.ObjectId(id), state: 'failed' });
+    expect(outboxUpdate.mock.calls[0]?.[1].$set).toMatchObject({ state: 'pending', attempts: 0 });
+    outboxUpdate.mockResolvedValueOnce({ matchedCount: 0 });
+    await expect(service.retry(id)).rejects.toMatchObject({ status: 404 });
+    await expect(service.retry('not-an-id')).rejects.toMatchObject({ status: 404 });
   });
 });

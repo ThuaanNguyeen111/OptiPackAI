@@ -147,6 +147,25 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       // Nhánh phụ chạy thật (không còn văng "is not a function"): tự giao việc lấy hàng + giữ chỗ.
       expect(staffAssignmentService.autoAssign).toHaveBeenCalledWith(createdGroup._id.toString());
     });
+
+    it('AOFP-330 AC4: lượt khác vừa gán nhóm cho đơn → xoá nhóm vừa tạo, dùng nhóm kia, không để nhóm rỗng', async () => {
+      const order = makeOrder();
+      const createdGroup = { _id: new Types.ObjectId() };
+      const otherGroup = { _id: new Types.ObjectId(), order_count: 2 };
+      orderGroupModel.create.mockResolvedValue(createdGroup);
+      Object.assign(orderGroupModel, { deleteOne: jest.fn().mockResolvedValue({}) });
+      orderModel.updateOne.mockResolvedValueOnce({ matchedCount: 0 });
+      Object.assign(orderModel, { findById: jest.fn().mockResolvedValue({ ...order, consolidated_group_id: otherGroup._id }) });
+      orderGroupModel.findById.mockResolvedValue(otherGroup);
+      orderModel.countDocuments.mockResolvedValue(2);
+
+      const result = await service.getOrCreateGroupForOrder(order as never);
+
+      expect(result._id).toBe(otherGroup._id);
+      expect((orderGroupModel as unknown as { deleteOne: jest.Mock }).deleteOne).toHaveBeenCalledWith({ _id: createdGroup._id });
+      expect(orderModel.updateOne.mock.calls[0]?.[0]).toEqual({ _id: order._id, consolidated_group_id: null });
+      expect(staffAssignmentService.autoAssign).not.toHaveBeenCalled();
+    });
   });
 
   describe('cancelIfAllOrdersUnfulfillable() (N1)', () => {
