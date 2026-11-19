@@ -6,6 +6,7 @@ import { ShipmentEventType } from './enums/shipment-event-type.enum';
 import { SHIPMENT_ERROR_CODES } from './shipments.errors';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { AppException } from '../../common/exceptions/app-exception';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
 
 //!=============================================
 // C4/C5 (14/10/2026) — vận đơn giao qua HÃNG API (GHN/mock).
@@ -335,6 +336,8 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       expect(result).toBe('incident:lost');
       expect(eventTypes()).toEqual([ShipmentEventType.CARRIER_INCIDENT]);
       expect(shipmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+      // AOFP-338 F-52 — loại thông báo riêng, không phải "đang hoàn về kho".
+      expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({ type: NotificationType.CARRIER_INCIDENT }));
     });
 
     it('delivery_fail → delivery_failed, lý do GHN-DFC1A4 → customer_unreachable', async () => {

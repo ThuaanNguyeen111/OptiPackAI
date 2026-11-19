@@ -887,6 +887,20 @@ export class PackingPlanService {
       );
     }
     await this.orderGroupsService.assertHasActiveOrders(groupId);
+    // AOFP-338 F-47 — web ẩn nút khi kế hoạch cũ / hết thùng; BE cũng phải chặn (gọi API thẳng, app mobile).
+    const catalogChanges = await this.catalogChanges(plan);
+    if (catalogChanges.length > 0 || (await this.isProfileStale(plan))) {
+      throw new AppException(
+        PACKING_ERROR_CODES.PLAN_STALE,
+        'Hồ sơ hàng hoặc danh mục bao bì đã đổi sau lúc tính kế hoạch — tính lại trước khi chấp nhận.',
+        HttpStatus.CONFLICT,
+        { groupId, catalogChanges },
+      );
+    }
+    for (const code of new Set(plan.parcels.map((p) => p.box.code))) {
+      const first = plan.parcels.find((p) => p.box.code === code);
+      if (first) await this.assertBoxInStock(plan, code, first.parcel_no);
+    }
     return this.runInTransaction(async (session) => {
       const now = new Date();
       const actorId = new Types.ObjectId(userId);
@@ -2121,7 +2135,16 @@ export class PackingPlanService {
 
   private async assertBoxInStock(plan: PackingPlanDocument, code: string, parcelNo: number, extraNeeded = 0): Promise<void> {
     const stock = (await this.boxService.listAvailability({ planId: plan._id })).get(code);
-    const usedByOthers = plan.parcels.filter((p) => p.parcel_no !== parcelNo && p.box.code === code).length;
+    // AOFP-338 F-45 — kiện đã niêm phong đã trừ tồn thật, kiện đang/đã tháo không cần thùng: không đếm lại
+    // (cùng luật giữ chỗ của listAvailability).
+    const usedByOthers = plan.parcels.filter(
+      (p) =>
+        p.parcel_no !== parcelNo &&
+        p.box.code === code &&
+        !p.box_consumed &&
+        p.status !== 'to_unpack' &&
+        p.status !== 'voided',
+    ).length;
     if (!stock || stock.available - usedByOthers - extraNeeded <= 0) {
       throw new AppException(
         'PKG_BOX_OUT_OF_STOCK',

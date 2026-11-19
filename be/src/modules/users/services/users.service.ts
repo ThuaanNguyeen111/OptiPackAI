@@ -378,14 +378,17 @@ export class UsersService {
   }
 
   //!=============================================
-  //Xóa đúng 1 mã backup vừa dùng khỏi mảng (chống dùng lại) —
-  // truyền vào index đã xác định bởi MfaService.verifyBackupCode().
+  // Xóa đúng 1 mã backup vừa dùng (hash đã khớp ở MfaService.verifyBackupCode()).
+  // AOFP-338 F-50 — xoá có điều kiện bằng 1 lệnh: 2 lần đăng nhập cùng lúc cùng mã thì chỉ 1 lần
+  // xoá được (trả true); lần kia nhận false và bị từ chối. Trước đây đọc–splice–save nên cả 2 cùng qua.
   //!=============================================
-  async consumeBackupCode(userId: string, usedIndex: number): Promise<void> {
-    const user = await this.userModel.findById(userId);
-    if (!user) return;
-    user.mfa_backup_codes.splice(usedIndex, 1);
-    await user.save();
+  async consumeBackupCode(userId: string, usedHash: string): Promise<boolean> {
+    if (!usedHash) return false;
+    const res = await this.userModel.updateOne(
+      { _id: new Types.ObjectId(userId), mfa_backup_codes: usedHash },
+      { $pull: { mfa_backup_codes: usedHash } },
+    );
+    return res.modifiedCount === 1;
   }
 
   //!=============================================

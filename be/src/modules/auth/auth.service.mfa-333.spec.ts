@@ -25,7 +25,7 @@ describe('AuthService — MFA + Google (AOFP-333)', () => {
   let store: Map<string, string>;
   let user: Record<string, unknown>;
   let usersService: Record<string, jest.Mock>;
-  let mfaService: { generateSecret: jest.Mock; verifyToken: jest.Mock; verifyBackupCode: jest.Mock; generateBackupCodes: jest.Mock };
+  let mfaService: { generateSecret: jest.Mock; verifyToken: jest.Mock; claimToken: jest.Mock; verifyBackupCode: jest.Mock; generateBackupCodes: jest.Mock };
   let fetchMock: jest.SpyInstance;
 
   beforeEach(async () => {
@@ -56,6 +56,7 @@ describe('AuthService — MFA + Google (AOFP-333)', () => {
     mfaService = {
       generateSecret: jest.fn().mockReturnValue({ secret: 'NEW', otpauthUrl: 'otpauth://totp/OptiPack:staff?secret=NEW' }),
       verifyToken: jest.fn((token: string, secret: string) => token === `ok-${secret}`),
+      claimToken: jest.fn().mockResolvedValue(true), // AOFP-338: chống dùng lại mã TOTP
       verifyBackupCode: jest.fn().mockResolvedValue(-1),
       generateBackupCodes: jest.fn().mockResolvedValue({ plainCodes: ['a'], hashedCodes: ['h'] }),
     };

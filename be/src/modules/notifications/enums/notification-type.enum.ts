@@ -35,6 +35,8 @@ export enum NotificationType {
   // Hoàn thiện giao hàng + trả hàng + chống bán lố (27/09/2026)
   DELIVERY_FAILED = 'delivery_failed',
   DELIVERY_RETURNING = 'delivery_returning',
+  // AOFP-338 F-52 — hãng báo sự cố (thất lạc, hư hỏng…) mà vận đơn KHÔNG hoàn về; trước dùng nhầm DELIVERY_RETURNING.
+  CARRIER_INCIDENT = 'carrier_incident',
   DELIVERY_OVERDUE = 'delivery_overdue',
   RETURN_REQUESTED = 'return_requested',
   STOCK_SHORTAGE = 'stock_shortage',

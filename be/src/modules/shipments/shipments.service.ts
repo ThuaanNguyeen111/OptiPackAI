@@ -1745,7 +1745,7 @@ export class ShipmentsService {
           }, session, { source, carrierStatus: status });
         });
         await this.notifySafe({
-          type: NotificationType.DELIVERY_RETURNING, severity: 'critical',
+          type: NotificationType.CARRIER_INCIDENT, severity: 'critical',
           title: `Sự cố vận đơn ${shipment.shipment_code}: ${label}`,
           message: `Hãng báo "${status}" cho kiện ${orderCode}. Cần liên hệ hãng xử lý.`,
         }, shipment);

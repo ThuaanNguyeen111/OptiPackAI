@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { RedisCacheService } from '../../../common/redis/redis-cache.service';
 import * as bcrypt from 'bcrypt';
 import { randomInt } from 'crypto';
 import { authenticator } from 'otplib';
@@ -10,6 +11,11 @@ import { authenticator } from 'otplib';
 @Injectable()
 export class MfaService {
   private readonly BACKUP_CODE_COUNT = 10;
+  /** Mã TOTP còn hợp lệ ~30 giây (+ lệch giờ) — giữ dấu "đã dùng" lâu hơn chút. */
+  private readonly USED_TOTP_TTL_S = 90;
+
+  // Optional: spec cũ dựng `new MfaService()` không có Redis.
+  constructor(@Optional() private readonly redisCache?: RedisCacheService) {}
 
   generateSecret(email: string): { secret: string; otpauthUrl: string } {
     const secret = authenticator.generateSecret();
@@ -19,6 +25,15 @@ export class MfaService {
 
   verifyToken(token: string, secret: string): boolean {
     return authenticator.verify({ token, secret });
+  }
+
+  /**
+   * AOFP-338 F-50 — đánh dấu mã TOTP đã dùng để đăng nhập; mã đó gửi lại (bị nghe lén, gửi 2 lần) thì false.
+   * Không có Redis (test) thì cho qua.
+   */
+  async claimToken(userId: string, token: string): Promise<boolean> {
+    if (!this.redisCache) return true;
+    return this.redisCache.claimOnce(`mfa:totp-used:${userId}:${token}`, this.USED_TOTP_TTL_S);
   }
 
   //!=============================================
