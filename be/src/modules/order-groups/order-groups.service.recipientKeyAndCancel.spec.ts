@@ -163,7 +163,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
 
       expect(result._id).toBe(otherGroup._id);
       expect((orderGroupModel as unknown as { deleteOne: jest.Mock }).deleteOne).toHaveBeenCalledWith({ _id: createdGroup._id });
-      expect(orderModel.updateOne.mock.calls[0]?.[0]).toEqual({ _id: order._id, consolidated_group_id: null });
+      expect((orderModel.updateOne.mock.calls[0] as unknown[] | undefined)?.[0]).toEqual({ _id: order._id, consolidated_group_id: null });
       expect(staffAssignmentService.autoAssign).not.toHaveBeenCalled();
     });
   });
