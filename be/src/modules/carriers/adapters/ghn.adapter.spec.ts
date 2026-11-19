@@ -264,6 +264,20 @@ describe('GhnAdapter', () => {
     await expect(makeAdapter().createShipment(createInput)).rejects.toBeInstanceOf(AppException);
   });
 
+  it('dịch vụ hàng nặng đòi cân từng món → mỗi món gửi kèm weight = cân kiện chia đều theo số lượng', async () => {
+    mockPost.mockResolvedValueOnce({ data: { code: 200, data: { order_code: '', total_fee: 55000 } } });
+    await makeAdapter().previewShipment({
+      ...createInput,
+      parcel: { ...createInput.parcel, weight_g: 900 },
+      items: [
+        { name: 'Áo', code: 'A', quantity: 2, price: 1 },
+        { name: 'Quần', code: 'Q', quantity: 1, price: 1 },
+      ],
+    });
+    const body = (mockPost.mock.calls[0] as unknown[])[1] as { items: { weight: number }[] };
+    expect(body.items.map((item) => item.weight)).toEqual([300, 300]);
+  });
+
   it('getShipmentDetailByClientCode: GHN báo không tìm thấy → null (không ném lỗi)', async () => {
     mockGet.mockRejectedValue(httpError(400, { code: 400, message: 'Order not found', data: null }));
     await expect(makeAdapter().getShipmentDetailByClientCode('SHP-X')).resolves.toBeNull();

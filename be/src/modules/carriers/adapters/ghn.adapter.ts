@@ -305,6 +305,10 @@ export class GhnAdapter implements CarrierAdapter {
   ): Promise<CreateShipmentResult> {
     this.assertParcel(input.parcel);
     const { recipient, parcel } = input;
+    // Dịch vụ hàng nặng (service_type_id 5) bắt buộc cân từng món (thử GHN staging 20/11).
+    // shortcut: chia đều cân kiện theo số món, chưa có cân từng SKU; đổi khi master SKU lưu cân nặng.
+    const unitCount = input.items.reduce((sum, item) => sum + item.quantity, 0);
+    const itemWeightG = Math.max(1, Math.round(parcel.weight_g / Math.max(1, unitCount)));
     const data = await this.request<GhnCreateOrderData>(
       'post',
       path,
@@ -330,6 +334,7 @@ export class GhnAdapter implements CarrierAdapter {
           code: item.code,
           quantity: item.quantity,
           price: item.price,
+          weight: itemWeightG,
         })),
       },
       { retry: true }, // an toàn: GHN chống tạo trùng theo client_order_code
