@@ -132,7 +132,7 @@ Body: `{ message_id, seller_id, message_type, timestamp, data: { trade_order_id,
 | `before` | ISO date | Cursor theo `created_at` |
 | `limit` | integer | Mặc định 20, min 1, max 100 |
 
-List item: `id`, `platform`, `shopId`, `platformOrderId`, `platformOrderNumber?`, `status`, `recipientName`, `recipientCity`, `isConsolidated`, `consolidatedGroupId`, `totalAmount`, `currency`, `itemCount`, `createdAt`.
+List item: `id`, `platform`, `shopId`, `platformOrderId`, `platformOrderNumber?`, `status`, `recipientName`, `recipientCity`, `isConsolidated`, `consolidatedGroupId`, `totalAmount`, `paymentMethod`, `codAmountVnd`, `currency`, `itemCount`, `createdAt`. 🆕 19/11 (AOFP-319): `paymentMethod` = cách trả tiền sàn gửi (VD `"COD"`, null = sàn không gửi), `codAmountVnd` = tiền phải thu khi giao (đơn COD = `totalAmount`, trả trước = 0; có cả ở `GET /orders/:id`).
 
 Detail bổ sung địa chỉ nhận đầy đủ, `recipientProvince`, `recipientDistrict`, `recipientWard` (`string | null`) và `items[]`. Items được aggregate theo `sku + variation + status`, có quantity, unit price, line total và `platformOrderItemIds`.
 

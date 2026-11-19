@@ -28,6 +28,7 @@ import { deliveryDueBusinessHours, minRetryGapMinutes } from './shipment-config'
 import { randomBytes } from 'crypto';
 import { ShippingService } from '../shipping/shipping.service';
 import type { ServiceQuote } from '../shipping/utils/shipping-cost.util';
+import { codOrderIdsPerParcel } from '../shipping/utils/cod.util';
 import { LiveCarrierService, type ToLocationInput } from '../shipping/live-carrier.service';
 import { CarrierWebhookEvent, CarrierWebhookEventDocument } from './schemas/carrier-webhook-event.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
@@ -1189,7 +1190,11 @@ export class ShipmentsService {
     const now = new Date();
     const errors: string[] = [];
     const next: CarrierParcel[] = [];
-    for (const cp of shipment.carrier_parcels ?? []) {
+    // AOFP-319 — chia COD trên MỌI kiện của lượt đặt (cả kiện đã có mã) để mỗi đơn chỉ thu 1 lần.
+    const codIds = codOrderIdsPerParcel(
+      (shipment.carrier_parcels ?? []).map((cp) => ({ parcelNo: cp.parcel_no, orderIds: carrierParcelOrderIds(cp).map((id) => id.toString()) })),
+    );
+    for (const [idx, cp] of (shipment.carrier_parcels ?? []).entries()) {
       const plain: CarrierParcel = {
         parcel_no: cp.parcel_no,
         order_id: cp.order_id,
@@ -1207,6 +1212,7 @@ export class ShipmentsService {
         carrier_status: cp.carrier_status ?? null,
         carrier_status_at: cp.carrier_status_at ?? null,
         booking_error: cp.booking_error ?? null,
+        cod_amount: cp.cod_amount ?? 0,
       };
       if (plain.carrier_order_code) {
         next.push(plain);
@@ -1226,6 +1232,7 @@ export class ShipmentsService {
           service,
           toLocation,
           note: shipment.note,
+          codOrderIds: codIds[idx] ?? [],
         });
         Object.assign(plain, {
           carrier_order_code: booked.result.carrier_order_code || null,
@@ -1239,6 +1246,7 @@ export class ShipmentsService {
           carrier_status: 'ready_to_pick',
           carrier_status_at: now,
           booking_error: null,
+          cod_amount: booked.codAmount,
         });
       } catch (error: unknown) {
         const code = error instanceof AppException ? error.errorCode : 'CARRIER_UNAVAILABLE';
