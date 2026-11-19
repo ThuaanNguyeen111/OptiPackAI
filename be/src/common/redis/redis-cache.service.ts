@@ -9,6 +9,8 @@ export interface CachedUserAuthState {
   role: UserRole;
 
   must_change_password_by?: string;
+  /** AOFP-334 — xem User.token_version. Bản cache cũ chưa có = 0. */
+  token_version?: number;
 }
 
 @Injectable()
@@ -33,7 +35,8 @@ export class RedisCacheService implements OnModuleDestroy {
       typeof candidate.role === 'number' &&
       isUserRole(candidate.role) &&
       (candidate.must_change_password_by === undefined ||
-        typeof candidate.must_change_password_by === 'string')
+        typeof candidate.must_change_password_by === 'string') &&
+      (candidate.token_version === undefined || typeof candidate.token_version === 'number')
     );
   }
 

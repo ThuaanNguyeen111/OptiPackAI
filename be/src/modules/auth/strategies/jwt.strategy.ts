@@ -13,6 +13,8 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: UserRole;
+  /** AOFP-334 — User.token_version lúc cấp. Token cấp trước AOFP-334 không có = 0. */
+  tv?: number;
 }
 
 @Injectable()
@@ -41,12 +43,18 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         must_change_password: user.must_change_password,
         role: user.role,
         must_change_password_by: user.must_change_password_by?.toISOString(),
+        token_version: user.token_version, // default 0 của schema áp cả user cũ khi đọc
       };
       await this.redisCache.setUserAuthState(payload.sub, state);
     }
 
     if (!state.is_active) {
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, 'Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin'));
+    }
+
+    // AOFP-334 — đã đổi/đặt lại mật khẩu sau lúc cấp token này (cache 60 s, bị xoá ngay khi đổi).
+    if ((payload.tv ?? 0) !== (state.token_version ?? 0)) {
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.SESSION_REVOKED, 'Phiên đăng nhập đã bị thu hồi (mật khẩu vừa đổi). Vui lòng đăng nhập lại.'));
     }
 
     if (!isUserRole(state.role)) {
