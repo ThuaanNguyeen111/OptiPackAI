@@ -41,12 +41,26 @@ describe('receipt-ocr.util', () => {
       ok: true,
       status: 'mismatch',
       checks: [
-        { line_index: 0, label: 'A', ocr_line_index: 0, ocr_text: 'Áo thun đỏ M', ocr_quantity: 50, quantity: 48, mismatch_reason: 'NCC giao thiếu' },
-        { line_index: 1, label: 'B', ocr_line_index: 1, ocr_text: 'Quần', ocr_quantity: 10, quantity: 10, mismatch_reason: null },
+        { line_index: 0, label: 'A', ocr_line_index: 0, ocr_text: 'Áo thun đỏ M', ocr_quantity: 50, quantity: 48, mismatch_reason: 'NCC giao thiếu', code_mismatch: true },
+        { line_index: 1, label: 'B', ocr_line_index: 1, ocr_text: 'Quần', ocr_quantity: 10, quantity: 10, mismatch_reason: null, code_mismatch: false },
       ],
+      extraOcrLines: [],
+      unlinkedLines: [],
     });
-    expect(checkAgainstScan(lines, [{ lineIndex: 0, label: 'A', quantity: 3 }])).toEqual({ ok: true, checks: [], status: 'not_checked' });
+    expect(checkAgainstScan(lines, [{ lineIndex: 0, label: 'A', quantity: 3 }])).toEqual({ ok: true, checks: [], status: 'not_checked', extraOcrLines: [], unlinkedLines: [] });
     expect(checkAgainstScan(null, [{ lineIndex: 0, label: 'A', quantity: 3 }])).toMatchObject({ ok: true, status: 'not_checked' });
+  });
+
+  // AOFP-328 — phiếu nhập kho: dòng phiếu thừa / dòng nhập không gắn → partial, bắt lý do; mã khác SKU → cờ cảnh báo.
+  it('fullCoverage: khớp một phần → bắt lý do, có lý do → partial; mã phiếu so không phân biệt ký tự ngăn cách', () => {
+    const one = [{ lineIndex: 0, label: 'at-001 red m', quantity: 50, ocrLineIndex: 0 }];
+    expect(checkAgainstScan(lines, one, { fullCoverage: true })).toEqual({
+      ok: false,
+      problem: { kind: 'partial_reason_required', extraOcrLines: [1], unlinkedLines: [] },
+    });
+    const r = checkAgainstScan(lines, [...one, { lineIndex: 1, label: 'X', quantity: 2 }], { fullCoverage: true, partialReason: 'Quần giao sau' });
+    expect(r).toMatchObject({ ok: true, status: 'partial', extraOcrLines: [1], unlinkedLines: [1], checks: [{ code_mismatch: false }] });
+    expect(checkAgainstScan(lines, one)).toMatchObject({ ok: true, status: 'matched' }); // vật tư: không bật fullCoverage
   });
 
   it('lệch không lý do / dòng phiếu ngoài phạm vi / 2 dòng cùng 1 dòng phiếu / thiếu scan → lỗi', () => {

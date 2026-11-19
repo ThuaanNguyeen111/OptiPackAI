@@ -49,6 +49,11 @@ export class StockReceipt {
   @Prop({ type: [ReceiptOcrCheckSchema], default: [] }) ocr_checks!: ReceiptOcrCheck[];
   // 19/11/2026 (AOFP-311) — ảnh phiếu rất giống ảnh đã dùng (pHash ≤ 5 bit); không chặn, chỉ gắn cờ.
   @Prop({ type: Boolean, default: false }) photo_suspect!: boolean;
+  // AOFP-328 — chống tạo phiếu trùng khi app gửi lại; khớp một phần (ocr_status=partial); nhập không ảnh (chỉ Admin).
+  @Prop({ type: String, default: null }) client_event_id!: string | null;
+  @Prop({ type: [Number], default: [] }) ocr_extra_line_indexes!: number[];
+  @Prop({ type: String, default: null }) ocr_partial_reason!: string | null;
+  @Prop({ type: String, default: null }) no_photo_reason!: string | null;
   created_at?: Date;
 }
 
@@ -60,3 +65,5 @@ StockReceiptSchema.index({ warehouse_id: 1, received_at: -1 });
 StockReceiptSchema.index({ warehouse_id: 1, ocr_status: 1, received_at: -1 });
 // 13/11/2026 — GET /history: cửa sổ created_at mọi kho, sắp mới → cũ + đếm tổng.
 StockReceiptSchema.index({ created_at: -1 });
+// AOFP-328 — gửi lại cùng client_event_id → trả phiếu cũ (phiếu không mã không bị ràng buộc).
+StockReceiptSchema.index({ client_event_id: 1 }, { unique: true, partialFilterExpression: { client_event_id: { $type: 'string' } } });

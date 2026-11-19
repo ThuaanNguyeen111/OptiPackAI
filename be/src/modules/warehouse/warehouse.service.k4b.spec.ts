@@ -196,7 +196,7 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
       mapped([]) as never,
     );
 
-    await service.restockSku(warehouseId.toString(), assignmentId.toString(), 5, false, 'u1');
+    await service.restockSku(warehouseId.toString(), assignmentId.toString(), 5, false, 'u1', { isAdmin: true, noPhotoReason: 'tồn đầu kỳ' });
 
     const [lookup] = assignmentModel.findOne.mock.calls[0] as [Record<string, unknown>];
     const [filter] = assignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>];

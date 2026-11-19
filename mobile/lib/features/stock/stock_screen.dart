@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../app/mock_providers.dart';
 import '../../app/providers.dart';
 import '../../shared/widgets.dart';
+import '../proof/proof_photo_field.dart';
+import '../proof/proof_photo_repository.dart';
 import '../warehouse/scanner_screen.dart';
 import 'stock_repository.dart';
 import '../../app/colors.dart';
@@ -193,6 +196,9 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
   StockAdjustReason _reason = StockAdjustReason.countCorrection;
   bool _busy = false;
   String? _error;
+  // AOFP-328 — nhập thêm phải kèm ảnh phiếu NCC. Link đã tải giữ lại để bấm lại không tải lần 2.
+  List<XFile> _photos = const [];
+  List<String>? _photoUrls;
 
   /// Một mã cho mỗi lần mở form + loại thao tác; gửi lại sau lỗi mạng vẫn dùng đúng mã này.
   final Map<_StockAction, String> _eventIds = {};
@@ -209,6 +215,10 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
     final qty = int.tryParse(_qty.text.trim());
     if (qty == null || (_action != _StockAction.adjust && qty < 1) || qty < 0) {
       setState(() => _error = 'Nhập số lượng hợp lệ.');
+      return;
+    }
+    if (_action == _StockAction.restock && _photos.isEmpty) {
+      setState(() => _error = 'Chụp ảnh phiếu giao hàng / phiếu nhập của nhà cung cấp.');
       return;
     }
     final item = widget.item;
@@ -230,7 +240,12 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
     try {
       switch (_action) {
         case _StockAction.restock:
-          await repo.restock(item.assignmentId, qty, eventId: _eventId(_action));
+          try {
+            _photoUrls ??= await ref.read(proofPhotoRepositoryProvider).upload(_photos, purpose: 'receipt');
+          } catch (_) {
+            throw const StockException('Chưa tải được ảnh phiếu — kiểm tra mạng rồi thử lại.');
+          }
+          await repo.restock(item.assignmentId, qty, eventId: _eventId(_action), photoUrls: _photoUrls!);
         case _StockAction.adjust:
           await repo.adjust(item.assignmentId, qty, reason: _reason, eventId: _eventId(_action));
         case _StockAction.transfer:
@@ -254,6 +269,7 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
           quantity: qty,
           eventId: _eventId(_action),
           reason: _reason,
+          photoUrls: _photoUrls ?? const [],
         );
         if (queued != null && mounted) {
           await ref.read(syncControllerProvider.notifier).enqueue(queued);
@@ -318,6 +334,19 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
                 },
               ),
             ),
+            if (_action == _StockAction.restock) ...[
+              const SizedBox(height: 12),
+              ProofPhotoField(
+                label: 'Ảnh phiếu NCC',
+                required: true,
+                enabled: !_busy,
+                photos: _photos,
+                onChanged: (p) => setState(() {
+                  _photos = p;
+                  _photoUrls = null;
+                }),
+              ),
+            ],
             if (_action == _StockAction.adjust) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<StockAdjustReason>(

@@ -577,7 +577,8 @@ export async function restockSkuAssignment(
   assignmentId: string,
   quantity: number,
   force = false,
-  extra?: { received_at?: string; lot_code?: string; client_event_id?: string },
+  // AOFP-328 — BE bắt ảnh phiếu; chỉ ADMIN nhập không ảnh và phải gửi no_photo_reason.
+  extra?: { received_at?: string; lot_code?: string; client_event_id?: string; no_photo_reason?: string },
 ): Promise<SkuBinAssignmentRecord> {
   const updated = mapAssignment(
     await apiRequest<unknown>(
@@ -589,6 +590,7 @@ export async function restockSkuAssignment(
           force,
           ...(extra?.received_at ? { received_at: extra.received_at } : {}),
           ...(extra?.lot_code ? { lot_code: extra.lot_code } : {}),
+          ...(extra?.no_photo_reason ? { no_photo_reason: extra.no_photo_reason } : {}),
           client_event_id: extra?.client_event_id ?? newClientEventId('restock'),
         },
         auth: true,

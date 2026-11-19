@@ -7,6 +7,7 @@ export const RECEIPT_OCR_ERROR_CODES = {
   OCR_SCAN_INVALID: 'WH_RECEIPT_OCR_SCAN_INVALID', // scan không tồn tại / hết hạn / ảnh không thuộc phiếu
   OCR_LINE_INVALID: 'WH_RECEIPT_OCR_LINE_INVALID', // ocr_line_index ngoài phạm vi / 2 dòng cùng 1 dòng phiếu / thiếu scan
   MISMATCH_REASON_REQUIRED: 'WH_RECEIPT_MISMATCH_REASON_REQUIRED', // số nhập khác số trên phiếu mà không ghi lý do
+  PARTIAL_REASON_REQUIRED: 'WH_RECEIPT_PARTIAL_REASON_REQUIRED', // 400 (AOFP-328) — phiếu đối chiếu thiếu/thừa dòng mà không ghi lý do
   PHOTO_REUSED: 'WH_RECEIPT_PHOTO_REUSED', // 409 (AOFP-311) — ảnh phiếu (cùng URL hoặc cùng file) đã dùng cho lần nhập khác
   NOT_A_SLIP: 'WH_RECEIPT_OCR_NOT_A_SLIP', // 422 (AOFP-311) — ảnh không có ngày, NCC, dòng hàng nào
 } as const;

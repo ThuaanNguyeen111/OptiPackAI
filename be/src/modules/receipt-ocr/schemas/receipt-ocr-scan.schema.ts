@@ -32,10 +32,12 @@ export class ReceiptOcrCheck {
   @Prop({ type: Number, required: true }) ocr_quantity!: number;
   @Prop({ type: Number, required: true }) quantity!: number; // số đã nhập (nhân viên đếm)
   @Prop({ type: String, default: null }) mismatch_reason!: string | null;
+  // AOFP-328 — mã trên phiếu khác SKU đã nhập (chỉ cảnh báo, không chặn).
+  @Prop({ type: Boolean, default: false }) code_mismatch!: boolean;
 }
 export const ReceiptOcrCheckSchema = SchemaFactory.createForClass(ReceiptOcrCheck);
 
-export const OCR_STATUSES = ['matched', 'mismatch', 'not_checked'] as const;
+export const OCR_STATUSES = ['matched', 'mismatch', 'partial', 'not_checked'] as const;
 export type OcrStatus = (typeof OCR_STATUSES)[number];
 
 /**
