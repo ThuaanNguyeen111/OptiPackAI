@@ -96,6 +96,11 @@ jobs:
         working-directory: fe
         run: npm run build
 
+      # AOFP-317 — smoke test render 5 màn chính (Vitest + jsdom).
+      - name: Smoke tests
+        working-directory: fe
+        run: npm test
+
       # TẠM continue-on-error: bản UI vừa merge từ feature/viet_ui còn 9 lỗi
       # + 3 cảnh báo ESLint có sẵn (set-state-in-effect, react-refresh...).
       # Bỏ cờ này ngay khi dọn xong để lint FE thật sự chặn được PR.

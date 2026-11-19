@@ -456,7 +456,8 @@ Chạy trong thư mục `be/` bằng `npx ts-node -r tsconfig-paths/register scr
 | `npm run dev:aurelle` | Chạy sàn AURELLE giả lập (cổng 4000) |
 | `npm run build` | Build toàn bộ |
 | `npm run lint` / `npm run lint:ci` | Kiểm tra mã nguồn (có / không tự sửa) |
-| `npm run test` | Chạy kiểm thử Backend |
+| `npm run test` | Chạy kiểm thử Backend (jest) + smoke test Frontend (Vitest) — husky chạy lệnh này trước mỗi commit |
+| `npm run test:be` / `test:fe` | Chạy riêng kiểm thử Backend / Frontend |
 | `npm run docker:up` / `docker:down` / `docker:logs` | Chạy / tắt / xem log toàn bộ bằng Docker |
 | `npm run docker:infra` | Chỉ chạy Redis bằng Docker |
 | `npm run docker:dev` | MongoDB cục bộ + Mongo Express + Redis |

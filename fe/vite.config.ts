@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
@@ -25,5 +26,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(rootDir, './src'),
     },
+  },
+  // AOFP-317 — smoke test render các màn chính (`npm test`).
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.tsx'],
   },
 })
