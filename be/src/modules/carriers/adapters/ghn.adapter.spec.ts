@@ -235,6 +235,35 @@ describe('GhnAdapter', () => {
     expect(mockPost).toHaveBeenCalledTimes(1);
   });
 
+  it('createShipment: lần đầu hết giờ, lần thử lại GHN báo "This request is processing" → tra theo client_order_code, nhận đơn đã tạo', async () => {
+    mockPost
+      .mockRejectedValueOnce(httpError(undefined)) // create lần 1: hết giờ (GHN vẫn tạo được)
+      .mockRejectedValueOnce(httpError(400, { code: 400, message: 'Too many request. This request is processing' }))
+      .mockResolvedValueOnce({ data: { code: 200, data: { order_code: '', total_fee: 20900 } } }); // preview lấy cước
+    mockGet.mockResolvedValueOnce({
+      data: { code: 200, data: { order_code: 'LYCNK1', client_order_code: createInput.client_order_code, status: 'ready_to_pick' } },
+    });
+    const result = await makeAdapter().createShipment(createInput);
+    expect(result.carrier_order_code).toBe('LYCNK1');
+    expect(result.fee.total).toBe(20900);
+    expect(String((mockGet.mock.calls[0] as unknown[] | undefined)?.[0])).toContain('detail-by-client-code');
+    expect(String((mockPost.mock.calls[2] as unknown[] | undefined)?.[0])).toContain('/preview'); // không gọi create lần nữa
+  });
+
+  it('createShipment: lỗi thật (sai địa chỉ) và GHN không có đơn theo mã → vẫn báo lỗi gốc', async () => {
+    mockPost.mockRejectedValue(httpError(400, { code: 400, message: 'To address conflict' }));
+    mockGet.mockRejectedValue(httpError(400, { code: 400, message: 'Order not found', data: null }));
+    await expect(makeAdapter().createShipment(createInput)).rejects.toMatchObject({ errorCode: 'CARRIER_ADDRESS_CONFLICT' });
+  });
+
+  it('createShipment: đơn cùng mã đã bị hủy ở GHN → không nhận lại, báo lỗi gốc', async () => {
+    mockPost.mockRejectedValue(httpError(400, { code: 400, message: 'Too many request. This request is processing' }));
+    mockGet.mockResolvedValue({
+      data: { code: 200, data: { order_code: 'LYCNK2', client_order_code: createInput.client_order_code, status: 'cancel' } },
+    });
+    await expect(makeAdapter().createShipment(createInput)).rejects.toBeInstanceOf(AppException);
+  });
+
   it('getShipmentDetailByClientCode: GHN báo không tìm thấy → null (không ném lỗi)', async () => {
     mockGet.mockRejectedValue(httpError(400, { code: 400, message: 'Order not found', data: null }));
     await expect(makeAdapter().getShipmentDetailByClientCode('SHP-X')).resolves.toBeNull();

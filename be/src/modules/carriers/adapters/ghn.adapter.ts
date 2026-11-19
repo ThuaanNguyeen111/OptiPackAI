@@ -118,6 +118,8 @@ export class GhnAdapter implements CarrierAdapter {
 
   private static readonly MAX_RETRIES = 2;
   private static readonly BASE_DELAY_MS = 300;
+  /** Chờ GHN xử lý xong lần gửi trước khi tra đơn theo client_order_code. */
+  private static readonly CREATE_SETTLE_MS = 1000;
 
   constructor(private readonly configService: ConfigService) {
     this.baseUrl = envOrDefault(
@@ -204,7 +206,33 @@ export class GhnAdapter implements CarrierAdapter {
   }
 
   async createShipment(input: CreateShipmentInput): Promise<CreateShipmentResult> {
-    return this.submitOrder('/v2/shipping-order/create', input);
+    try {
+      return await this.submitOrder('/v2/shipping-order/create', input);
+    } catch (error: unknown) {
+      // Lần gửi trước hết giờ nhưng GHN vẫn tạo được (lần thử lại nhận "This request is processing")
+      // → báo lỗi thì đặt lại sẽ thành đơn trùng ở hãng. Tra theo mã của mình rồi nhận đơn đã có.
+      const existing = await this.findCreatedOrder(input.client_order_code);
+      if (!existing) throw error;
+      this.logger.warn(
+        `GHN create ${input.client_order_code} báo lỗi nhưng đơn đã có ở hãng (${existing.carrier_order_code}) → dùng đơn đó.`,
+      );
+      const fee = await this.previewShipment(input)
+        .then((preview) => preview.fee)
+        .catch(() => this.toBreakdown({ total: 0, service: 0, insurance: 0, cod: 0, remote: 0 }));
+      return { carrier_order_code: existing.carrier_order_code, sort_code: null, fee, expected_delivery_at: null };
+    }
+  }
+
+  /** Đơn GHN còn hiệu lực theo client_order_code; không tra được thì null (giữ lỗi gốc). */
+  private async findCreatedOrder(clientOrderCode: string): Promise<CarrierOrderDetail | null> {
+    // GHN đang xử lý lần gửi trước → chờ chút cho đơn hiện ra rồi mới tra.
+    await new Promise((resolve) => setTimeout(resolve, GhnAdapter.CREATE_SETTLE_MS));
+    try {
+      const detail = await this.getShipmentDetailByClientCode(clientOrderCode);
+      return detail && detail.carrier_status !== 'cancel' ? detail : null;
+    } catch {
+      return null;
+    }
   }
 
   async cancelShipment(
