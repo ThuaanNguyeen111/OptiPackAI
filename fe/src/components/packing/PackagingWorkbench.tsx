@@ -101,7 +101,7 @@ import { MaterialTags } from './MaterialTags'
 import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
- * Bàn đóng gói (Packaging Staff + Admin) — duyệt / điều chỉnh / từ chối / đóng kiện.
+ * Bàn đóng gói (Packaging Staff + Admin) — chấp nhận / điều chỉnh / từ chối / đóng kiện.
  * BE tự tính và gán kế hoạch sau lấy hàng (không còn bước Admin chốt riêng).
  * Khung 3D dựng từ kế hoạch thật (placements + itemProfiles); chỉ xem, không ghi trạng thái lên BE.
  */
@@ -265,11 +265,11 @@ function emptyCopy(
     if (counts.awaiting > 0 || counts.picked > 0) {
       return vi
         ? {
-            title: 'Chưa có việc duyệt ngay',
+            title: 'Chưa có kế hoạch chờ chấp nhận',
             body:
               counts.picked > 0
-                ? `Có ${String(counts.picked)} nhóm đã lấy xong, hệ thống đang tính kế hoạch. Có kế hoạch là đơn hiện tại đây để bạn duyệt.`
-                : `Kho đang lấy ${String(counts.awaiting)} nhóm. Lấy xong, hệ thống tự tính kế hoạch rồi đơn sẽ hiện tại đây để duyệt.`,
+                ? `Có ${String(counts.picked)} nhóm đã lấy xong, hệ thống đang tính kế hoạch. Có kế hoạch là nhóm hiện tại đây để bạn chấp nhận.`
+                : `Kho đang lấy ${String(counts.awaiting)} nhóm. Lấy xong, hệ thống tự tính kế hoạch rồi nhóm sẽ hiện tại đây để chấp nhận.`,
           }
         : {
             title: 'Nothing to approve yet',
@@ -281,19 +281,19 @@ function emptyCopy(
     }
     return vi
       ? {
-          title: 'Chưa có kế hoạch thùng chờ duyệt',
-          body: 'Đây là việc chính của bạn: duyệt / điều chỉnh / từ chối gợi ý thùng. Hiện chưa có nhóm nào ở pending_approval.',
+          title: 'Chưa có kế hoạch chờ chấp nhận',
+          body: 'Đây là việc chính của bạn: chấp nhận / điều chỉnh / từ chối kế hoạch đóng gói. Hiện chưa có nhóm nào chờ chấp nhận.',
         }
       : {
           title: 'No packing plans pending',
-          body: 'Your main job: approve, adjust, or reject carton plans. No groups in pending_approval yet.',
+          body: 'Your main job: accept, adjust, or reject packing plans. No groups waiting yet.',
         }
   }
   if (tab === 'partial_needs_review') {
     return vi
       ? {
           title: 'Không có đơn thiếu hàng',
-          body: 'Warehouse đã báo thiếu (report-missing) — quyết định tiếp tục với phần còn lại hoặc hủy làm lại.',
+          body: 'Kho đã báo thiếu hàng — quyết định tiếp tục với phần còn lại hoặc hủy làm lại.',
         }
       : {
           title: 'No partial-review groups',
@@ -303,7 +303,7 @@ function emptyCopy(
   if (tab === 'approved_for_packing') {
     return vi
       ? {
-          title: 'Không có nhóm đã duyệt kế hoạch',
+          title: 'Không có nhóm đang đóng gói',
           body: 'Sau khi bạn chấp nhận kế hoạch, nhóm hiện ở đây — bấm «Xác nhận đã đóng gói» khi gói xong.',
         }
       : {
@@ -333,7 +333,7 @@ function emptyCopy(
       }
 }
 
-/** Route ghi trả profileStale=false. Giữ cờ từ lần GET khi kế hoạch vẫn chờ duyệt hoặc đã duyệt. */
+/** Route ghi trả profileStale=false. Giữ cờ từ lần GET khi kế hoạch vẫn chờ chấp nhận hoặc đã chấp nhận. */
 function retainProfileStale(
   previous: PackingPlan | null,
   next: PackingPlan,
@@ -374,13 +374,30 @@ function boxViewerSub(plan: PackingPlan | null, parcelNo: number | null, vi: boo
     : `${String(count)} items · follow the steps in the 3D view`
 }
 
+/** Giá trị ô cân giữ đúng kiểu cũ ("1,2"). */
+function kgInputValue(kg: number): string {
+  return String(Math.round(kg * 1000) / 1000).replace('.', ',')
+}
+
+/**
+ * AOFP-331 — chỉ điền cân THẬT đã có (kiện đã cân). Không điền ước tính: bấm luôn thì
+ * "cân thật = ước tính" và kiện không bao giờ bị giữ vì lệch cân.
+ */
 function weightPrefill(plan: PackingPlan): Record<number, string> {
   const next: Record<number, string> = {}
   for (const parcel of plan.parcels) {
-    const kg = parcel.actualWeightKg ?? parcel.estimatedWeightG / 1000
-    next[parcel.parcelNo] = kg > 0 ? String(Math.round(kg * 1000) / 1000).replace('.', ',') : ''
+    const kg = parcel.actualWeightKg ?? 0
+    next[parcel.parcelNo] = kg > 0 ? kgInputValue(kg) : ''
   }
   return next
+}
+
+/** AOFP-331 — đã quét món hoặc đã niêm phong/tháo kiện nào → phiên đã bắt đầu, không đóng nhanh nữa. */
+function quickPackStarted(plan: PackingPlan | null): boolean {
+  if (!plan) return false
+  return plan.parcels.some(
+    (p) => p.status !== 'pending' || (p.scannedCount ?? p.scans?.length ?? 0) > 0,
+  )
 }
 
 function readParcelWeights(
@@ -388,7 +405,8 @@ function readParcelWeights(
   weights: Record<number, string>,
 ): { parcel_no: number; weight_kg: number }[] | null {
   const rows: { parcel_no: number; weight_kg: number }[] = []
-  for (const parcel of plan.parcels) {
+  // BE chỉ nhận cân của kiện đang chờ đóng (kiện đã niêm phong/tháo gửi kèm → 400 PACK_WEIGHTS_MISMATCH).
+  for (const parcel of plan.parcels.filter((p) => p.status === 'pending')) {
     const weight = parseDecimal(weights[parcel.parcelNo] ?? '') ?? Number.NaN
     if (!Number.isFinite(weight) || weight < 0.001 || weight > 100) return null
     rows.push({ parcel_no: parcel.parcelNo, weight_kg: weight })
@@ -949,8 +967,8 @@ export function PackagingWorkbench() {
       await undoApprovePackingPlan(group.id, plan.version)
       showToast(
         vi
-          ? 'Đã quay lại chờ duyệt. Có thể chấp nhận hoặc từ chối lại.'
-          : 'Returned to pending approval. You can accept or reject again.',
+          ? 'Đã quay lại chờ chấp nhận. Có thể chấp nhận hoặc từ chối lại.'
+          : 'Returned to pending acceptance. You can accept or reject again.',
       )
       setGuide3dActive(false)
       setPlanDialog(null)
@@ -1301,7 +1319,7 @@ export function PackagingWorkbench() {
         ],
         [
           'approved_for_packing',
-          vi ? 'Đã duyệt — đóng gói' : 'Approved — pack',
+          vi ? 'Đang đóng gói' : 'Packing',
           counts.approved,
           false,
         ],
@@ -1358,6 +1376,7 @@ export function PackagingWorkbench() {
                 max={100}
                 step="0.001"
                 value={parcelWeights[parcel.parcelNo] ?? ''}
+                placeholder={vi ? 'Cân thật' : 'Scale reading'}
                 onChange={(event) =>
                   setParcelWeights((prev) => ({
                     ...prev,
@@ -1367,6 +1386,11 @@ export function PackagingWorkbench() {
                 className="w-28 rounded-lg border border-hairline bg-canvas px-2 py-1.5"
               />
               <span className="text-xs text-ink-muted">kg</span>
+              {parcel.estimatedWeightG > 0 ? (
+                <span className="text-xs text-ink-muted">
+                  {vi ? 'Ước tính' : 'Estimated'} {formatGAsKg(parcel.estimatedWeightG)}
+                </span>
+              ) : null}
             </label>
             {caption ? (
               <p className="pl-1 text-[11px] text-ink-muted">{caption}</p>
@@ -1676,7 +1700,7 @@ export function PackagingWorkbench() {
             <p className="text-sm text-rose-600">{detailError}</p>
           ) : group ? (
             <div className="space-y-5">
-              {/* Trạng thái trùng tên tab thì bỏ; chỉ hiện khi khác (vd nhóm đang đóng trong tab Đã duyệt). */}
+              {/* Trạng thái trùng tên tab thì bỏ; chỉ hiện khi khác (vd nhóm đang đóng trong tab Đang đóng gói). */}
               {group.fulfillmentStatus !== tab ||
               group.packagingDeadline ||
               group.deliveryDeadline ||
@@ -1897,7 +1921,7 @@ export function PackagingWorkbench() {
                       onClick={() => void onUndoApprove()}
                       className="mt-3 inline-flex items-center rounded-lg border border-emerald-800/30 bg-white px-3 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50 dark:bg-transparent dark:text-emerald-100"
                     >
-                      {vi ? 'Quay lại chờ duyệt' : 'Return to pending approval'}
+                      {vi ? 'Quay lại chờ chấp nhận' : 'Return to pending acceptance'}
                     </button>
                   ) : null}
                   {group?.fulfillmentStatus === 'approved_for_packing' ? (
@@ -1960,7 +1984,13 @@ export function PackagingWorkbench() {
                           onError={(err) => reloadPlanAfterConflict(err)}
                         />
                       ) : null}
-                      {scanLocked ? (
+                      {quickPackStarted(plan) ? (
+                        <p className="mt-3 text-xs text-ink-muted">
+                          {vi
+                            ? 'Đã quét hoặc niêm phong kiện trong phiên — đóng tiếp bằng phiên đóng gói phía trên.'
+                            : 'Items were scanned or parcels sealed — finish with the packing session above.'}
+                        </p>
+                      ) : scanLocked ? (
                         <p className="mt-3 text-xs text-ink-muted">
                           {group?.packScanRequired
                             ? quickPackBlockedCopy(group, vi)
@@ -2115,7 +2145,7 @@ export function PackagingWorkbench() {
                     {!plan ? (
                       <p className="mt-2 text-sm text-ink-subtle">
                         {vi
-                          ? 'Chưa có kế hoạch. Hệ thống tự tính sau khi lấy hàng xong, có kế hoạch mới duyệt được.'
+                          ? 'Chưa có kế hoạch. Hệ thống tự tính sau khi lấy hàng xong, có kế hoạch mới chấp nhận được.'
                           : 'No plan yet. It is computed after picking finishes. Cannot approve without one.'}
                       </p>
                     ) : (
@@ -2298,12 +2328,18 @@ export function PackagingWorkbench() {
                           ? 'Kho đã lấy xong. Nhập cân từng kiện rồi xác nhận.'
                           : 'Warehouse finished picking. Enter each parcel weight, then confirm.'}
                       </p>
-                      {scanLocked ? (
+                      {quickPackStarted(plan) ? (
+                        <p className="text-xs text-emerald-900 dark:text-emerald-100">
+                          {vi
+                            ? 'Đã quét hoặc niêm phong kiện — đóng tiếp bằng phiên đóng gói.'
+                            : 'Items were scanned or parcels sealed — finish with the packing session.'}
+                        </p>
+                      ) : scanLocked ? (
                         <p className="text-xs text-emerald-900 dark:text-emerald-100">
                           {group?.packScanRequired
                             ? quickPackBlockedCopy(group, vi)
                             : vi
-                              ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
+                              ? 'Cài đặt bắt buộc quét. Chuyển sang tab Đang đóng gói để đóng theo phiên.'
                               : 'Scan is required. Open the approved tab and use the session.'}
                         </p>
                       ) : (
@@ -2384,7 +2420,7 @@ export function PackagingWorkbench() {
                 type="button"
                 disabled={actionBusy}
                 onClick={() => {
-                  // Vượt số kiện cần lý do — ô nhập nằm trong hộp thoại duyệt.
+                  // Vượt số kiện cần lý do — ô nhập nằm trong hộp thoại chấp nhận kế hoạch.
                   if (overParcelLimit) {
                     setActionError(null)
                     setPlanDialog('approve')
@@ -2600,8 +2636,8 @@ export function PackagingWorkbench() {
             <h3 id="plan-dialog-title" className="text-base font-semibold text-ink">
               {planDialog === 'approve'
                 ? vi
-                  ? 'Duyệt kế hoạch'
-                  : 'Approve plan'
+                  ? 'Chấp nhận kế hoạch'
+                  : 'Accept plan'
                 : vi
                   ? 'Điều chỉnh thùng'
                   : 'Adjust box'}

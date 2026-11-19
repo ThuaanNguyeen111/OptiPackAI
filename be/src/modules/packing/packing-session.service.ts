@@ -630,10 +630,12 @@ export class PackingSessionService {
     const data = this.data(plan);
     const parcel = this.parcelOf(data, parcelNo);
     if (parcel.status !== 'held') throw this.parcelWrongStatus(groupId, parcel, 'xem lại');
-    if (dto.action === 'accept' && parcel.sealed_by?.toString() === userId) {
+    // AOFP-331 — "Cân lại" cũng gỡ được kiện giữ (nhập số khớp ước tính) → người niêm phong không tự làm.
+    // "Mở ra đóng lại" vẫn cho: kiện về chờ đóng, phải cân lại từ đầu.
+    if ((dto.action === 'accept' || dto.action === 'reweigh') && parcel.sealed_by?.toString() === userId) {
       throw new AppException(
         PACKING_ERROR_CODES.SELF_REVIEW_FORBIDDEN,
-        'Không tự chấp nhận kiện chính mình vừa niêm phong — nhờ Packaging Staff khác hoặc Admin xem lại.',
+        'Cần người khác xem lại kiện này — người niêm phong không tự chấp nhận hay cân lại kiện lệch cân.',
         HttpStatus.FORBIDDEN,
         { parcelNo },
       );

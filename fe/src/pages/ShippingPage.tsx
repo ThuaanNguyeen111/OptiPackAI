@@ -79,6 +79,7 @@ import type {
 import { isShipmentDeliveryOverdue, SHIPMENT_STATUS_LABELS } from '../types/shipments'
 import { formatCurrency, formatDateTime } from '../utils/format'
 import { formatKg } from '../utils/units'
+import { sessionUserId } from '../lib/session-user'
 import { uploadProofPhotos } from '../api/proof-photos.api'
 import { ProofPhotoPicker } from '../components/proof/ProofPhotoPicker'
 
@@ -162,22 +163,6 @@ function StylusSignatureGraphic() {
 
 function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id
-}
-
-/** `sub` trong access token là id người đang đăng nhập. */
-function sessionUserId(token: string | undefined): string | null {
-  if (!token) return null
-  const part = token.split('.')[1]
-  if (!part) return null
-  try {
-    const padded = part.replace(/-/g, '+').replace(/_/g, '/')
-    const json: unknown = JSON.parse(atob(padded))
-    if (typeof json !== 'object' || json === null || !('sub' in json)) return null
-    const sub = (json as { sub?: unknown }).sub
-    return typeof sub === 'string' && sub.length > 0 ? sub : null
-  } catch {
-    return null
-  }
 }
 
 type ExpressClock = { label: string; tone: 'ok' | 'soon' | 'late' }
