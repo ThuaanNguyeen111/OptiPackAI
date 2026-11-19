@@ -119,6 +119,15 @@ export type PackingPlan = {
     assignedPackerId: string | null
     assignedPackerName?: string | null
   }
+  /** (AOFP-322) Từ chối: lý do dạng "MÃ: ghi chú", người + giờ từ chối; null khi chưa từng bị từ chối. */
+  rejectedAt?: string | null
+  rejectionReason?: string | null
+  rejection?: {
+    reasonCode: string | null
+    rejectedByName?: string | null
+    dueAt: string | null
+    overdue: boolean
+  } | null
 }
 
 export const BOX_SOURCE_REASONS = [

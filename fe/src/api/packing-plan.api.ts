@@ -415,6 +415,22 @@ export function backToPicking(
   })
 }
 
+/** (AOFP-322) Đóng gói thủ công sau khi từ chối: mọi món, mỗi món đúng 1 kiện. Kế hoạch mới chờ NGƯỜI KHÁC duyệt. */
+export function manualPackPlan(
+  groupId: string,
+  input: {
+    expectedVersion: number
+    parcels: { orderId: string; boxCode: string; itemKeys: string[] }[]
+    note: string
+  },
+): Promise<PackingPlan> {
+  return readPlan(groupId, '/manual', {
+    expected_version: input.expectedVersion,
+    parcels: input.parcels.map((p) => ({ order_id: p.orderId, box_code: p.boxCode, item_keys: p.itemKeys })),
+    note: input.note,
+  })
+}
+
 export async function getPackingSettings(): Promise<PackingSettings> {
   const res = await apiRequest<{ settings: PackingSettings }>('/packing/settings', {
     auth: true,

@@ -285,7 +285,7 @@ describe('PackingPlanService', () => {
       notificationsService as never,
       { get: () => null } as never, // không có CP-SAT
       { get: () => Promise.resolve(settings) } as never,
-      { assignOnReady: jest.fn(() => Promise.resolve(null)) } as never,
+      { assignOnReady: jest.fn(() => Promise.resolve(null)), packerName: jest.fn(() => Promise.resolve('Nhân viên A')) } as never,
       undefined,
       undefined,
       undefined,
@@ -711,6 +711,9 @@ describe('PackingPlanService', () => {
       expect(rejected.rejection_owner_id).toBeNull();
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PICKED);
       expect(notificationsService.notify).toHaveBeenCalledTimes(3); // chờ duyệt + Admin + Store Owner
+      // AOFP-322 — lưu tên người từ chối để thẻ trên web hiện "bởi <người>".
+      expect(rejected.rejected_by_name).toBe('Nhân viên A');
+      expect(toPlanResponse(rejected).rejection).toMatchObject({ rejectedBy: userId, rejectedByName: 'Nhân viên A' });
     });
 
     it('reject: giao đích danh người xử lý thì chỉ báo người đó', async () => {
