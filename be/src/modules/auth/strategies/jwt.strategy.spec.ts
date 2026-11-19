@@ -66,6 +66,21 @@ describe('JwtStrategy.validate', () => {
     expect(redisCache.setUserAuthState).toHaveBeenCalledTimes(1);
   });
 
+  it('AOFP-334 AC2: token cấp trước lần đổi mật khẩu (tv lệch token_version) -> 401 AUTH_SESSION_REVOKED', async () => {
+    redisCache.getUserAuthState.mockResolvedValue({
+      is_active: true,
+      must_change_password: false,
+      role: UserRole.WAREHOUSE_STAFF,
+      token_version: 1,
+    });
+
+    await expect(strategy.validate({ ...payload, tv: 0 })).rejects.toMatchObject({
+      response: expect.objectContaining({ error_code: 'AUTH_SESSION_REVOKED' }) as unknown,
+    });
+    await expect(strategy.validate(payload)).rejects.toThrow(UnauthorizedException); // token cũ không có tv
+    await expect(strategy.validate({ ...payload, tv: 1 })).resolves.toMatchObject({ userId: 'user-id-1' });
+  });
+
   it('is_active=false -> 401', async () => {
     redisCache.getUserAuthState.mockResolvedValue({
       is_active: false,

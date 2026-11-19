@@ -76,6 +76,11 @@ Error response chuẩn:
 
 🔄 ĐÃ ĐỔI (09/10/2026): `POST /auth/refresh` và `POST /auth/logout` validate body `{ refresh_token: string }` (bắt buộc, khác rỗng) — thiếu/sai kiểu → 400 `VALIDATION_ERROR`. Lỗi đăng nhập/token trả mã `AUTH_*` riêng (xem "Bảng mã lỗi" → Auth).
 
+🔄 AOFP-334 (19/11/2026):
+- `POST /auth/refresh`: gửi lại refresh token **vừa bị xoay trong 10 giây** (2 tab / tab + app refresh gần nhau) → nhận cặp token mới, **không** còn bị coi là dùng lại và thu hồi mọi phiên. Quá 10 giây vẫn là `AUTH_REFRESH_TOKEN_REUSED`.
+- Access token mang thêm `tv` (phiên bản phiên). Đổi mật khẩu / đặt lại mật khẩu / Admin reset / vô hiệu hoá tài khoản → mọi access token cũ bị từ chối ngay lượt gọi kế tiếp: 401 `AUTH_SESSION_REVOKED`. Client xử lý như hết phiên (refresh token cũng đã bị xoá).
+- FE: chỉ xoá phiên khi `/auth/refresh` trả **401**; lỗi khác (mạng, 500) giữ phiên.
+
 ## 2. Users (`/users`)
 
 | Method | Route                       | Role               | Mô tả                                      |
@@ -568,7 +573,7 @@ Bảng tra nhanh theo module (chi tiết "khi nào xảy ra" vẫn ở guide tr�
 
 | Module | Codes |
 |---|---|
-| Auth 🔄 09/10 | `AUTH_INVALID_CREDENTIALS` (401), `AUTH_ACCOUNT_LOCKED` (403 — sai quá 5 lần, khóa 15 phút), `AUTH_ACCOUNT_INACTIVE` (401), `AUTH_PASSWORD_DEADLINE_LOCKED` (403 lúc login / 401 với token — quá 72h chưa đổi mật khẩu tạm), `AUTH_PASSWORD_CHANGE_REQUIRED` (403 — phải đổi mật khẩu trước, FE chuyển màn đổi mật khẩu), `AUTH_MFA_MISCONFIGURED` (401), `AUTH_MFA_TOKEN_INVALID` (401), `AUTH_MFA_BACKUP_CODE_INVALID` (401), `AUTH_MFA_SETUP_NOT_STARTED` (401), `AUTH_CURRENT_PASSWORD_INVALID` (401), `AUTH_RESET_TOKEN_INVALID` (401), `AUTH_GOOGLE_AUTH_FAILED` (401), `AUTH_GOOGLE_RESPONSE_INVALID` (401), `AUTH_REFRESH_TOKEN_INVALID` (401), `AUTH_REFRESH_TOKEN_EXPIRED` (401), `AUTH_REFRESH_TOKEN_REUSED` (401 — dùng lại token đã xoay, mọi phiên bị thu hồi), `AUTH_ROLE_INVALID` (401), `AUTH_FORBIDDEN_ROLE` (403 — vai trò không được gọi route), `AUTH_UNAUTHENTICATED` (401). Không có token / token hết hạn ở guard JWT vẫn là `UNAUTHORIZED` (401). Google OAuth callback báo lỗi qua redirect `?error=<GoogleOAuthErrorCode>` |
+| Auth 🔄 09/10 | `AUTH_INVALID_CREDENTIALS` (401), `AUTH_ACCOUNT_LOCKED` (403 — sai quá 5 lần, khóa 15 phút), `AUTH_ACCOUNT_INACTIVE` (401), `AUTH_PASSWORD_DEADLINE_LOCKED` (403 lúc login / 401 với token — quá 72h chưa đổi mật khẩu tạm), `AUTH_PASSWORD_CHANGE_REQUIRED` (403 — phải đổi mật khẩu trước, FE chuyển màn đổi mật khẩu), `AUTH_MFA_MISCONFIGURED` (401), `AUTH_MFA_TOKEN_INVALID` (401), `AUTH_MFA_BACKUP_CODE_INVALID` (401), `AUTH_MFA_SETUP_NOT_STARTED` (401), `AUTH_CURRENT_PASSWORD_INVALID` (401), `AUTH_RESET_TOKEN_INVALID` (401), `AUTH_GOOGLE_AUTH_FAILED` (401), `AUTH_GOOGLE_RESPONSE_INVALID` (401), `AUTH_REFRESH_TOKEN_INVALID` (401), `AUTH_REFRESH_TOKEN_EXPIRED` (401), `AUTH_REFRESH_TOKEN_REUSED` (401 — dùng lại token đã xoay, mọi phiên bị thu hồi), `AUTH_SESSION_REVOKED` (401 — 🆕 AOFP-334, access token cấp trước lần đổi/đặt lại mật khẩu), `AUTH_ROLE_INVALID` (401), `AUTH_FORBIDDEN_ROLE` (403 — vai trò không được gọi route), `AUTH_UNAUTHENTICATED` (401). Không có token / token hết hạn ở guard JWT vẫn là `UNAUTHORIZED` (401). Google OAuth callback báo lỗi qua redirect `?error=<GoogleOAuthErrorCode>` |
 | Users 🔄 09/10 | `USER_EMAIL_IN_USE` (409), `USER_EMAIL_INACTIVE` (409, `details.existingUserId`), `USER_NOT_FOUND` (404) |
 | Website AURELLE 🆕 09/10 | `SF_PRODUCT_NOT_FOUND` (404), `SF_VARIANT_INVALID` (400), `SF_VARIANT_NOT_FOUND` (404), `SF_VARIANT_UNAVAILABLE` (400), `SF_OUT_OF_STOCK` (400), `SF_QUANTITY_INVALID` (400), `SF_CART_ITEM_NOT_FOUND` (404), `SF_CART_EMPTY` (400), `SF_ORDER_NOT_FOUND` (404, kể cả id sai định dạng), `SF_EMAIL_IN_USE` (409), `SF_INVALID_CREDENTIALS` (401), `SF_ACCOUNT_INACTIVE` (401) |
 | Categories | `CAT_PARENT_NOT_FOUND` (404), `CAT_NOTHING_TO_UPDATE` (400) (🆕 09/10 bổ sung vào bảng; các mã khác xem `INTEGRATION_GUIDE_WAREHOUSE.md`) |

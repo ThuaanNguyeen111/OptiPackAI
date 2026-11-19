@@ -8,6 +8,7 @@ import {
 import { MfaDisabledNotice } from './components/auth/MfaDisabledNotice'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
+import { SessionExpiredDialog } from './components/auth/SessionExpiredDialog'
 import { PortalProvider } from './context/portal-provider'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
@@ -113,6 +114,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <SessionExpiredDialog />
         <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route index element={<LandingPage />} />

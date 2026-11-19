@@ -6,7 +6,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { RefreshToken } from '../schemas/refresh-token.schema';
-import { TokenService } from './token.service';
+import { User } from '../../users/schemas/user.schema';
+import { RedisCacheService } from '../../../common/redis/redis-cache.service';
+import { REFRESH_GRACE_MS, TokenService } from './token.service';
 
 describe('TokenService.rotateRefreshToken', () => {
   let service: TokenService;
@@ -14,7 +16,10 @@ describe('TokenService.rotateRefreshToken', () => {
     findOne: jest.Mock;
     deleteOne: jest.Mock;
     deleteMany: jest.Mock;
+    updateOne: jest.Mock;
   };
+  let userModel: { updateOne: jest.Mock };
+  let redisCache: { invalidateUserAuthState: jest.Mock };
  
   let generateTokenPairSpy: jest.SpyInstance;
 
@@ -34,11 +39,12 @@ describe('TokenService.rotateRefreshToken', () => {
   // save() là mock riêng để verify được gọi đúng khi rotate thành công.
   //!=============================================
   function makeStoredToken(
-    overrides: Partial<{ is_revoked: boolean; exp: Date }> = {},
+    overrides: Partial<{ is_revoked: boolean; exp: Date; revoked_at: Date }> = {},
   ): {
     _id: Types.ObjectId;
     user_id: Types.ObjectId;
     is_revoked: boolean;
+    revoked_at?: Date;
     exp: Date;
     save: jest.Mock;
   } {
@@ -46,6 +52,7 @@ describe('TokenService.rotateRefreshToken', () => {
       _id: new Types.ObjectId(),
       user_id: new Types.ObjectId(userId),
       is_revoked: overrides.is_revoked ?? false,
+      revoked_at: overrides.revoked_at,
       exp: overrides.exp ?? new Date(Date.now() + 60_000), // hạn 1 phút nữa
       save: jest.fn().mockResolvedValue(undefined),
     };
@@ -56,7 +63,10 @@ describe('TokenService.rotateRefreshToken', () => {
       findOne: jest.fn(),
       deleteOne: jest.fn().mockResolvedValue(undefined),
       deleteMany: jest.fn().mockResolvedValue(undefined),
+      updateOne: jest.fn().mockResolvedValue({ matchedCount: 1 }),
     };
+    userModel = { updateOne: jest.fn().mockResolvedValue({ matchedCount: 1 }) };
+    redisCache = { invalidateUserAuthState: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -70,6 +80,8 @@ describe('TokenService.rotateRefreshToken', () => {
           provide: getModelToken(RefreshToken.name),
           useValue: refreshTokenModel,
         },
+        { provide: getModelToken(User.name), useValue: userModel },
+        { provide: RedisCacheService, useValue: redisCache },
       ],
     }).compile();
 
@@ -123,6 +135,30 @@ describe('TokenService.rotateRefreshToken', () => {
     );
     // Không được sinh token mới trong tình huống này
     expect(generateTokenPairSpy).not.toHaveBeenCalled();
+    // AOFP-334 — access token cũ cũng hết hiệu lực
+    expect(userModel.updateOne).toHaveBeenCalledWith({ _id: new Types.ObjectId(userId) }, { $inc: { token_version: 1 } }, { session: undefined });
+    expect(redisCache.invalidateUserAuthState).toHaveBeenCalledWith(userId);
+  });
+
+  it('AOFP-334 AC1: token vừa bị tab khác xoay (trong ân hạn) → cấp cặp mới, KHÔNG thu hồi mọi phiên', async () => {
+    const stored = makeStoredToken({ is_revoked: true, revoked_at: new Date(Date.now() - 2_000) });
+    refreshTokenModel.findOne.mockResolvedValue(stored);
+
+    const result = await service.rotateRefreshToken(rawToken, meta, jest.fn().mockResolvedValue(activeSubject));
+
+    expect(result.access_token).toBe('new-access-token');
+    expect(refreshTokenModel.deleteMany).not.toHaveBeenCalled();
+    expect(refreshTokenModel.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('AOFP-334: dùng lại token đã xoay QUÁ thời gian ân hạn → vẫn là REUSE, thu hồi mọi phiên', async () => {
+    const stored = makeStoredToken({ is_revoked: true, revoked_at: new Date(Date.now() - REFRESH_GRACE_MS - 1_000) });
+    refreshTokenModel.findOne.mockResolvedValue(stored);
+
+    await expect(
+      service.rotateRefreshToken(rawToken, meta, jest.fn().mockResolvedValue(activeSubject)),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(refreshTokenModel.deleteMany).toHaveBeenCalled();
   });
 
   it('token đã hết hạn -> 401, xóa document đó khỏi DB', async () => {
@@ -157,7 +193,7 @@ describe('TokenService.rotateRefreshToken', () => {
       ),
     ).rejects.toThrow(UnauthorizedException);
 
-    expect(stored.save).not.toHaveBeenCalled();
+    expect(refreshTokenModel.updateOne).not.toHaveBeenCalled();
   });
 
   it('token hợp lệ, tài khoản active -> đánh dấu revoked, lưu lại, sinh token pair MỚI', async () => {
@@ -167,8 +203,11 @@ describe('TokenService.rotateRefreshToken', () => {
 
     const result = await service.rotateRefreshToken(rawToken, meta, getSubject);
 
-    expect(stored.is_revoked).toBe(true);
-    expect(stored.save).toHaveBeenCalledTimes(1);
+    // AOFP-334 — đánh dấu xoay bằng ghi có điều kiện (không đọc-rồi-save).
+    expect(refreshTokenModel.updateOne).toHaveBeenCalledWith(
+      { _id: stored._id, is_revoked: false },
+      { $set: { is_revoked: true, revoked_at: expect.any(Date) as unknown } },
+    );
     expect(getSubject).toHaveBeenCalledWith(userId);
     expect(generateTokenPairSpy).toHaveBeenCalledWith(activeSubject, meta);
     expect(result).toEqual({
