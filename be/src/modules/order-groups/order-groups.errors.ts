@@ -12,6 +12,7 @@ export const ORD_GROUP_ERROR_CODES = {
   STATE_CONFLICT: 'ORD_GROUP_STATE_CONFLICT', // Rule #18 optimistic concurrency — version không khớp
   INVALID_TRANSITION: 'ORD_GROUP_INVALID_TRANSITION', // MỚI — chuyển trạng thái không hợp lệ theo allowed-status-transitions.ts
   // BỔ SUNG (2026-09-10) — pick-item
+  STOCK_RESERVED_BY_OTHER: 'ORD_GROUP_STOCK_RESERVED_BY_OTHER', // AOFP-327 — tồn còn trên kệ nhưng đang giữ cho nhóm khác
   INSUFFICIENT_STOCK: 'ORD_GROUP_INSUFFICIENT_STOCK', // quantity_on_hand không đủ — FE nên gợi ý report-missing
   // BỔ SUNG (2026-09-10) — item-detail
   ITEM_NOT_IN_GROUP: 'ORD_GROUP_ITEM_NOT_IN_GROUP', // SKU truyền vào không thuộc group này

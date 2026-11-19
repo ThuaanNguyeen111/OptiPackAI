@@ -1022,6 +1022,7 @@ function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
   return {
     sku,
     quantity: pickNumber(row.quantity),
+    picked_quantity: typeof row.picked_quantity === 'number' ? row.picked_quantity : null,
     length_cm: pickNumber(row.length_cm),
     width_cm: pickNumber(row.width_cm),
     height_cm: pickNumber(row.height_cm),

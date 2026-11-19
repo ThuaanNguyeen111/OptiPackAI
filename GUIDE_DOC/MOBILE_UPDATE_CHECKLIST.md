@@ -72,6 +72,7 @@ Mục đích: mất mạng ở cuối kho thì nhân viên vẫn quét tiếp đ
 | 409 `*_CONFLICT` | Tải lại dữ liệu, báo "Nhóm này vừa được người khác cập nhật", không tự gửi lại |
 | 409 `WH_CLIENT_EVENT_REUSED` | Mã thao tác bị dùng cho thao tác khác: tạo mã mới, cho người dùng bấm lại |
 | 409 `ORD_GROUP_INSUFFICIENT_STOCK` | Ô không đủ hàng: gợi ý "Báo thiếu" (mục 4.3) |
+| 🆕 409 `ORD_GROUP_STOCK_RESERVED_BY_OTHER` (AOFP-327) | Hàng trên kệ đang giữ cho nhóm khác — **không** gợi ý "Báo thiếu" ngay; hiện thông điệp BE |
 
 Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằng `before` (con trỏ `created_at` của dòng cuối trang trước).
 
