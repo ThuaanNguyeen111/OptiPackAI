@@ -99,6 +99,10 @@ export type ProductMasterRow = {
   zipBagCode: string | null
   zipBagFolded: boolean
   canFoldInHalf: boolean
+  /** AOFP-318 — GSM vải (quần áo). null = dùng GSM mặc định theo loại. */
+  fabricGsm: number | null
+  /** AOFP-318 — chỉ có ở response lưu hồ sơ: cảnh báo không chặn (vd độ dày lệch GSM). */
+  warnings: string[]
   /** Kho đặt riêng cho SKU. null = theo loại hàng. */
   outerRequirement: OuterRequirement | null
   /** Giá trị đang áp sau khi xét loại hàng và cờ dễ vỡ. */
@@ -115,7 +119,10 @@ export type ProductMasterRow = {
 export type ConfirmPackagingProfileInput = {
   length_cm: number
   width_cm: number
-  height_cm: number
+  /** Quần áo được bỏ trống → BE tính từ GSM. Hàng khác bắt buộc. */
+  height_cm?: number
+  /** AOFP-318 — GSM vải (20–1500), chỉ quần áo. null = GSM mặc định theo loại. */
+  fabric_gsm?: number | null
   weight_kg: number
   is_fragile: boolean
   orientation_rule: 'any' | 'upright_only'
@@ -512,6 +519,10 @@ function mapProductMaster(raw: unknown): ProductMasterRow | null {
     zipBagCode: pickString(row.zipBagCode, row.zip_bag_code) || null,
     zipBagFolded: row.zipBagFolded === true || row.zip_bag_folded === true,
     canFoldInHalf: row.canFoldInHalf === true || row.can_fold_in_half === true,
+    fabricGsm: pickNumber(row.fabricGsm, row.fabric_gsm),
+    warnings: Array.isArray(row.warnings)
+      ? row.warnings.filter((w): w is string => typeof w === 'string')
+      : [],
     outerRequirement: outerRequirementOf(row.outerRequirement ?? row.outer_requirement),
     effectiveOuterRequirement: outerRequirementOf(row.effectiveOuterRequirement),
     suggestedZipBagCode: pickString(row.suggestedZipBagCode, row.suggested_zip_bag_code) || null,
