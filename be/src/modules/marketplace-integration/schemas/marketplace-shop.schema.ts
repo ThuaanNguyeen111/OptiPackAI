@@ -65,6 +65,11 @@ export class MarketplaceShop {
   @Prop({ type: Date, default: null })
   last_polled_at!: Date | null;
 
+  // AOFP-320 — đơn lỗi ở lượt đồng bộ gần nhất (order_id = mã đơn trên sàn). count = số lượt
+  // lỗi liên tiếp; đơn đồng bộ được ở lượt sau thì không còn trong danh sách.
+  @Prop({ type: [{ _id: false, order_id: String, count: Number, last_error: String }], default: [] })
+  sync_failures?: { order_id: string; count: number; last_error: string }[];
+
   // 04/10/2026 — mốc lần đồng bộ CATALOG sản phẩm (Product Master) gần nhất của shop.
   // Lần đồng bộ sau chỉ lấy sản phẩm thay đổi sau mốc này. null = chưa từng -> lấy toàn bộ.
   @Prop({ type: Date, default: null })
