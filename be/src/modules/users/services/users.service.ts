@@ -146,7 +146,7 @@ export class UsersService {
       this.userModel
         .find(filters)
         .select(
-          '-password -mfa_secret -mfa_backup_codes -reset_password_token_hash',
+          '-password -mfa_secret -mfa_pending_secret -mfa_backup_codes -reset_password_token_hash',
         )
         .skip(skip)
         .limit(limit),
@@ -303,17 +303,17 @@ export class UsersService {
   //!=============================================
   // Quản lý MFA secret — dùng bởi AuthService khi setup/verify/login
   //!=============================================
+  // AOFP-333 — chỉ lưu secret chờ; MFA đang bật giữ nguyên tới khi verify mã mới.
   async setPendingMfaSecret(userId: string, secret: string): Promise<void> {
-    await this.userModel.findByIdAndUpdate(userId, {
-      mfa_secret: secret,
-      mfa_enabled: false,
-    });
+    await this.userModel.findByIdAndUpdate(userId, { mfa_pending_secret: secret });
   }
 
-  async enableMfa(userId: string, hashedBackupCodes: string[]): Promise<void> {
+  async enableMfa(userId: string, secret: string, hashedBackupCodes: string[]): Promise<void> {
     await this.userModel.findByIdAndUpdate(userId, {
       mfa_enabled: true,
+      mfa_secret: secret,
       mfa_backup_codes: hashedBackupCodes,
+      $unset: { mfa_pending_secret: 1 },
     });
   }
 
@@ -338,6 +338,7 @@ export class UsersService {
       mfa_enabled: false,
       mfa_secret: null,
       mfa_backup_codes: [],
+      $unset: { mfa_pending_secret: 1 },
     });
     if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
     await this.redisCache.invalidateUserAuthState(userId);

@@ -32,6 +32,9 @@ import {
   RefreshTokenDto,
   ResetPasswordDto,
   VerifyMfaSetupDto,
+  SetupMfaDto,
+  GoogleLoginCodeDto,
+  GoogleMfaLoginDto,
 } from './dto';
 import {
   GoogleAccountInactiveException,
@@ -158,14 +161,22 @@ export class AuthController {
   //!=============================================
   // MFA
   //!=============================================
-  @ApiOperation({ summary: 'Bước 1: Sinh QR code MFA cho tài khoản hiện tại' })
+  @ApiOperation({
+    summary:
+      'Bước 1: Sinh QR code MFA (qrDataUrl = ảnh PNG data-URL). MFA đang bật thì phải gửi current_token hoặc password (401 AUTH_MFA_REAUTH_REQUIRED); MFA cũ giữ nguyên tới khi verify mã mới.',
+  })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('mfa/setup')
   async setupMfa(
+    @Body() dto: SetupMfaDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ otpauthUrl: string }> {
-    return this.authService.setupMfa(user.userId, user.email);
+  ): Promise<{ otpauthUrl: string; qrDataUrl: string }> {
+    return this.authService.setupMfa(user.userId, user.email, {
+      currentToken: dto.current_token,
+      password: dto.password,
+    });
   }
 
   @ApiOperation({ summary: 'Bước 2: Xác thực mã TOTP để kích hoạt MFA' })
@@ -219,8 +230,37 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('google/mobile')
-  async googleMobile(@Body() dto: GoogleMobileLoginDto, @Req() req: Request): Promise<LoginResult> {
+  async googleMobile(
+    @Body() dto: GoogleMobileLoginDto,
+    @Req() req: Request,
+  ): Promise<LoginResult | MfaRequiredResult> {
     return this.authService.googleMobileLogin(dto.id_token, this.extractMeta(req));
+  }
+
+  @ApiOperation({
+    summary:
+      'AOFP-333: đổi login_code trên URL /oauth-success lấy kết quả đăng nhập Google (dùng 1 lần, sống 60 giây). Lỗi: AUTH_GOOGLE_LOGIN_CODE_INVALID.',
+  })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('google/exchange')
+  async googleExchange(@Body() dto: GoogleLoginCodeDto): Promise<LoginResult | MfaRequiredResult> {
+    return this.authService.exchangeGoogleLoginCode(dto.login_code);
+  }
+
+  @ApiOperation({
+    summary:
+      'AOFP-333: tài khoản bật MFA đăng nhập Google → nhận { mfa_required, mfa_challenge }; gửi challenge + mfa_token (hoặc backup_code) để lấy token. Lỗi: AUTH_GOOGLE_MFA_CHALLENGE_INVALID, AUTH_MFA_TOKEN_INVALID, AUTH_MFA_BACKUP_CODE_INVALID.',
+  })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('google/mfa')
+  async googleMfa(@Body() dto: GoogleMfaLoginDto, @Req() req: Request): Promise<LoginResult> {
+    return this.authService.googleMfaLogin(
+      dto.mfa_challenge,
+      { mfaToken: dto.mfa_token, backupCode: dto.backup_code },
+      this.extractMeta(req),
+    );
   }
 
   //!=============================================
@@ -268,13 +308,9 @@ export class AuthController {
         this.extractMeta(req),
         codeVerifier,
       );
-      const params = new URLSearchParams({
-        access_token: result.access_token,
-        refresh_token: result.refresh_token,
-        role: String(result.role),
-        must_change_password: String(result.must_change_password),
-      });
-      return { url: `${frontendUrl}?${params.toString()}` };
+      // AOFP-333 — không đặt token lên URL (lịch sử trình duyệt, log): FE đổi login_code qua POST.
+      const loginCode = await this.authService.stashGoogleResult(result);
+      return { url: `${frontendUrl}?login_code=${loginCode}` };
     } catch (err: unknown) {
       //!=============================================
       // FIX #35: trước đây "catch {}" mù, gộp MỌI lỗi thành 1 mã

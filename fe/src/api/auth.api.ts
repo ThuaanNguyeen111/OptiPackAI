@@ -15,7 +15,9 @@ function asLoginResponse(payload: unknown): LoginResponse {
   }
   const data = payload as Record<string, unknown>
   if (data.mfa_required === true) {
-    return { mfa_required: true }
+    return typeof data.mfa_challenge === 'string'
+      ? { mfa_required: true, mfa_challenge: data.mfa_challenge }
+      : { mfa_required: true }
   }
 
   const role = Number(data.role)
@@ -92,11 +94,37 @@ export function googleAuthUrl() {
   return `${API_BASE_URL}/auth/google`
 }
 
-export async function setupMfa(): Promise<{ otpauthUrl: string }> {
-  return apiRequest<{ otpauthUrl: string }>('/auth/mfa/setup', {
+/** AOFP-333 — MFA đang bật thì phải gửi mã hiện tại hoặc mật khẩu. QR là data-URL do BE vẽ. */
+export async function setupMfa(
+  reauth: { current_token?: string; password?: string } = {},
+): Promise<{ otpauthUrl: string; qrDataUrl: string }> {
+  return apiRequest<{ otpauthUrl: string; qrDataUrl: string }>('/auth/mfa/setup', {
     method: 'POST',
     auth: true,
+    body: reauth,
   })
+}
+
+/** AOFP-333 — đổi `login_code` (1 lần, 60 giây) trên URL /oauth-success lấy kết quả đăng nhập Google. */
+export async function exchangeGoogleLogin(login_code: string): Promise<LoginResponse> {
+  const raw = await apiRequest<unknown>('/auth/google/exchange', {
+    method: 'POST',
+    body: { login_code },
+  })
+  return asLoginResponse(raw)
+}
+
+/** AOFP-333 — tài khoản bật MFA đăng nhập Google: nhập mã TOTP hoặc mã dự phòng. */
+export async function googleMfaLogin(body: {
+  mfa_challenge: string
+  mfa_token?: string
+  backup_code?: string
+}): Promise<LoginResponse> {
+  const raw = await apiRequest<unknown>('/auth/google/mfa', {
+    method: 'POST',
+    body,
+  })
+  return asLoginResponse(raw)
 }
 
 export async function verifyMfaSetup(
