@@ -45,7 +45,7 @@ import {
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { usePortal } from '../../context/use-portal'
 import { UserRole } from '../../types/auth'
-import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
+import { ApiError, formatApiError, getApiErrorCode, isUncertainWrite } from '../../lib/api'
 import { groupStatusTone } from '../../lib/stage-colors'
 import {
   groupParcelsByOrder,
@@ -872,8 +872,10 @@ export function PackagingWorkbench() {
   }
 
   function reloadPlanAfterConflict(err: unknown): void {
-    setActionError(formatApiError(err))
-    if (!(err instanceof ApiError) || err.status !== 409 || !group) return
+    // AOFP-323 — mất mạng / hết giờ sau khi bấm: không biết đã lưu chưa → tải lại kế hoạch.
+    const uncertain = isUncertainWrite(err)
+    setActionError(uncertain ? (vi ? 'Chưa chắc đã lưu, đang tải lại…' : 'Not sure it was saved, reloading…') : formatApiError(err))
+    if (!group || !(uncertain || (err instanceof ApiError && err.status === 409))) return
     lastPackagingKeyRef.current = null
     void getPackingPlan(group.id)
       .then((next) => {

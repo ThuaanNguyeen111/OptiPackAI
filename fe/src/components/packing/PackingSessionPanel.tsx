@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type ReactElement } from 'react'
 import { Loader2 } from 'lucide-react'
+import { ApiError, getApiErrorCode } from '../../lib/api'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 import { uploadProofPhotos } from '../../api/proof-photos.api'
 import { ProofPhotoPicker } from '../proof/ProofPhotoPicker'
@@ -47,6 +48,29 @@ function newEventId(): string {
   return `scan-${String(Date.now())}`
 }
 
+/** AOFP-323 — nhãn trạng thái kế hoạch / kiện (không hiện mã tiếng Anh). */
+const PLAN_STATUS_LABELS: Record<string, { vi: string; en: string }> = {
+  approved: { vi: 'Đã duyệt – chờ đóng', en: 'Approved – ready to pack' },
+  packing: { vi: 'Đang đóng', en: 'Packing' },
+  packed: { vi: 'Đã đóng xong', en: 'Packed' },
+}
+const PARCEL_STATUS_LABELS: Record<string, { vi: string; en: string }> = {
+  pending: { vi: 'Chờ niêm phong', en: 'Waiting to seal' },
+  sealed: { vi: 'Đã niêm phong', en: 'Sealed' },
+  held: { vi: 'Lệch cân – chờ xem lại', en: 'Weight off – awaiting review' },
+  to_unpack: { vi: 'Cần tháo', en: 'Must unpack' },
+  voided: { vi: 'Đã tháo', en: 'Unpacked' },
+}
+function statusLabel(labels: Record<string, { vi: string; en: string }>, status: string, vi: boolean): string {
+  const label = labels[status]
+  return label ? (vi ? label.vi : label.en) : status
+}
+
+/** Kiện còn hiệu lực (giống BE `isLiveParcel`): kiện cần tháo / đã tháo không tính. */
+function isLiveParcel(parcel: { status: string }): boolean {
+  return parcel.status !== 'to_unpack' && parcel.status !== 'voided'
+}
+
 function weightOk(value: string): number | null {
   const weight = Number(value)
   if (!Number.isFinite(weight) || weight < 0.001 || weight > 100) return null
@@ -72,8 +96,16 @@ export function PackingSessionPanel({
 }): ReactElement {
   const [busy, setBusy] = useState(false)
   const [code, setCode] = useState('')
-  const [sealWeight, setSealWeight] = useState('')
-  const [reviewWeight, setReviewWeight] = useState('')
+  const scanInputRef = useRef<HTMLInputElement>(null)
+  /** Kết quả lần quét gần nhất (đã quét / quét sai kiện) — hiện ngay dưới ô quét. */
+  const [scanNote, setScanNote] = useState<{ text: string; warn: boolean } | null>(null)
+  // AOFP-323 — cân / cân lại / tình trạng thùng theo TỪNG kiện (khoá `${plan.id}:${parcelNo}`),
+  // để cân kiện 1 không dính sang kiện 2.
+  const [sealWeights, setSealWeights] = useState<Record<string, string>>({})
+  const [reviewWeights, setReviewWeights] = useState<Record<string, string>>({})
+  const [boxConditions, setBoxConditions] = useState<Record<string, 'reusable' | 'damaged'>>({})
+  /** Kiện người dùng chọn làm; null / không còn chờ niêm phong → kiện chờ có số nhỏ nhất. */
+  const [chosenNo, setChosenNo] = useState<number | null>(null)
   const [reviewReason, setReviewReason] = useState<ParcelReviewReason>('SCALE_ERROR')
   const [unscanReason, setUnscanReason] = useState('')
   const [boxCode, setBoxCode] = useState(boxes[0]?.code ?? '')
@@ -84,7 +116,6 @@ export function PackingSessionPanel({
   const [warehouseId, setWarehouseId] = useState('')
   /** (13/11/2026) Ảnh món lỗi theo kiện, chưa tải lên. */
   const [issuePhotos, setIssuePhotos] = useState<Record<number, File[]>>({})
-  const [boxCondition, setBoxCondition] = useState<'reusable' | 'damaged'>('reusable')
   const [sources, setSources] = useState<PackingBoxSources | null>(null)
   const [boxChoice, setBoxChoice] = useState<Record<number, BoxSourceInput>>({})
   // Khoá theo kế hoạch + kiện: đổi kế hoạch thì ảnh cũ không dính sang.
@@ -106,19 +137,64 @@ export function PackingSessionPanel({
   }, [groupId, plan.status, plan.version])
 
   const canStart = plan.status === 'approved'
+  const liveParcels = plan.parcels.filter(isLiveParcel)
   const canFinish =
     plan.status === 'packing' &&
-    plan.parcels.length > 0 &&
-    plan.parcels.every((parcel) => parcel.status === 'sealed')
+    liveParcels.length > 0 &&
+    liveParcels.every((parcel) => parcel.status === 'sealed')
+  const pendingNos = plan.parcels
+    .filter((parcel) => parcel.status === 'pending')
+    .map((parcel) => parcel.parcelNo)
+    .sort((a, b) => a - b)
+  const activeNo =
+    plan.status !== 'packing'
+      ? null
+      : chosenNo != null && pendingNos.includes(chosenNo)
+        ? chosenNo
+        : (pendingNos[0] ?? null)
+  const activeParcel = plan.parcels.find((parcel) => parcel.parcelNo === activeNo) ?? null
+  const keyOf = (parcelNo: number): string => `${plan.id}:${String(parcelNo)}`
 
-  async function run(task: () => Promise<PackingPlan>): Promise<void> {
+  async function run(task: () => Promise<PackingPlan>, onDone?: () => void): Promise<void> {
     setBusy(true)
     try {
       onPlan(await task())
+      onDone?.()
     } catch (err: unknown) {
       onError(err)
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function scan(parcelNo: number): Promise<void> {
+    const value = code.trim()
+    if (!value || busy) return
+    setBusy(true)
+    try {
+      const res = await scanParcelItem(groupId, parcelNo, { code: value, quantity: 1, clientEventId: newEventId() })
+      onPlan(res.plan)
+      setCode('')
+      setScanNote({
+        text: res.scan.duplicate
+          ? vi ? `Đã ghi nhận ${res.scan.sku} trước đó (bỏ qua lần gửi lại)` : `${res.scan.sku} was already recorded`
+          : vi
+            ? `Đã quét ${res.scan.sku} · kiện ${String(res.scan.parcelNo)} còn ${String(res.scan.remainingInParcel)} món`
+            : `Scanned ${res.scan.sku} · parcel ${String(res.scan.parcelNo)} has ${String(res.scan.remainingInParcel)} left`,
+        warn: false,
+      })
+    } catch (err: unknown) {
+      const belongs = err instanceof ApiError ? err.details?.belongsToParcels : null
+      if (getApiErrorCode(err) === 'PACKING_SCAN_WRONG_PARCEL' && Array.isArray(belongs) && belongs.length > 0) {
+        setCode('')
+        setScanNote({ text: vi ? `Món này thuộc kiện ${belongs.join(', ')}` : `This item belongs to parcel ${belongs.join(', ')}`, warn: true })
+      } else {
+        setScanNote(null)
+        onError(err)
+      }
+    } finally {
+      setBusy(false)
+      scanInputRef.current?.focus() // súng quét bắn liên tục — giữ focus cho lần quét sau
     }
   }
 
@@ -128,8 +204,15 @@ export function PackingSessionPanel({
         <h3 className="text-sm font-semibold text-ink">
           {vi ? 'Phiên đóng gói' : 'Packing session'}
         </h3>
-        <span className="text-xs capitalize text-ink-muted">{plan.status}</span>
+        <span className="text-xs text-ink-muted">{statusLabel(PLAN_STATUS_LABELS, plan.status, vi)}</span>
       </div>
+      {activeParcel ? (
+        <p className="rounded-md bg-sky-50 px-2 py-1.5 text-xs font-medium text-sky-900 dark:bg-sky-500/10 dark:text-sky-200">
+          {vi
+            ? `Kiện ${String(liveParcels.findIndex((p) => p.parcelNo === activeParcel.parcelNo) + 1)}/${String(liveParcels.length)} · đã quét ${String(activeParcel.scannedCount ?? activeParcel.scans?.length ?? 0)}/${String(activeParcel.itemCount ?? '—')} món`
+            : `Parcel ${String(liveParcels.findIndex((p) => p.parcelNo === activeParcel.parcelNo) + 1)}/${String(liveParcels.length)} · scanned ${String(activeParcel.scannedCount ?? activeParcel.scans?.length ?? 0)}/${String(activeParcel.itemCount ?? '—')} items`}
+        </p>
+      ) : null}
       {canStart ? (
         <button
           type="button"
@@ -156,8 +239,16 @@ export function PackingSessionPanel({
         const sourceInfo = sources?.parcels.find((p) => p.parcelNo === parcel.parcelNo)
         const choice: BoxSourceInput = boxChoice[parcel.parcelNo] ?? { source: 'auto' }
         const caption = parcelOrderCaption(parcel, vi)
-        const photoKey = `${plan.id}:${String(parcel.parcelNo)}`
+        const photoKey = keyOf(parcel.parcelNo)
         const photos = sealPhotos[photoKey] ?? []
+        // AOFP-323 — chỉ kiện đang làm mở form; kiện chờ khác thu gọn, bấm "Làm kiện N" để chuyển.
+        const working = pending && parcel.parcelNo === activeNo
+        const collapsed = pending && plan.status === 'packing' && !working
+        const scannedCount = parcel.scannedCount ?? parcel.scans?.length ?? 0
+        const fullyScanned = parcel.itemCount == null || scannedCount >= parcel.itemCount
+        const sealWeight = sealWeights[photoKey] ?? ''
+        const reviewWeight = reviewWeights[photoKey] ?? ''
+        const boxCondition = boxConditions[photoKey] ?? 'reusable'
         return (
           <div
             key={parcel.parcelNo}
@@ -169,12 +260,26 @@ export function PackingSessionPanel({
               {caption ? (
                 <span className="ml-2 text-xs font-semibold text-sky-700">{caption}</span>
               ) : null}
-              <span className="ml-2 text-xs capitalize text-ink-muted">{parcel.status}</span>
+              <span className="ml-2 text-xs text-ink-muted">{statusLabel(PARCEL_STATUS_LABELS, parcel.status, vi)}</span>
               <span className="ml-2 text-xs text-ink-muted">
-                {String(parcel.scannedCount ?? parcel.scans?.length ?? 0)}/
+                {String(scannedCount)}/
                 {String(parcel.itemCount ?? '—')}
               </span>
             </p>
+            {collapsed ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setChosenNo(parcel.parcelNo)
+                  setScanNote(null)
+                }}
+                className="mt-2 rounded-lg border border-hairline px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {vi ? `Làm kiện ${String(parcel.parcelNo)}` : `Work on parcel ${String(parcel.parcelNo)}`}
+              </button>
+            ) : null}
+            {collapsed ? null : <>
             <SharedParcelOrders parcel={parcel} orders={plan.orders} vi={vi} />
             {pending && parcel.box.cutFromInnerHeightMm != null ? (
               <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
@@ -182,33 +287,40 @@ export function PackingSessionPanel({
                 {boxCutNote(parcel.box, vi)}
               </p>
             ) : null}
-            {pending && plan.status === 'packing' ? (
-              <div className="mt-2 flex flex-wrap gap-2">
+            {working ? (
+              // Súng quét gõ mã rồi gửi Enter → submit form.
+              <form
+                className="mt-2 flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void scan(parcel.parcelNo)
+                }}
+              >
                 <input
+                  ref={scanInputRef}
+                  autoFocus
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
                   placeholder={vi ? 'SKU sàn hoặc SKU nội bộ' : 'Seller or master SKU'}
+                  aria-label={vi ? `Quét món kiện ${String(parcel.parcelNo)}` : `Scan item for parcel ${String(parcel.parcelNo)}`}
                   className="h-9 min-w-[12rem] rounded-lg border border-hairline bg-canvas px-2 text-sm"
                 />
                 <button
-                  type="button"
+                  type="submit"
                   disabled={busy || code.trim().length === 0}
-                  onClick={() =>
-                    void run(async () => {
-                      const next = await scanParcelItem(groupId, parcel.parcelNo, {
-                        code: code.trim(),
-                        quantity: 1,
-                        clientEventId: newEventId(),
-                      })
-                      setCode('')
-                      return next
-                    })
-                  }
                   className="rounded-lg bg-primary px-3 py-2 text-sm text-white disabled:opacity-50"
                 >
                   {vi ? 'Quét' : 'Scan'}
                 </button>
-              </div>
+                {scanNote ? (
+                  <p
+                    role="status"
+                    className={`basis-full text-xs font-medium ${scanNote.warn ? 'text-amber-800 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-300'}`}
+                  >
+                    {scanNote.text}
+                  </p>
+                ) : null}
+              </form>
             ) : null}
             {(parcel.scans ?? []).length > 0 ? (
               <ul className="mt-2 space-y-1">
@@ -246,7 +358,7 @@ export function PackingSessionPanel({
                 ))}
               </ul>
             ) : null}
-            {pending && plan.status === 'packing' && sourceInfo ? (
+            {working && sourceInfo ? (
               <BoxSourceFields
                 vi={vi}
                 info={sourceInfo}
@@ -259,7 +371,7 @@ export function PackingSessionPanel({
                 <PhotoThumbs urls={parcel.sealPhotoUrls ?? []} alt={vi ? 'Ảnh niêm phong' : 'Seal photo'} size="h-14 w-14" />
               </div>
             ) : null}
-            {pending && plan.status === 'packing' ? (
+            {working && fullyScanned ? (
               <SealPhotoPicker
                 vi={vi}
                 required={requireSealPhoto}
@@ -268,13 +380,22 @@ export function PackingSessionPanel({
                 onChange={(urls) => setSealPhotos((prev) => ({ ...prev, [photoKey]: urls }))}
               />
             ) : null}
-            {pending && plan.status === 'packing' ? (
+            {working && !fullyScanned ? (
+              <p className="mt-2 text-xs text-ink-muted">
+                {vi
+                  ? `Quét đủ ${String(parcel.itemCount ?? '')} món rồi mới cân và niêm phong.`
+                  : `Scan all ${String(parcel.itemCount ?? '')} items before weighing and sealing.`}
+              </p>
+            ) : null}
+            {working ? (
               <div className="mt-2 flex flex-wrap items-end gap-2">
+                {fullyScanned ? (
+                  <>
                 <label className="text-xs text-ink-muted">
-                  {vi ? 'Cân kiện (kg)' : 'Parcel weight (kg)'}
+                  {vi ? `Cân kiện ${String(parcel.parcelNo)} (kg)` : `Parcel ${String(parcel.parcelNo)} weight (kg)`}
                   <input
                     value={sealWeight}
-                    onChange={(event) => setSealWeight(event.target.value)}
+                    onChange={(event) => setSealWeights((prev) => ({ ...prev, [photoKey]: event.target.value }))}
                     inputMode="decimal"
                     className="mt-1 block h-9 w-28 rounded-lg border border-hairline bg-canvas px-2 text-sm"
                   />
@@ -291,21 +412,30 @@ export function PackingSessionPanel({
                       onError(new Error(msg))
                       return
                     }
-                    void run(() =>
-                      sealParcel(
-                        groupId,
-                        parcel.parcelNo,
-                        plan.version,
-                        weight,
-                        sourceInfo ? choice : undefined,
-                        photos,
-                      ),
+                    void run(
+                      () =>
+                        sealParcel(
+                          groupId,
+                          parcel.parcelNo,
+                          plan.version,
+                          weight,
+                          sourceInfo ? choice : undefined,
+                          photos,
+                        ),
+                      () => {
+                        // Niêm phong xong: xoá cân + ảnh của kiện này; kiện chờ kế tiếp tự mở.
+                        setSealWeights((prev) => ({ ...prev, [photoKey]: '' }))
+                        setSealPhotos((prev) => ({ ...prev, [photoKey]: [] }))
+                        setScanNote(null)
+                      },
                     )
                   }}
                   className="rounded-lg bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-50"
                 >
-                  {vi ? 'Niêm phong' : 'Seal'}
+                  {vi ? `Niêm phong kiện ${String(parcel.parcelNo)}` : `Seal parcel ${String(parcel.parcelNo)}`}
                 </button>
+                  </>
+                ) : null}
                 <select
                   value={boxCode}
                   onChange={(event) => setBoxCode(event.target.value)}
@@ -375,7 +505,7 @@ export function PackingSessionPanel({
                 </select>
                 <input
                   value={reviewWeight}
-                  onChange={(event) => setReviewWeight(event.target.value)}
+                  onChange={(event) => setReviewWeights((prev) => ({ ...prev, [photoKey]: event.target.value }))}
                   placeholder={vi ? 'Cân mới (kg)' : 'New weight (kg)'}
                   className="h-9 w-28 rounded-lg border border-hairline bg-canvas px-2 text-sm"
                 />
@@ -437,7 +567,7 @@ export function PackingSessionPanel({
                 <select
                   value={boxCondition}
                   onChange={(event) =>
-                    setBoxCondition(event.target.value as 'reusable' | 'damaged')
+                    setBoxConditions((prev) => ({ ...prev, [photoKey]: event.target.value as 'reusable' | 'damaged' }))
                   }
                   className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
                 >
@@ -480,7 +610,7 @@ export function PackingSessionPanel({
                 {vi ? 'Tháo kiện đơn hủy' : 'Unpack canceled order'}
               </button>
             ) : null}
-            {(parcel.scans ?? []).length > 0 && pending ? (
+            {(parcel.scans ?? []).length > 0 && working ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <select
                   value={issue}
@@ -547,6 +677,7 @@ export function PackingSessionPanel({
                 </div>
               </div>
             ) : null}
+            </>}
           </div>
         )
             })}
