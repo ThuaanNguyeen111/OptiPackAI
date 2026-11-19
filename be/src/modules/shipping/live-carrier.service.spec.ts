@@ -125,6 +125,48 @@ describe('LiveCarrierService', () => {
     expect(orderModel.findById).toHaveBeenCalledTimes(1);
   });
 
+  it('AOFP-319 — kiện gửi GHN mang cod_amount = tiền các đơn COD thu ở kiện đó, tổng = 350k (AC1)', async () => {
+    const otherId = new Types.ObjectId();
+    const orders = new Map<string, unknown>([
+      [orderId.toString(), { ...fullOrder, platform: 'aurelle', payment_method: 'COD', total_amount: 200000 }],
+      [otherId.toString(), { ...fullOrder, _id: otherId, platform: 'aurelle', payment_method: 'COD', total_amount: 150000 }],
+    ]);
+    orderModel.findById.mockImplementation((id: unknown) => Promise.resolve(orders.get(String(id)) ?? null));
+    const adapter = new MockCarrierAdapter();
+    const create = jest.spyOn(adapter, 'createShipment');
+    const preview = jest.spyOn(adapter, 'previewShipment');
+    const svc = new LiveCarrierService(adapter, orderModel as never, configService as never);
+    const svcRef = { carrierCode: 'GHN', carrierName: 'GHN', volumetricDivisor: 5000, serviceCode: 'LIGHT', serviceName: 'Hàng nhẹ', serviceTypeId: 2 };
+    const outer = { length_mm: 300, width_mm: 250, height_mm: 40 };
+    const p1 = { orderId: orderId.toString(), cartonIndex: 0, parcelNo: 1, actualG: 300, outer };
+    const p2 = { orderId: otherId.toString(), cartonIndex: 1, parcelNo: 2, actualG: 300, outer };
+    const p3 = { orderId: orderId.toString(), cartonIndex: 2, parcelNo: 3, actualG: 300, outer };
+
+    await svc.quoteParcels(svcRef, [p1, p2, p3]);
+    expect(preview.mock.calls.map((c) => c[0].cod_amount)).toEqual([200000, 150000, 0]);
+
+    const a = await svc.bookParcel({ clientOrderCode: 'SHP-1', parcel: p1, service: svcRef, codOrderIds: [orderId.toString()] });
+    const b = await svc.bookParcel({ clientOrderCode: 'SHP-2', parcel: p2, service: svcRef, codOrderIds: [otherId.toString()] });
+    const c = await svc.bookParcel({ clientOrderCode: 'SHP-3', parcel: p3, service: svcRef });
+    expect(create.mock.calls.map((x) => x[0].cod_amount)).toEqual([200000, 150000, 0]);
+    expect(a.codAmount + b.codAmount + c.codAmount).toBe(350000);
+  });
+
+  it('AOFP-319 — đơn đã thanh toán trước → cod_amount = 0 (AC2)', async () => {
+    orderModel.findById.mockResolvedValue({ ...fullOrder, platform: 'lazada', payment_method: 'MIXEDCARD', total_amount: 350000 });
+    const adapter = new MockCarrierAdapter();
+    const create = jest.spyOn(adapter, 'createShipment');
+    const svc = new LiveCarrierService(adapter, orderModel as never, configService as never);
+    const r = await svc.bookParcel({
+      clientOrderCode: 'SHP-P-1',
+      parcel: { orderId: orderId.toString(), cartonIndex: 0, parcelNo: 1, actualG: 300, outer: { length_mm: 300, width_mm: 250, height_mm: 40 } },
+      service: { carrierCode: 'GHN', carrierName: 'GHN', volumetricDivisor: 5000, serviceCode: 'LIGHT', serviceName: 'Hàng nhẹ', serviceTypeId: 2 },
+      codOrderIds: [orderId.toString()],
+    });
+    expect(create.mock.calls[0]?.[0].cod_amount).toBe(0);
+    expect(r.codAmount).toBe(0);
+  });
+
   it('tạo vận đơn: cùng client_order_code tạo lại → cùng mã hãng (chống trùng)', async () => {
     orderModel.findById.mockResolvedValue(fullOrder);
     const input = {
