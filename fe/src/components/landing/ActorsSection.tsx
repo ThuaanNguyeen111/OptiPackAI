@@ -60,7 +60,7 @@ const actors: Actor[] = [
     points: [
       'Xem gợi ý carton & vật liệu chèn lót',
       'Xác nhận kích thước & trọng lượng kiện',
-      'Duyệt kế hoạch đóng gói trước khi ship',
+      'Chấp nhận kế hoạch đóng gói trước khi giao',
       'Giảm khoảng trống thừa và lãng phí vật liệu',
     ],
   },

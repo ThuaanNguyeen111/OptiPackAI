@@ -1191,6 +1191,10 @@ describe('PackingPlanService', () => {
       await expect(
         session.review(groupId, first, { action: 'accept', reason: 'SCALE_ERROR', expected_version: plan.version }, userId),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SELF_REVIEW_FORBIDDEN });
+      // AOFP-331 AC3 — cân lại cũng không tự làm được (trước đây nhập số khớp ước tính là gỡ được kiện).
+      await expect(
+        session.review(groupId, first, { action: 'reweigh', reason: 'SCALE_ERROR', weight_kg: weightOf(plan, first), expected_version: plan.version }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SELF_REVIEW_FORBIDDEN, status: 403 });
       const done = await session.review(
         groupId,
         first,

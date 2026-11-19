@@ -37,6 +37,9 @@ import {
 import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
 import { SealPhotoPicker } from './SealPhotoPicker'
 import { PhotoThumbs } from '../ui/PhotoThumbs'
+import { useAuth } from '../../context/use-auth'
+import { sessionUserId } from '../../lib/session-user'
+import { formatKg } from '../../utils/units'
 
 type BoxOption = { code: string; name: string }
 
@@ -70,6 +73,8 @@ export function PackingSessionPanel({
   onPlan: (plan: PackingPlan) => void
   onError: (err: unknown) => void
 }): ReactElement {
+  const { session } = useAuth()
+  const me = sessionUserId(session?.accessToken)
   const [busy, setBusy] = useState(false)
   const [code, setCode] = useState('')
   const [sealWeight, setSealWeight] = useState('')
@@ -151,6 +156,8 @@ export function PackingSessionPanel({
             {bucket.parcels.map((parcel) => {
         const pending = parcel.status === 'pending'
         const held = parcel.status === 'held'
+        // AOFP-331 — người niêm phong không tự chấp nhận / cân lại kiện lệch cân (BE trả 403).
+        const sealedByMe = held && me !== null && parcel.sealedBy === me
         const sealed = parcel.status === 'sealed' || held
         const toUnpack = parcel.status === 'to_unpack'
         const sourceInfo = sources?.parcels.find((p) => p.parcelNo === parcel.parcelNo)
@@ -358,9 +365,12 @@ export function PackingSessionPanel({
             {held ? (
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 <p className="w-full text-xs text-amber-800">
-                  {vi
-                    ? 'Kiện lệch cân. Người khác người niêm phong mới được chấp nhận.'
-                    : 'Weight is off. Someone other than the sealer must accept it.'}
+                  {weightOffCopy(parcel, vi)}
+                  {sealedByMe
+                    ? vi
+                      ? ' Cần người khác xem lại kiện này.'
+                      : ' Someone else must review this parcel.'
+                    : ''}
                 </p>
                 <select
                   value={reviewReason}
@@ -373,6 +383,8 @@ export function PackingSessionPanel({
                     </option>
                   ))}
                 </select>
+                {sealedByMe ? null : (
+                  <>
                 <input
                   value={reviewWeight}
                   onChange={(event) => setReviewWeight(event.target.value)}
@@ -414,6 +426,8 @@ export function PackingSessionPanel({
                 >
                   {vi ? 'Cân lại' : 'Reweigh'}
                 </button>
+                  </>
+                )}
                 <button
                   type="button"
                   disabled={busy}
@@ -565,4 +579,17 @@ export function PackingSessionPanel({
       ) : null}
     </div>
   )
+}
+
+/** "Kiện 2 lệch cân: cân 1,6 kg, ước tính 1,2 kg (lệch 33%)." */
+function weightOffCopy(parcel: PackingPlan['parcels'][number], vi: boolean): string {
+  const actual = parcel.actualWeightKg
+  const estimatedKg = parcel.estimatedWeightG / 1000
+  if (actual === null || estimatedKg <= 0) {
+    return vi ? `Kiện ${String(parcel.parcelNo)} lệch cân.` : `Parcel ${String(parcel.parcelNo)} weight is off.`
+  }
+  const pct = Math.round((Math.abs(actual - estimatedKg) / estimatedKg) * 100)
+  return vi
+    ? `Kiện ${String(parcel.parcelNo)} lệch cân: cân ${formatKg(actual)}, ước tính ${formatKg(estimatedKg)} (lệch ${String(pct)}%).`
+    : `Parcel ${String(parcel.parcelNo)} weight is off: ${formatKg(actual)} vs estimated ${formatKg(estimatedKg)} (${String(pct)}% off).`
 }
