@@ -58,7 +58,24 @@ void main() {
         repo.deliver(self.id),
         throwsA(isA<ShippingException>().having((e) => e.code, 'code', 'SHP_PROOF_PHOTO_REQUIRED')),
       );
-      final done = await repo.deliver(self.id, photoUrls: const ['https://res.cloudinary.com/x/a.jpg']);
+      final done = await repo.deliver(self.id, photoUrls: const ['https://res.cloudinary.com/x/a.jpg'], scannedCode: '${self.code}|TRIP-1');
+      expect(done.status, ShipmentStatus.delivered);
+    });
+
+    // AOFP-315 — quét nhãn kiện.
+    test('quét nhãn của vận đơn khác bị chặn; nhãn hỏng có lý do thì giao được', () async {
+      final repo = MockShippingRepository();
+      final self = (await repo.shipments()).firstWhere((s) => s.selfDelivery);
+      const photos = ['https://res.cloudinary.com/x/a.jpg'];
+      await expectLater(
+        repo.deliver(self.id, photoUrls: photos),
+        throwsA(isA<ShippingException>().having((e) => e.code, 'code', 'SHP_LABEL_SCAN_REQUIRED')),
+      );
+      await expectLater(
+        repo.deliver(self.id, photoUrls: photos, scannedCode: 'SHP-KHAC|TRIP-1'),
+        throwsA(isA<ShippingException>().having((e) => e.code, 'code', 'SHP_LABEL_SCAN_MISMATCH')),
+      );
+      final done = await repo.deliver(self.id, photoUrls: photos, scanSkippedReason: 'Tem rách không quét được');
       expect(done.status, ShipmentStatus.delivered);
     });
 

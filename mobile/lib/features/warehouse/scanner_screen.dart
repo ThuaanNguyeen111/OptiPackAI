@@ -3,7 +3,9 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 /// Quét bằng camera. Trả về mã đọc được (mã ô kệ hoặc SKU); `null` nếu người dùng đóng.
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  const ScannerScreen({super.key, this.title = 'Quét mã ô hoặc SKU'});
+
+  final String title;
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
@@ -40,7 +42,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
-        title: const Text('Quét mã ô hoặc SKU'),
+        title: Text(widget.title),
         actions: [
           IconButton(
             tooltip: 'Bật/tắt đèn',

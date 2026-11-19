@@ -44,7 +44,7 @@ describe('ShipmentsService — ảnh bằng chứng', () => {
 
   it('shop tự giao (không có hãng) bấm "Giao thành công" không kèm ảnh → 400 SHP_PROOF_PHOTO_REQUIRED, không ghi gì', async () => {
     shipmentModel.findById.mockResolvedValue(shipment());
-    await expect(service.markDelivered(shipmentId.toString(), 0, actor, undefined, undefined, [])).rejects.toMatchObject({
+    await expect(service.markDelivered(shipmentId.toString(), 0, actor, undefined, undefined, { photoUrls: [] })).rejects.toMatchObject({
       errorCode: SHIPMENT_ERROR_CODES.PROOF_PHOTO_REQUIRED,
     });
     expect(shipmentModel.findOneAndUpdate).not.toHaveBeenCalled();
@@ -54,18 +54,18 @@ describe('ShipmentsService — ảnh bằng chứng', () => {
   it('shop tự giao kèm ảnh → giao thành công, ảnh ghi vào lịch sử vận đơn', async () => {
     shipmentModel.findById.mockResolvedValue(shipment());
     shipmentModel.findOneAndUpdate.mockResolvedValue(shipment({ status: ShipmentStatus.DELIVERED }));
-    await service.markDelivered(shipmentId.toString(), 0, actor, undefined, undefined, [photo]);
+    await service.markDelivered(shipmentId.toString(), 0, actor, undefined, undefined, { photoUrls: [photo], scannedCode: 'SHP-X|TRIP-1' });
     expect(firstEvent().photo_urls).toEqual([photo]);
   });
 
   it('vận đơn hãng mẫu (có carrier_code, cập nhật tay) → không bắt ảnh', async () => {
     shipmentModel.findById.mockResolvedValue(shipment({ carrier_code: 'SAMPLE-EXPRESS' }));
     shipmentModel.findOneAndUpdate.mockResolvedValue(shipment({ status: ShipmentStatus.DELIVERED }));
-    await service.markDelivered(shipmentId.toString(), 0, actor, undefined, undefined, []);
+    await service.markDelivered(shipmentId.toString(), 0, actor, undefined, undefined, { photoUrls: [] });
     expect(firstEvent()).not.toHaveProperty('photo_urls');
   });
 
-  it('gọi nội bộ (route cũ fulfillment/deliver, không truyền ảnh) → không kiểm ảnh', async () => {
+  it('gọi nội bộ (không truyền proof) → không kiểm ảnh', async () => {
     shipmentModel.findById.mockResolvedValue(shipment());
     shipmentModel.findOneAndUpdate.mockResolvedValue(shipment({ status: ShipmentStatus.DELIVERED }));
     await expect(service.markDelivered(shipmentId.toString(), 0, actor)).resolves.toBeDefined();

@@ -32,6 +32,8 @@ import { LiveCarrierService, type ToLocationInput } from '../shipping/live-carri
 import { CarrierWebhookEvent, CarrierWebhookEventDocument } from './schemas/carrier-webhook-event.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
+import { ActivityLog, ActivityLogDocument } from '../activity-log/schemas/activity-log.schema';
+import { recordActivity } from '../activity-log/activity-log.util';
 import type { CarrierParcel } from './schemas/shipment.schema';
 import {
   GHN_INCIDENT_STATUSES,
@@ -168,6 +170,13 @@ export interface ShipmentActor {
   role: number | null;
 }
 
+/** Bằng chứng "Giao thành công" gửi từ app (10/11 ảnh, AOFP-315 quét nhãn kiện). */
+export interface DeliveryProof {
+  photoUrls: string[];
+  scannedCode?: string;
+  scanSkippedReason?: string;
+}
+
 const SYSTEM_ACTOR: ShipmentActor = { userId: 'system', role: null };
 
 interface TransitionStep {
@@ -213,6 +222,8 @@ export class ShipmentsService {
     @Optional() @InjectModel(MarketplaceStatusOutbox.name) private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
     // 29/10/2026 — shipper của shop (hỏa tốc tự giao). Optional: test cũ dựng service bằng tay.
     @Optional() @InjectModel(User.name) private readonly userModel?: Model<UserDocument>,
+    // AOFP-315 — ghi lý do bỏ quét nhãn kiện. Optional: test cũ dựng service bằng tay.
+    @Optional() @InjectModel(ActivityLog.name) private readonly activityLogModel?: Model<ActivityLogDocument>,
   ) {}
 
   /** 29/10/2026 — người đi giao được: Shipping Coordinator đang hoạt động, không nghỉ phép. */
@@ -417,13 +428,16 @@ export class ShipmentsService {
    * [Coordinator] Giao thành công.
    * 10/11/2026 — `photoUrls`: ảnh bằng chứng. Vận đơn shop tự giao (không có hãng) gọi từ nút
    * "Giao thành công" (controller luôn truyền mảng) phải có ≥ 1 ảnh; vận đơn hãng mẫu thì không bắt.
-   * `undefined` = gọi nội bộ (route cũ fulfillment/deliver) → không kiểm ảnh.
+   * AOFP-315 — `proof.scannedCode`: chuỗi QR/mã vạch trên nhãn kiện, phải thuộc vận đơn này;
+   * tem hỏng thì gửi `proof.scanSkippedReason` (ghi activity_logs).
+   * `proof` undefined = gọi nội bộ/test → không kiểm. Route cũ fulfillment/deliver nay truyền `{ photoUrls: [] }` nên bị chặn như route mới.
    */
-  async markDelivered(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, groupExpectedVersion?: number, photoUrls?: string[]): Promise<ShipmentDocument> {
+  async markDelivered(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, groupExpectedVersion?: number, proof?: DeliveryProof): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
     this.assertNotCarrierManaged(shipment);
     this.assertShipperActor(shipment, actor);
-    if (photoUrls?.length === 0 && !shipment.carrier_code) {
+    const selfDelivery = !!proof && !shipment.carrier_code;
+    if (selfDelivery && proof.photoUrls.length === 0) {
       throw new AppException(
         SHIPMENT_ERROR_CODES.PROOF_PHOTO_REQUIRED,
         `Vận đơn ${shipment.shipment_code} do shop tự giao — chụp ít nhất 1 ảnh bằng chứng giao hàng (POST /proof-photos, gửi kèm photo_urls).`,
@@ -431,9 +445,51 @@ export class ShipmentsService {
         { shipmentId: shipment._id.toString() },
       );
     }
+    const skipReason = proof?.scanSkippedReason?.trim();
+    if (selfDelivery && !skipReason) this.assertLabelScan(shipment, proof.scannedCode);
     return this.applyTransition(shipment, expectedVersion, [
-      { to: ShipmentStatus.DELIVERED, eventType: ShipmentEventType.DELIVERED, actor, note, photoUrls },
-    ], { delivered_at: new Date() }, { target: GroupFulfillmentStatus.DELIVERED, expectedVersion: groupExpectedVersion });
+      { to: ShipmentStatus.DELIVERED, eventType: ShipmentEventType.DELIVERED, actor, note, photoUrls: proof?.photoUrls },
+    ], { delivered_at: new Date() }, { target: GroupFulfillmentStatus.DELIVERED, expectedVersion: groupExpectedVersion }, false,
+    selfDelivery && skipReason
+      ? (session, updated) => recordActivity(this.activityLogModel, {
+        category: 'shipping',
+        action: 'shipment.label_scan_skipped',
+        summary: `Vận đơn ${updated.shipment_code}: giao thành công không quét nhãn kiện — ${skipReason}`,
+        actorId: actor.userId,
+        orderGroupId: updated.order_group_id,
+        entityType: 'shipment',
+        entityId: updated._id,
+        entityCode: updated.shipment_code,
+        toStatus: ShipmentStatus.DELIVERED,
+        note: skipReason,
+      }, session)
+      : undefined);
+  }
+
+  /**
+   * AOFP-315 — QR nhãn là `mã|chuyến` hoặc `mã hãng|mã vận đơn|chuyến`, mã vạch chỉ có mã.
+   * Khớp khi một đoạn bằng mã của chính vận đơn này. Không so mã chuyến (nhiều vận đơn chung 1 chuyến).
+   */
+  private assertLabelScan(shipment: ShipmentDocument, scannedCode?: string): void {
+    const scanned = scannedCode?.trim();
+    if (!scanned) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.LABEL_SCAN_REQUIRED,
+        `Vận đơn ${shipment.shipment_code} do shop tự giao — quét QR trên nhãn kiện (scanned_code) hoặc chọn "Nhãn hỏng" và nêu lý do (scan_skipped_reason).`,
+        HttpStatus.BAD_REQUEST,
+        { shipmentId: shipment._id.toString() },
+      );
+    }
+    const own = new Set([shipment.shipment_code, shipment.tracking_code, ...(shipment.carrier_parcels ?? []).map((p) => p.carrier_order_code)]
+      .filter((c): c is string => !!c).map((c) => c.toUpperCase()));
+    if (!scanned.split('|').some((part) => own.has(part.trim().toUpperCase()))) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.LABEL_SCAN_MISMATCH,
+        'Mã nhãn kiện không khớp với đơn hàng đang giao.',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { shipmentId: shipment._id.toString(), shipmentCode: shipment.shipment_code, scannedCode: scanned },
+      );
+    }
   }
 
   /**
@@ -563,7 +619,8 @@ export class ShipmentsService {
   /** POST /order-groups/:id/fulfillment/deliver (cũ). */
   async legacyDeliver(orderGroupId: string, groupVersion: number, actor: ShipmentActor): Promise<void> {
     const shipment = (await this.findByGroup(orderGroupId)) ?? (await this.startDelivery(orderGroupId, actor));
-    await this.markDelivered(shipment._id.toString(), shipment.__v, actor, 'Qua route cũ fulfillment/deliver', groupVersion);
+    // AOFP-315 — route cũ không gửi được ảnh/mã quét → shop tự giao bị chặn như route mới.
+    await this.markDelivered(shipment._id.toString(), shipment.__v, actor, 'Qua route cũ fulfillment/deliver', groupVersion, { photoUrls: [] });
   }
 
   /**

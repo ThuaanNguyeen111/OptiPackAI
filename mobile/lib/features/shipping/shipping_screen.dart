@@ -9,6 +9,7 @@ import '../../app/mock_providers.dart';
 import '../../core/network/api_exception.dart';
 import '../proof/proof_photo_field.dart';
 import '../proof/proof_photo_repository.dart';
+import '../warehouse/scanner_screen.dart';
 import '../../core/format/deadline.dart';
 import '../../shared/widgets.dart';
 import 'shipping_repository.dart';
@@ -380,7 +381,7 @@ class _ShipmentCard extends ConsumerWidget {
                     child: FilledButton(
                       style: FilledButton.styleFrom(minimumSize: const Size(0, 46), backgroundColor: AppColors.good),
                       onPressed: () async {
-                        final picked = await showModalBottomSheet<List<XFile>>(
+                        final picked = await showModalBottomSheet<_DeliverResult>(
                           context: context,
                           isScrollControlled: true,
                           showDragHandle: true,
@@ -390,7 +391,12 @@ class _ShipmentCard extends ConsumerWidget {
                         final photos = ref.read(proofPhotoRepositoryProvider);
                         await _run(
                           context,
-                          () async => repo.deliver(s.id, photoUrls: await photos.upload(picked)),
+                          () async => repo.deliver(
+                            s.id,
+                            photoUrls: await photos.upload(picked.photos),
+                            scannedCode: picked.scannedCode,
+                            scanSkippedReason: picked.scanSkippedReason,
+                          ),
                           'Đã ghi nhận giao thành công.',
                         );
                       },
@@ -496,13 +502,40 @@ class _DeliverSheet extends StatefulWidget {
   State<_DeliverSheet> createState() => _DeliverSheetState();
 }
 
+/// AOFP-315 — kết quả sheet giao thành công: ảnh + mã quét nhãn (hoặc lý do bỏ quét).
+class _DeliverResult {
+  const _DeliverResult(this.photos, {this.scannedCode, this.scanSkippedReason});
+  final List<XFile> photos;
+  final String? scannedCode;
+  final String? scanSkippedReason;
+}
+
 class _DeliverSheetState extends State<_DeliverSheet> {
   List<XFile> _photos = const [];
+  String? _scanned;
+  bool _labelBroken = false;
+  final _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scan() async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const ScannerScreen(title: 'Quét QR nhãn kiện')),
+    );
+    if (code != null && mounted) setState(() => _scanned = code);
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = widget.shipment;
     final needPhoto = s.selfDelivery;
+    // Shop tự giao: phải quét nhãn kiện, hoặc báo nhãn hỏng kèm lý do (≥ 5 ký tự).
+    final scanMissing = s.selfDelivery &&
+        (_labelBroken ? _reason.text.trim().length < 5 : (_scanned ?? '').isEmpty);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -516,6 +549,35 @@ class _DeliverSheetState extends State<_DeliverSheet> {
             Text('${s.code} — ${s.recipientName}',
                 textAlign: TextAlign.center, style: TextStyle(color: AppColors.inkSubtle)),
             const SizedBox(height: 16),
+            if (s.selfDelivery) ...[
+              if (_labelBroken)
+                TextField(
+                  controller: _reason,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    labelText: 'Lý do bỏ quét (bắt buộc)',
+                    hintText: 'VD: Tem rách, không quét được',
+                  ),
+                )
+              else
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                  onPressed: _scan,
+                  icon: Icon(
+                    _scanned == null ? Icons.qr_code_scanner : Icons.check_circle,
+                    color: _scanned == null ? null : AppColors.good,
+                  ),
+                  label: Text(_scanned == null ? 'Quét QR nhãn kiện' : 'Đã quét: $_scanned'),
+                ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _labelBroken,
+                onChanged: (v) => setState(() => _labelBroken = v ?? false),
+                title: const Text('Nhãn hỏng, không quét được'),
+              ),
+              const SizedBox(height: 8),
+            ],
             ProofPhotoField(
               label: 'Ảnh giao hàng',
               required: needPhoto,
@@ -525,8 +587,21 @@ class _DeliverSheetState extends State<_DeliverSheet> {
             const SizedBox(height: 16),
             FilledButton(
               style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48), backgroundColor: AppColors.good),
-              onPressed: needPhoto && _photos.isEmpty ? null : () => Navigator.pop(context, _photos),
-              child: Text(needPhoto && _photos.isEmpty ? 'Chụp ít nhất 1 ảnh' : 'Xác nhận đã giao'),
+              onPressed: (needPhoto && _photos.isEmpty) || scanMissing
+                  ? null
+                  : () => Navigator.pop(
+                        context,
+                        _DeliverResult(
+                          _photos,
+                          scannedCode: _labelBroken ? null : _scanned,
+                          scanSkippedReason: _labelBroken ? _reason.text.trim() : null,
+                        ),
+                      ),
+              child: Text(scanMissing
+                  ? (_labelBroken ? 'Nhập lý do bỏ quét' : 'Quét QR nhãn kiện trước')
+                  : needPhoto && _photos.isEmpty
+                      ? 'Chụp ít nhất 1 ảnh'
+                      : 'Xác nhận đã giao'),
             ),
           ],
         ),

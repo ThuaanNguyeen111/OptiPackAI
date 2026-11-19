@@ -317,6 +317,10 @@ export function ShippingPage() {
   const [resultDialog, setResultDialog] = useState<ResultDialog | null>(null)
   /** (13/11/2026) Ảnh bằng chứng khi giao thành công / thất bại (chưa tải lên). */
   const [proofFiles, setProofFiles] = useState<File[]>([])
+  // AOFP-315 — quét nhãn kiện trước khi "Giao thành công" (shop tự giao).
+  const [labelCode, setLabelCode] = useState('')
+  const [labelBroken, setLabelBroken] = useState(false)
+  const [labelSkipReason, setLabelSkipReason] = useState('')
   const [returnsByGroup, setReturnsByGroup] = useState<
     Record<string, { rmaCode: string; status: string }[]>
   >({})
@@ -725,9 +729,16 @@ export function ShippingPage() {
     return null
   }, [selected, isAdmin, session?.accessToken])
 
+  const resetLabelScan = () => {
+    setLabelCode('')
+    setLabelBroken(false)
+    setLabelSkipReason('')
+  }
+
   const closeModal = () => {
     setModalMode(null)
     setProofFiles([])
+    resetLabelScan()
   }
 
   /** Vận đơn shop tự giao (không qua hãng): BE bắt ảnh khi giao thành công. */
@@ -747,8 +758,13 @@ export function ShippingPage() {
     modalMode === 'fail' && failReason === 'other' && !actionNote.trim()
   const retryOverrideMissing =
     modalMode === 'retry' && retryTooEarly && actionNote.trim().length < 3
+  /** AOFP-315 — cùng điều kiện với ảnh: BE bắt scanned_code hoặc scan_skipped_reason (≥ 5 ký tự). */
+  const labelScanMissing =
+    proofRequired &&
+    (labelBroken ? labelSkipReason.trim().length < 5 : !labelCode.trim())
   const modalConfirmBlocked =
     (proofRequired && proofFiles.length === 0) ||
+    labelScanMissing ||
     failNoteMissing ||
     retryOverrideMissing
 
@@ -819,7 +835,13 @@ export function ShippingPage() {
         const version = selected.shipment.version
         const photoUrls = await uploadProofPhotos(proofFiles)
         if (modalMode === 'deliver') {
-          const next = await deliverShipment(id, version, actionNote, photoUrls)
+          const next = await deliverShipment(
+            id,
+            version,
+            actionNote,
+            photoUrls,
+            labelBroken ? { scanSkippedReason: labelSkipReason } : { scannedCode: labelCode },
+          )
           setTab('delivered')
           setSelectedKey(`shp:${next.id}`)
           setResultDialog({
@@ -877,6 +899,7 @@ export function ShippingPage() {
       setModalMode(null)
       setActionNote('')
       setProofFiles([])
+      resetLabelScan()
       await reload()
     } catch (err: unknown) {
       const reason =
@@ -2629,6 +2652,44 @@ export function ShippingPage() {
                   }`}
                 />
               </label>
+
+              {proofRequired ? (
+                <div className="space-y-2">
+                  {labelBroken ? (
+                    <label className="block space-y-1.5">
+                      <span className="text-slate-500">
+                        {vi ? 'Lý do bỏ quét (bắt buộc, ≥ 5 ký tự)' : 'Reason for skipping the scan (required, ≥ 5 characters)'}
+                      </span>
+                      <input
+                        value={labelSkipReason}
+                        onChange={(e) => setLabelSkipReason(e.target.value)}
+                        placeholder={vi ? 'VD: Tem rách, không quét được' : 'e.g. Label torn, unreadable'}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-surface-1"
+                      />
+                    </label>
+                  ) : (
+                    <label className="block space-y-1.5">
+                      <span className="text-slate-500">
+                        {vi ? 'Quét QR / mã vạch trên nhãn kiện' : 'Scan the parcel label QR / barcode'}
+                      </span>
+                      <input
+                        autoFocus
+                        value={labelCode}
+                        onChange={(e) => setLabelCode(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm dark:border-slate-700 dark:bg-surface-1"
+                      />
+                    </label>
+                  )}
+                  <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={labelBroken}
+                      onChange={(e) => setLabelBroken(e.target.checked)}
+                    />
+                    {vi ? 'Nhãn hỏng, không quét được' : 'Label damaged, cannot scan'}
+                  </label>
+                </div>
+              ) : null}
 
               {modalMode === 'deliver' || modalMode === 'fail' ? (
                 <ProofPhotoPicker
