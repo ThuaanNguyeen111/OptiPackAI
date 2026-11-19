@@ -124,9 +124,33 @@ export class ReturnsService {
     return { items, total };
   }
 
-  /** Gọi TRONG transaction của ShipmentsService.receiveReturn. */
-  async createFromFailedDelivery(orderGroupId: string, shipmentId: string, actorId: string, session: ClientSession): Promise<void> {
+  /**
+   * Gọi TRONG transaction của ShipmentsService.receiveReturn.
+   * AOFP-326 — `orderIds`: chỉ các đơn có kiện hoàn về (vận đơn hãng nhiều kiện, đơn khác đã giao
+   * xong) → phiếu chỉ gồm hàng ĐẶT của các đơn đó; không truyền → cả nhóm như cũ.
+   */
+  async createFromFailedDelivery(orderGroupId: string, shipmentId: string, actorId: string, session: ClientSession, orderIds?: Types.ObjectId[]): Promise<void> {
     const group = await this.orderGroupsService.findOrderGroupById(orderGroupId);
+    const items = orderIds && orderIds.length > 0
+      ? await this.orderedItemsOf(orderIds)
+      : await this.pickedItemsOfGroup(orderGroupId);
+    await this.returnModel.create([{
+      rma_code: this.newCode(),
+      order_group_id: group._id,
+      shipment_id: new Types.ObjectId(shipmentId),
+      type: ReturnType.FAILED_DELIVERY,
+      source: 'failed_delivery',
+      status: ReturnStatus.RECEIVED, // hàng đã nằm ở kho
+      platform: group.platform,
+      shop_id: group.shop_id,
+      items,
+      source_order_id: orderIds?.length === 1 ? orderIds[0] : null,
+      created_by: actorId,
+      received_by: actorId,
+    }], { session });
+  }
+
+  private async pickedItemsOfGroup(orderGroupId: string): Promise<{ seller_sku: string; quantity: number; reason_code: ReturnReason }[]> {
     let items: { seller_sku: string; quantity: number; reason_code: ReturnReason }[] = [];
     // G4 (27/09/2026) — lấy số lượng ĐÃ QUÉT THẬT thay vì số đặt (lấy thiếu thì kiện cũng chỉ có số đã lấy).
     // 🔄 21/10/2026 — đọc từ pick_events (mã SKU của ĐƠN, đã trừ món rút ra khi đóng gói), không đọc
@@ -146,19 +170,16 @@ export class ReturnsService {
       // (rỗng) để kho biết có kiện về, ghi log để kiểm tra tay.
       this.logger.warn(`Không đọc được hàng của nhóm đơn ${orderGroupId} khi tạo phiếu hoàn: ${String(error)}`);
     }
-    await this.returnModel.create([{
-      rma_code: this.newCode(),
-      order_group_id: group._id,
-      shipment_id: new Types.ObjectId(shipmentId),
-      type: ReturnType.FAILED_DELIVERY,
-      source: 'failed_delivery',
-      status: ReturnStatus.RECEIVED, // hàng đã nằm ở kho
-      platform: group.platform,
-      shop_id: group.shop_id,
-      items,
-      created_by: actorId,
-      received_by: actorId,
-    }], { session });
+    return items;
+  }
+
+  private async orderedItemsOf(orderIds: Types.ObjectId[]): Promise<{ seller_sku: string; quantity: number; reason_code: ReturnReason }[]> {
+    const orders = await this.orderModel.find({ _id: { $in: orderIds } }).select('items').lean();
+    const qty = new Map<string, number>();
+    for (const it of orders.flatMap((o) => o.items)) {
+      if (it.status !== OrderStatus.CANCELED) qty.set(it.sku, (qty.get(it.sku) ?? 0) + it.quantity);
+    }
+    return [...qty].map(([sku, quantity]) => ({ seller_sku: sku, quantity, reason_code: ReturnReason.FAILED_DELIVERY }));
   }
 
   /** [Admin — đóng vai khách] Giả lập khách yêu cầu trả hàng. */
@@ -491,7 +512,8 @@ export class ReturnsService {
           outcome: o.outcome,
         })),
       }, session);
-      await this.updateReturnGroup(rma, GroupFulfillmentStatus.CANCELED, session);
+      // AOFP-326 (Q7) — trả đủ nhóm kết thúc ở returned (trạng thái cuối), không chuyển canceled.
+      await this.updateReturnGroup(rma, GroupFulfillmentStatus.RETURNED, session);
       return updated;
     });
     this.recheckShortagesSoon('kiểm hàng hoàn');
@@ -647,15 +669,11 @@ export class ReturnsService {
     }
     if (bought.length === 0 || !bought.every((b) => quantities.get(b.sku) === b.quantity)) return;
 
-    let group = await this.orderGroupsService.findOrderGroupById(groupId, session);
+    const group = await this.orderGroupsService.findOrderGroupById(groupId, session);
     if (target === GroupFulfillmentStatus.RETURNING && group.fulfillment_status !== GroupFulfillmentStatus.DELIVERED) {
       this.fail(RETURN_ERROR_CODES.OPEN_EXISTS, 'Nhóm đơn đang có phiếu trả hàng chưa xử lý xong.', HttpStatus.CONFLICT);
     }
     if (group.fulfillment_status === target) return;
-    // Phiếu received cũ có thể đã trả đủ qua nhiều lần nhưng nhóm vẫn delivered.
-    if (target === GroupFulfillmentStatus.CANCELED && group.fulfillment_status === GroupFulfillmentStatus.DELIVERED) {
-      group = await this.orderGroupsService.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.RETURNED, group.__v, session);
-    }
     await this.orderGroupsService.transitionFulfillmentStatus(groupId, target, group.__v, session);
   }
 

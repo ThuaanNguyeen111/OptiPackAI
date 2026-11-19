@@ -127,6 +127,7 @@ function mapCarrierParcels(raw: unknown): Shipment['carrierParcels'] {
             : typeof row.fee_total_vnd === 'number'
               ? row.fee_total_vnd
               : null,
+        carrierStatus: pickString(row.carrierStatus, row.carrier_status) || null,
         carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
         bookingError: pickString(row.bookingError, row.booking_error) || null,
         recipientName: pickString(row.recipientName, row.recipient_name) || null,

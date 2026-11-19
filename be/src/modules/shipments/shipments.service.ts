@@ -42,6 +42,8 @@ import {
   GHN_STATUS_LABELS,
   SIMULATABLE_GHN_STATUSES,
   aggregateCarrierStatus,
+  mapGhnStatus,
+  cancelledParcelsIncident,
   canCarrierMove,
   carrierParcelOrderIds,
   carrierStatusOfOrder,
@@ -175,6 +177,17 @@ interface PlannedCarrierParcel {
   order_ids: string[];
 }
 
+/** AOFP-326 — mã khách mới khi đặt lại kiện đã huỷ: SHP-X-2 → SHP-X-2-C2 → SHP-X-2-C3. */
+export function rebookClientCode(code: string): string {
+  const m = /^(.*)-C(\d+)$/.exec(code);
+  return m ? `${m[1] ?? ''}-C${String(Number(m[2]) + 1)}` : `${code}-C2`;
+}
+
+/** AOFP-326 — đặt (lại) kiện ở hãng được khi vận đơn chưa lấy hoặc còn đang chạy. */
+const REBOOKABLE_SHIPMENT_STATUSES: readonly ShipmentStatus[] = [
+  ShipmentStatus.AWAITING_PICKUP, ShipmentStatus.IN_TRANSIT, ShipmentStatus.OUT_FOR_DELIVERY, ShipmentStatus.DELIVERY_FAILED,
+];
+
 /** client_order_code gửi hãng: lần đặt 1 = SHP-...-<kiện>; đặt lại sau khi huỷ = SHP-...-R2-<kiện>. */
 export function carrierClientCode(shipmentCode: string, round: number, parcelNo: number): string {
   return round <= 1 ? `${shipmentCode}-${String(parcelNo)}` : `${shipmentCode}-R${String(round)}-${String(parcelNo)}`;
@@ -202,6 +215,8 @@ interface TransitionStep {
   note?: string | null;
   /** 10/11/2026 — ảnh bằng chứng (URL Cloudinary). */
   photoUrls?: string[];
+  /** AOFP-326 — báo sàn theo từng đơn ở chỗ khác (không báo trạng thái gộp của cả nhóm). */
+  skipWriteback?: boolean;
 }
 
 /**
@@ -619,12 +634,21 @@ export class ShipmentsService {
   /** [Warehouse] Xác nhận đã nhận lại kiện hoàn về kho. */
   async receiveReturn(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, groupExpectedVersion?: number): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
+    // AOFP-326 — vận đơn hãng nhiều kiện: chỉ đơn của kiện ĐANG HOÀN về kho; kiện đã giao thì đơn đó
+    // vẫn "đã giao" (nhóm giữ delivered, Q7). Vận đơn không có kiện hãng → cả nhóm như cũ.
+    const parcels = shipment.carrier_parcels ?? [];
+    const returning = parcels.filter((p) => mapGhnStatus(p.carrier_status ?? '') === ShipmentStatus.RETURNING_TO_WAREHOUSE);
+    const returnedOrderIds = [...new Map(returning.flatMap((p) => carrierParcelOrderIds(p)).map((id) => [String(id), id])).values()];
+    const perOrder = returnedOrderIds.length > 0;
+    const partlyDelivered = perOrder && parcels.some((p) => mapGhnStatus(p.carrier_status ?? '') === ShipmentStatus.DELIVERED);
+    const at = new Date();
     return this.applyTransition(shipment, expectedVersion, [
-      { to: ShipmentStatus.RETURNED_TO_WAREHOUSE, eventType: ShipmentEventType.RETURN_RECEIVED, actor, note },
-    ], { returned_at: new Date() }, { target: GroupFulfillmentStatus.RETURNED, expectedVersion: groupExpectedVersion }, false,
+      { to: ShipmentStatus.RETURNED_TO_WAREHOUSE, eventType: ShipmentEventType.RETURN_RECEIVED, actor, note, skipWriteback: perOrder },
+    ], { returned_at: at }, { target: partlyDelivered ? GroupFulfillmentStatus.DELIVERED : GroupFulfillmentStatus.RETURNED, expectedVersion: groupExpectedVersion }, false,
     // G3 — kiện về kho -> tự tạo phiếu hoàn (trạng thái "received") để kho kiểm hàng, nhập lại tồn.
     async (session, updated) => {
-      await this.returnsService.createFromFailedDelivery(updated.order_group_id.toString(), updated._id.toString(), actor.userId, session);
+      await this.returnsService.createFromFailedDelivery(updated.order_group_id.toString(), updated._id.toString(), actor.userId, session, perOrder ? returnedOrderIds : undefined);
+      for (const orderId of returnedOrderIds) await this.enqueueOrderPush(updated, { orderId, status: 'returned' }, at, note ?? null, session);
     });
   }
 
@@ -833,7 +857,7 @@ export class ShipmentsService {
     // 20/10/2026 — báo sàn (AURELLE) cùng transaction: shipped/delivered/failed_delivery/...
     // 28/10/2026 (G2) — sự kiện hãng của vận đơn có kiện theo đơn: báo sàn theo TỪNG đơn
     // (applyCarrierEvent → enqueueOrderPush), không báo trạng thái gộp của cả vận đơn.
-    const writebackStatus = meta.skipWriteback ? null : writebackStatusForShipment(step.to);
+    const writebackStatus = meta.skipWriteback || step.skipWriteback ? null : writebackStatusForShipment(step.to);
     if (writebackStatus) {
       await enqueueStatusPush(
         this.statusOutboxModel,
@@ -1184,12 +1208,15 @@ export class ShipmentsService {
    * C4 — tạo vận đơn ở hãng cho các kiện CHƯA có mã hãng (gọi lại an toàn: hãng nhận cùng
    * client_order_code thì trả đơn cũ). Lỗi từng kiện ghi vào `booking_error` của kiện và
    * `carrier_booking_error` của vận đơn — không ném lỗi, để vận đơn vẫn hiện cho Coordinator sửa.
+   * AOFP-326 — kiện đã HUỶ ở hãng cũng đặt lại được (kể cả khi kiện khác đang chạy): bỏ mã cũ,
+   * dùng client_order_code mới (cùng mã thì hãng trả lại đơn đã huỷ).
    */
   async bookCarrierParcels(shipmentId: string): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
     this.assertCarrierShipment(shipment);
-    if (shipment.status !== ShipmentStatus.AWAITING_PICKUP) return shipment;
-    const pending = (shipment.carrier_parcels ?? []).filter((p) => !p.carrier_order_code);
+    if (!REBOOKABLE_SHIPMENT_STATUSES.includes(shipment.status)) return shipment;
+    const needsBooking = (p: CarrierParcel): boolean => !p.carrier_order_code || p.carrier_status === 'cancel';
+    const pending = (shipment.carrier_parcels ?? []).filter(needsBooking);
     if (pending.length === 0) return shipment;
     const live = this.requireLiveCarrier();
     const service = await this.shippingService.resolveLiveService(shipment.carrier_code ?? '', shipment.service_code ?? '');
@@ -1232,9 +1259,12 @@ export class ShipmentsService {
         booking_error: cp.booking_error ?? null,
         cod_amount: cp.cod_amount ?? 0,
       };
-      if (plain.carrier_order_code) {
+      if (!needsBooking(plain)) {
         next.push(plain);
         continue;
+      }
+      if (plain.carrier_order_code) {
+        Object.assign(plain, { carrier_order_code: null, client_order_code: rebookClientCode(plain.client_order_code), carrier_status: null, carrier_status_at: null, sort_code: null, fee: null });
       }
       const parcel = parcelsByNo.get(cp.parcel_no);
       if (!parcel) {
@@ -1245,7 +1275,7 @@ export class ShipmentsService {
       }
       try {
         const booked = await live.bookParcel({
-          clientOrderCode: cp.client_order_code,
+          clientOrderCode: plain.client_order_code,
           parcel,
           service,
           toLocation,
@@ -1281,12 +1311,14 @@ export class ShipmentsService {
       (max, p) => (p.expected_delivery_at && (!max || p.expected_delivery_at > max) ? p.expected_delivery_at : max),
       null,
     );
+    const awaiting = shipment.status === ShipmentStatus.AWAITING_PICKUP;
     const set: Record<string, unknown> = {
       carrier_parcels: next,
       carrier_booking_error: errors.length > 0 ? errors.join(' | ') : null,
     };
+    if (pending.some((p) => p.carrier_status === 'cancel')) set.carrier_incident = cancelledParcelsIncident(next);
     if (booked.length > 0) {
-      set.carrier_status = 'ready_to_pick';
+      if (awaiting) set.carrier_status = 'ready_to_pick'; // vận đơn đang chạy: không kéo lùi trạng thái hãng
       if (booked.length === next.length) set.estimated_cost_vnd = totalFee; // cước THẬT hãng tính khi tạo
       if (latest) {
         set.eta_to = latest;
@@ -1308,7 +1340,7 @@ export class ShipmentsService {
           eventType: ShipmentEventType.CARRIER_BOOKED,
           actor: SYSTEM_ACTOR,
           note: `Đã tạo vận đơn ${doc.carrier_name ?? ''} (${this.liveCarrier?.adapterCode ?? ''}): ${booked.map((p) => `kiện ${String(p.parcel_no)} = ${p.carrier_order_code ?? ''}`).join(', ')} — tổng phí ${String(totalFee)}đ`,
-        }, session, { source: 'manual', carrierStatus: 'ready_to_pick' });
+        }, session, { source: 'manual', carrierStatus: 'ready_to_pick', skipWriteback: !awaiting });
       }
       return doc;
     });
@@ -1679,6 +1711,9 @@ export class ShipmentsService {
       const target = aggregateCarrierStatus(statuses);
       const from = shipment.status;
       const extraSet: Record<string, unknown> = { carrier_status: status };
+      // AOFP-326 — kiện huỷ lẻ: gắn sự cố để Coordinator đặt lại kiện đó (vận đơn không thành "đã giao").
+      const cancelIncident = cancelledParcelsIncident((shipment.carrier_parcels ?? []).map((p, i) => ({ parcel_no: p.parcel_no, carrier_status: statuses[i] ?? null })));
+      if (cancelIncident) extraSet.carrier_incident = cancelIncident;
       if (status === 'returned') extraSet.carrier_returned_at = at;
       // 28/10/2026 (G2) — trạng thái báo sàn của RIÊNG đơn có kiện này (null = đơn đó không đổi).
       const orderPushes = orderWritebackChange(shipment.carrier_parcels ?? [], orderCode, status);

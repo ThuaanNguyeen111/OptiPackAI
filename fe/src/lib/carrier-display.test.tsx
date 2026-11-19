@@ -28,4 +28,9 @@ describe('carrier-display', () => {
     expect(carrierBookingProblems(s, true)).toEqual([])
     expect(hasUnbookedParcels(s)).toBe(false)
   })
+
+  it('AOFP-326 — kiện đã có mã nhưng hãng đã hủy → vẫn tạo lại được', () => {
+    const s = shipment([parcel(1, 'GHN1', null), { ...parcel(2, 'GHN2', null), carrierStatus: 'cancel' }])
+    expect(hasUnbookedParcels(s)).toBe(true)
+  })
 })

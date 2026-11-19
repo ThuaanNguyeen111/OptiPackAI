@@ -5,9 +5,9 @@ export function humanCarrierError(text: string): string {
   return text.replace(/^[A-Z][A-Z0-9_]+:\s*/, '')
 }
 
-/** Kiện còn chưa có mã hãng → "Tạo lại ở hãng" / sửa địa chỉ còn tác dụng. */
+/** Kiện chưa có mã hãng hoặc đã bị hãng hủy (AOFP-326) → "Tạo lại ở hãng" / sửa địa chỉ còn tác dụng. */
 export function hasUnbookedParcels(shipment: Pick<Shipment, 'carrierParcels'>): boolean {
-  return (shipment.carrierParcels ?? []).some((parcel) => !parcel.carrierOrderCode)
+  return (shipment.carrierParcels ?? []).some((parcel) => !parcel.carrierOrderCode || parcel.carrierStatus === 'cancel')
 }
 
 /** Mỗi kiện đặt hãng lỗi → 1 câu "Chưa tạo được vận đơn GHN cho kiện 2: …". */

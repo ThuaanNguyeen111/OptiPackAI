@@ -141,7 +141,7 @@ describe('ShipmentsService — G1', () => {
 
     expect(orderGroupsService.transitionFulfillmentStatus).toHaveBeenCalledWith(groupId.toString(), GroupFulfillmentStatus.RETURNED, 5, expect.anything());
     // G3 — tự tạo phiếu hoàn trong CÙNG transaction
-    expect(returnsService.createFromFailedDelivery).toHaveBeenCalledWith(groupId.toString(), shipmentId.toString(), 'coord-1', expect.anything());
+    expect(returnsService.createFromFailedDelivery).toHaveBeenCalledWith(groupId.toString(), shipmentId.toString(), 'coord-1', expect.anything(), undefined);
   });
 
   it('bấm "Giao lại" khi đang đi giao (chưa thất bại) -> 409 SHP_INVALID_TRANSITION', async () => {
