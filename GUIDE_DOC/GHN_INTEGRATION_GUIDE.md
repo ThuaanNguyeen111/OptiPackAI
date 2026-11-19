@@ -389,7 +389,7 @@ be/src/modules/carriers/
 | POST | 🆕 `/shipments/:id/carrier/cancel` | Coordinator, Admin | Huỷ ở hãng (chỉ khi chờ lấy hàng) → nhóm đơn về `packed` |
 | POST | 🆕 `/shipments/:id/carrier/sync` | Coordinator, Admin | Đồng bộ trạng thái từ GHN (Order Info) |
 | POST | 🆕 `/shipments/:id/carrier/simulate` | Coordinator, Admin | **[DEMO]** mô phỏng sự kiện GHN, đi chung hàm với webhook |
-| GET | 🆕 `/shipments/carrier/statuses` | Coordinator, Store Owner, Warehouse, Admin | Danh sách trạng thái mô phỏng được + nhãn tiếng Việt |
+| GET | 🆕 `/shipments/carrier/statuses` | Coordinator, Store Owner, Warehouse, Admin | Danh sách trạng thái mô phỏng được + nhãn tiếng Việt. 🔄 AOFP-325: `[]` khi cờ `CARRIER_MANUAL_STATUS_ENABLED` tắt |
 | POST | 🆕 `/carriers/ghn/webhook` | **Public** + header `X-OptiPack-Secret` (hoặc `?secret=`) | Nhận Order Status Callback của GHN |
 | GET | `/documents/shipping-label/:groupId` (🔄) | như cũ | Nhãn PDF của OptiPack in **mã GHN của từng kiện** khi có |
 

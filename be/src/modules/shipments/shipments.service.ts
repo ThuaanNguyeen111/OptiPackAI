@@ -408,7 +408,8 @@ export class ShipmentsService {
         note: note ?? (isLegacyShipped
           ? 'Tạo bù vận đơn cho nhóm đơn đã chuyển "shipped" trước khi có G1'
           : live ? `Tạo vận đơn ${quote.carrierName} — chờ hãng đến lấy hàng` : null),
-      }, session);
+        // AOFP-325 — vận đơn hãng thật: chỉ báo sàn "shipped" khi mọi kiện có mã (CARRIER_BOOKED).
+      }, session, { skipWriteback: live });
       if (!isLegacyShipped) {
         await this.orderGroupsService.transitionFulfillmentStatus(
           orderGroupId,
@@ -963,7 +964,7 @@ export class ShipmentsService {
           eventType: ShipmentEventType.START_DELIVERY,
           actor,
           note: `Chuyến ${tripCode}${live ? ` — tạo vận đơn ${quote.carrierName}, chờ hãng lấy hàng` : ''}${note ? ` — ${note}` : ''}`,
-        }, session);
+        }, session, { skipWriteback: live }); // AOFP-325 — như startDelivery
         await this.shippingService.persistCosts(id, quote, session);
         await this.orderGroupsService.transitionFulfillmentStatus(id, GroupFulfillmentStatus.SHIPPED, group.__v, session);
         rows.push({
@@ -1188,6 +1189,7 @@ export class ShipmentsService {
       : null;
     const now = new Date();
     const errors: string[] = [];
+    const humanErrors: string[] = []; // AOFP-325 — câu cho người đọc (không kèm mã máy)
     const next: CarrierParcel[] = [];
     for (const cp of shipment.carrier_parcels ?? []) {
       const plain: CarrierParcel = {
@@ -1245,6 +1247,7 @@ export class ShipmentsService {
         const message = error instanceof Error ? error.message : String(error);
         plain.booking_error = `${code}: ${message}`;
         errors.push(`Kiện ${String(cp.parcel_no)} — ${plain.booking_error}`);
+        humanErrors.push(`kiện ${String(cp.parcel_no)}: ${message}`);
       }
       next.push(plain);
     }
@@ -1286,8 +1289,23 @@ export class ShipmentsService {
       return doc;
     });
     if (!updated) return this.getShipment(shipmentId); // người khác vừa tạo song song — trả bản mới nhất
-    if (errors.length > 0) this.logger.warn(`Vận đơn ${updated.shipment_code}: tạo ở hãng chưa đủ — ${errors.join(' | ')}`);
+    if (errors.length > 0) {
+      this.logger.warn(`Vận đơn ${updated.shipment_code}: tạo ở hãng chưa đủ — ${errors.join(' | ')}`);
+      // AOFP-325 — báo Coordinator (trước đây chỉ ghi log, không ai biết để sửa).
+      await this.notifySafe({
+        type: NotificationType.CARRIER_BOOKING_FAILED,
+        severity: 'warning',
+        title: `Vận đơn ${updated.shipment_code}: chưa tạo được ở ${updated.carrier_name ?? 'hãng'}`,
+        message: `Chưa tạo được vận đơn ${updated.carrier_name ?? 'hãng'} cho ${humanErrors.join('; ')}. Sửa địa chỉ rồi tạo lại ở hãng.`,
+      }, updated, [UserRole.SHIPPING_COORDINATOR]);
+    }
     return updated;
+  }
+
+  /** AOFP-325 — trạng thái hãng mô phỏng được; rỗng khi môi trường không bật cờ mô phỏng. */
+  simulatableCarrierStatuses(): { status: string; label: string }[] {
+    if (this.configService?.get<boolean>('carrier.manualStatusEnabled') !== true) return [];
+    return SIMULATABLE_GHN_STATUSES.map((status) => ({ status, label: GHN_STATUS_LABELS[status] ?? status }));
   }
 
   /** C4 — sửa địa chỉ gửi hãng (chỉ khi còn kiện CHƯA có mã hãng), rồi tạo lại ở hãng. */
