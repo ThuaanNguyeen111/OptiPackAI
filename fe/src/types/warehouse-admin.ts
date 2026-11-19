@@ -71,6 +71,8 @@ export type OrderAllocation = {
 export type WarehousePickingListItem = {
   sku: string
   quantity: number
+  /** AOFP-327 — số đã quét trong lượt lấy hiện tại (server); null = BE cũ chưa trả. */
+  picked_quantity?: number | null
   length_cm: number
   width_cm: number
   height_cm: number
