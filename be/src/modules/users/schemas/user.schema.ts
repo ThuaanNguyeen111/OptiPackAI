@@ -68,6 +68,10 @@ export class User {
   @Prop()
   mfa_secret?: string;
 
+  /** AOFP-333 — secret mới khi cài (lại) MFA; chỉ thay `mfa_secret` khi verify đúng mã. */
+  @Prop()
+  mfa_pending_secret?: string;
+
   @Prop({ default: false })
   mfa_enabled!: boolean;
 

@@ -63,6 +63,22 @@ export class RedisCacheService implements OnModuleDestroy {
     await this.client.del(`user:auth:${userId}`);
   }
 
+  /** Giá trị tạm tự hết hạn (mã đổi token, challenge MFA). */
+  async setTemp(key: string, value: string, ttlSeconds: number): Promise<void> {
+    await this.client.set(key, value, 'EX', ttlSeconds);
+  }
+
+  async getTemp(key: string): Promise<string | null> {
+    return this.client.get(key);
+  }
+
+  /** Đọc rồi xoá trong 1 giao dịch — mã chỉ dùng được 1 lần kể cả khi 2 request đến cùng lúc. */
+  async takeTemp(key: string): Promise<string | null> {
+    const res = await this.client.multi().get(key).del(key).exec();
+    const value = res?.[0]?.[1];
+    return typeof value === 'string' ? value : null;
+  }
+
   /** Kiểm tra Redis còn trả lời (GET /health). Có hạn chờ: ioredis xếp hàng lệnh khi mất kết nối nên ping trần có thể treo. */
   async ping(timeoutMs = 1500): Promise<boolean> {
     let timer: NodeJS.Timeout | undefined;

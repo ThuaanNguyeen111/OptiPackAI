@@ -9,6 +9,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/services/users.service';
 import { AuthService } from './auth.service';
+import { RedisCacheService } from '../../common/redis/redis-cache.service';
 import { LoginAuditLog } from './schemas/login-audit-log.schema';
 import { TrustedDevice } from './schemas/trusted-device.schema';
 import { MfaService } from './services/mfa.service';
@@ -83,6 +84,7 @@ describe('AuthService.login', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        { provide: RedisCacheService, useValue: {} },
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
         {
@@ -439,6 +441,7 @@ describe('AuthService.googleLogin', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        { provide: RedisCacheService, useValue: {} },
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
         { provide: JwtService, useValue: jwtService },

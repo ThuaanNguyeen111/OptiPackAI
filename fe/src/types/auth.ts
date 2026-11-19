@@ -37,6 +37,8 @@ export type LoginSuccess = {
 
 export type MfaRequired = {
   mfa_required: true
+  /** AOFP-333 — chỉ có ở đăng nhập Google: gửi kèm mã ở POST /auth/google/mfa. */
+  mfa_challenge?: string
 }
 
 export type LoginResponse = LoginSuccess | MfaRequired

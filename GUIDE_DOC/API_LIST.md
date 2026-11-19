@@ -67,12 +67,18 @@ Error response chuẩn:
 | POST   | `/auth/forgot-password` | Public | Gửi email link đặt lại mật khẩu                              |
 | POST   | `/auth/reset-password`  | Public | Đặt mật khẩu mới bằng token từ email                         |
 | POST   | `/auth/change-password` | Bất kỳ | Đổi mật khẩu khi đã đăng nhập                                |
-| POST   | `/auth/mfa/setup`       | Bất kỳ | Bắt đầu bật MFA — trả về `otpauthUrl` để tự vẽ QR            |
+| POST   | `/auth/mfa/setup`       | Bất kỳ | Bắt đầu bật / cài lại MFA — trả `otpauthUrl` + `qrDataUrl` (19/11) |
 | POST   | `/auth/mfa/verify`      | Bất kỳ | Xác nhận mã TOTP đầu tiên — bật MFA thật, trả 10 mã dự phòng |
 | POST   | `/auth/refresh`         | Public | Lấy cặp access/refresh token mới                             |
 | POST   | `/auth/logout`          | Bất kỳ | Thu hồi refresh token hiện tại                               |
 | GET    | `/auth/google`          | Public | Bắt đầu luồng đăng nhập Google (redirect)                    |
 | GET    | `/auth/google/callback` | Public | Google gọi lại sau khi user xác thực                         |
+
+🔄 ĐÃ ĐỔI (19/11/2026, AOFP-333) — bảo mật MFA + Google:
+- `POST /auth/mfa/setup`: trả thêm `qrDataUrl` (ảnh PNG data-URL do BE vẽ — FE không gọi dịch vụ QR ngoài). Secret mới lưu ở `mfa_pending_secret`; **MFA đang bật giữ nguyên** tới khi `POST /auth/mfa/verify` đúng mã mới. MFA đang bật thì body phải có `current_token` (mã TOTP hiện tại) hoặc `password`, thiếu/sai → 401 `AUTH_MFA_REAUTH_REQUIRED`. Giới hạn 5 lần/phút.
+- `POST /auth/mfa/verify`: chỉ kiểm theo secret chờ; chưa gọi setup → 401 `AUTH_MFA_SETUP_NOT_STARTED`.
+- Đăng nhập Google (web callback và `POST /auth/google/mobile`) với tài khoản bật MFA → `{ mfa_required: true, mfa_challenge }` (không có token). 🆕 `POST /auth/google/mfa` (công khai, 5 lần/phút) body `{ mfa_challenge, mfa_token?, backup_code? }` → cùng dạng `POST /auth/login`. Challenge sống 5 phút, dùng 1 lần; sai/hết hạn → 401 `AUTH_GOOGLE_MFA_CHALLENGE_INVALID`; mã sai → `AUTH_MFA_TOKEN_INVALID` / `AUTH_MFA_BACKUP_CODE_INVALID` (challenge vẫn dùng tiếp được). App mobile hiện vẫn bảo người dùng bật MFA đăng nhập bằng email + mật khẩu.
+- `GET /auth/google/callback` **không còn** đặt `access_token` / `refresh_token` lên URL: redirect `CLIENT_REDIRECT_CALLBACK?login_code=<64 hex>` (lỗi vẫn `?error=`). 🆕 `POST /auth/google/exchange` (công khai, 10 lần/phút) body `{ login_code }` → kết quả đăng nhập (token, hoặc `mfa_required` + `mfa_challenge`). Mã sống 60 giây (Redis), dùng 1 lần; sai/đã dùng → 401 `AUTH_GOOGLE_LOGIN_CODE_INVALID`.
 
 🔄 ĐÃ ĐỔI (09/10/2026): `POST /auth/refresh` và `POST /auth/logout` validate body `{ refresh_token: string }` (bắt buộc, khác rỗng) — thiếu/sai kiểu → 400 `VALIDATION_ERROR`. Lỗi đăng nhập/token trả mã `AUTH_*` riêng (xem "Bảng mã lỗi" → Auth).
 
@@ -1006,7 +1012,7 @@ Admin bật/tắt từng **trang** cho mỗi vai trò (trừ Admin — luôn to�
 
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
-| 🆕 POST | `/auth/google/mobile` | Công khai (10 lần/phút) | Body `{ id_token }` — Google ID token app lấy bằng `google_sign_in` với `serverClientId` = `GOOGLE_CLIENT_ID` (client **Web** của BE). BE kiểm token qua Google `tokeninfo` (chữ ký, hạn), `aud` phải là `GOOGLE_CLIENT_ID` (hoặc 1 giá trị trong `GOOGLE_EXTRA_AUDIENCES`), `iss` là Google. Áp đúng luật đăng nhập Google của web: chỉ tài khoản **đã có** (không tự đăng ký), chặn vô hiệu hoá / quá hạn đổi mật khẩu tạm; không hỏi MFA (giống web). Response **cùng dạng `POST /auth/login`**: `{ access_token, refresh_token, must_change_password, role }` |
+| 🆕 POST | `/auth/google/mobile` | Công khai (10 lần/phút) | Body `{ id_token }` — Google ID token app lấy bằng `google_sign_in` với `serverClientId` = `GOOGLE_CLIENT_ID` (client **Web** của BE). BE kiểm token qua Google `tokeninfo` (chữ ký, hạn), `aud` phải là `GOOGLE_CLIENT_ID` (hoặc 1 giá trị trong `GOOGLE_EXTRA_AUDIENCES`), `iss` là Google. Áp đúng luật đăng nhập Google của web: chỉ tài khoản **đã có** (không tự đăng ký), chặn vô hiệu hoá / quá hạn đổi mật khẩu tạm; tài khoản bật MFA trả `mfa_required` + `mfa_challenge` (19/11, AOFP-333). Response **cùng dạng `POST /auth/login`**: `{ access_token, refresh_token, must_change_password, role }` |
 | 🔄 POST | `/auth/logout` | Đã đăng nhập | Body `{ refresh_token, push_token? }` — 🆕 `push_token` (FCM token của máy) → BE gỡ máy khỏi danh sách nhận push của người gọi |
 
 - **Mã lỗi `/auth/google/mobile`:** `AUTH_GOOGLE_ID_TOKEN_INVALID` (401 — token sai / hết hạn / của app khác), `AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` (401 — email chưa có tài khoản, liên hệ Admin), `AUTH_GOOGLE_EMAIL_NOT_VERIFIED` (401), `AUTH_ACCOUNT_INACTIVE` (401), `AUTH_PASSWORD_DEADLINE_LOCKED` (403), `AUTH_GOOGLE_AUTH_FAILED` (401 — không gọi được Google).
