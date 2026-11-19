@@ -129,6 +129,8 @@ describe('ReturnsService — G3', () => {
 
     it('từ chối không ghi lý do -> 400 RMA_NOTE_REQUIRED', async () => {
       await expect(service.reject(rmaId.toString(), 0, 'owner-1', ' ')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.NOTE_REQUIRED });
+      // AOFP-336 — cùng ngưỡng FE: dưới 3 ký tự cũng bị chặn.
+      await expect(service.reject(rmaId.toString(), 0, 'owner-1', ' ab ')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.NOTE_REQUIRED });
     });
   });
 

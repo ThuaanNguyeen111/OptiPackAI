@@ -367,7 +367,7 @@ export class ReturnsService {
   async approve(id: string, expectedVersion: number, actorId: string, note?: string): Promise<ReturnRequestDocument> {
     const rma = await this.get(id);
     if (rma.created_by === actorId) {
-      this.fail(RETURN_ERROR_CODES.SELF_APPROVAL, 'Người tạo phiếu không được tự duyệt — cần Store Owner khác duyệt.', HttpStatus.FORBIDDEN);
+      this.fail(RETURN_ERROR_CODES.SELF_APPROVAL, 'Người tạo phiếu không tự duyệt được, cần chủ shop khác duyệt.', HttpStatus.FORBIDDEN);
     }
     const refundOnly = rma.type === ReturnType.REFUND_ONLY;
     return this.runTx(async (session) => {
@@ -380,7 +380,8 @@ export class ReturnsService {
   }
 
   async reject(id: string, expectedVersion: number, actorId: string, note?: string): Promise<ReturnRequestDocument> {
-    if (!note?.trim()) this.fail(RETURN_ERROR_CODES.NOTE_REQUIRED, 'Từ chối phải ghi rõ lý do.', HttpStatus.BAD_REQUEST);
+    // AOFP-336 — cùng ngưỡng với FE: lý do từ chối tối thiểu 3 ký tự.
+    if ((note?.trim().length ?? 0) < 3) this.fail(RETURN_ERROR_CODES.NOTE_REQUIRED, 'Từ chối phải ghi rõ lý do (tối thiểu 3 ký tự).', HttpStatus.BAD_REQUEST);
     const rma = await this.get(id);
     return this.runTx(async (session) => {
       const updated = await this.move(rma, expectedVersion, ReturnStatus.REQUESTED, ReturnStatus.REJECTED, { decided_by: actorId, decision_note: note, closed_at: new Date() }, session);

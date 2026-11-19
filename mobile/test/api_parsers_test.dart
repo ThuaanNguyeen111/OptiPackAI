@@ -11,6 +11,7 @@ import 'package:optipack_mobile/features/returns/api_returns_repository.dart';
 import 'package:optipack_mobile/features/returns/returns_repository.dart';
 import 'package:optipack_mobile/features/shipping/api_shipping_repository.dart';
 import 'package:optipack_mobile/features/shipping/shipping_repository.dart';
+import 'package:optipack_mobile/features/shipping/shipping_screen.dart' show recipientLine;
 import 'package:optipack_mobile/features/stock/api_stock_repository.dart';
 import 'package:optipack_mobile/shared/widgets.dart';
 
@@ -231,5 +232,26 @@ void main() {
     expect(ErrorState.describe(const ApiException(message: 'x', isNetwork: true)).icon, Icons.cloud_off_outlined);
     expect(ErrorState.describe(const ApiException(message: 'x', statusCode: 403)).title,
         'Bạn không có quyền xem mục này');
+  });
+
+  test('AOFP-336: vận đơn có người nhận, SĐT, địa chỉ, tiền thu hộ, giờ được giao lại', () {
+    final v = parseShipment({
+      'id': 's1',
+      'status': 'delivery_failed',
+      'shipmentCode': 'SHP-1',
+      'orderGroupId': '6a00000000000000000000e7a',
+      'carrierCode': null,
+      'shipperName': 'Shipper B',
+      'recipientName': 'Nguyễn A',
+      'recipientPhone': '0909123456',
+      'recipientAddress': '12 Lê Lợi, Q1',
+      'recipientCodVnd': 350000,
+      'nextAttemptNotBefore': '2026-11-19T08:30:00.000Z',
+      'version': 3,
+    })!;
+    expect(v.recipientName, 'Nguyễn A');
+    expect(recipientLine(v), 'Nguyễn A · 0909123456 · 12 Lê Lợi, Q1 · Thu 350.000 đ');
+    expect(v.retryTooEarly(DateTime.utc(2026, 11, 19, 8)), isTrue);
+    expect(v.retryTooEarly(DateTime.utc(2026, 11, 19, 9)), isFalse);
   });
 }
