@@ -12,7 +12,7 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 describe('MarketplaceWebhooksService', () => {
   let service: MarketplaceWebhooksService;
 
-  let processedEventModel: { create: jest.Mock };
+  let processedEventModel: { create: jest.Mock; deleteOne: jest.Mock };
   let adapter: { verifyWebhookSignature: jest.Mock };
   let marketplaceIntegrationService: { getConnectedShop: jest.Mock };
   let ordersService: { syncSingleOrder: jest.Mock };
@@ -31,7 +31,7 @@ describe('MarketplaceWebhooksService', () => {
   }
 
   beforeEach(() => {
-    processedEventModel = { create: jest.fn().mockResolvedValue({}) };
+    processedEventModel = { create: jest.fn().mockResolvedValue({}), deleteOne: jest.fn().mockResolvedValue({}) };
     adapter = { verifyWebhookSignature: jest.fn().mockReturnValue(true) };
     marketplaceIntegrationService = {
       getConnectedShop: jest.fn().mockResolvedValue({}),
@@ -77,6 +77,17 @@ describe('MarketplaceWebhooksService', () => {
       service.handleWebhook(MarketplacePlatform.AURELLE, Buffer.from('{}'), 'chu-ky-dung', body),
     ).rejects.toMatchObject({ errorCode: MKT_ERROR_CODES.WEBHOOK_SIGNATURE_INVALID });
     expect(processedEventModel.create).not.toHaveBeenCalled();
+  });
+
+  it('AOFP-330 AC1: dispatch lỗi → xoá bản ghi chống trùng, ném lại lỗi; lần gửi lại cùng message_id được xử lý', async () => {
+    const body = makePayload();
+    ordersService.syncSingleOrder.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.handleWebhook(MarketplacePlatform.AURELLE, Buffer.from('{}'), 'chu-ky-dung', body)).rejects.toThrow('db down');
+    expect(processedEventModel.deleteOne).toHaveBeenCalledWith({ platform: MarketplacePlatform.AURELLE, event_id: 'msg_001' });
+
+    await service.handleWebhook(MarketplacePlatform.AURELLE, Buffer.from('{}'), 'chu-ky-dung', body);
+    expect(ordersService.syncSingleOrder).toHaveBeenCalledTimes(2);
   });
 
   it('message_id đã xử lý trước đó (E11000) -> ack {received:true}, KHÔNG gọi sync lại', async () => {

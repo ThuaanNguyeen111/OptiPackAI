@@ -49,7 +49,7 @@ function build(opts: { status: string; rma: Record<string, unknown> | null; with
   const updateOrderStatus = jest.fn().mockResolvedValue(undefined);
   const adapter = opts.withAdapter === false ? { updateOrderStatus } : { updateOrderStatus, updateExchangeShipment };
   const service = new MarketplaceWritebackService(
-    { find: jest.fn(() => chain([row])), updateOne: outboxUpdate } as never,
+    { find: jest.fn(() => chain([row])), updateOne: outboxUpdate, exists: jest.fn().mockResolvedValue(null) } as never,
     orderModel as never,
     { findById: jest.fn(() => chain(shipment)) } as never,
     { getValidAccessToken: jest.fn().mockResolvedValue('tok') } as never,
@@ -125,7 +125,7 @@ describe('MarketplaceWritebackService — sự kiện riêng 1 đơn (22/10/2026
       findOne: jest.fn(() => chain({ _id: orderId, platform_order_id: '720000009', shop_id: 'S1' })),
     };
     const service = new MarketplaceWritebackService(
-      { find: jest.fn(() => chain([row])), updateOne: outboxUpdate } as never,
+      { find: jest.fn(() => chain([row])), updateOne: outboxUpdate, exists: jest.fn().mockResolvedValue(null) } as never,
       orderModel as never,
       { findById: jest.fn() } as never,
       { getValidAccessToken: jest.fn().mockResolvedValue('tok') } as never,

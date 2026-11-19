@@ -362,10 +362,18 @@ export class OrderGroupsService {
         order.recipient.city,
       ),
     });
-    await this.orderModel.updateOne(
-      { _id: order._id },
+    // AOFP-330 — chỉ gán khi đơn còn chưa có nhóm. Lượt khác vừa gán → bỏ nhóm vừa tạo (chưa ai
+    // dùng, còn awaiting_packaging) rồi dùng nhóm của lượt kia; không để lại nhóm rỗng đang picking.
+    const assigned = await this.orderModel.updateOne(
+      { _id: order._id, consolidated_group_id: null },
       { $set: { consolidated_group_id: newGroup._id } },
     );
+    if (assigned.matchedCount === 0) {
+      await this.orderGroupModel.deleteOne({ _id: newGroup._id });
+      const fresh = await this.orderModel.findById(order._id);
+      if (!fresh?.consolidated_group_id) throw new Error(`Đơn ${String(order._id)} không còn để gán nhóm.`);
+      return this.resolveGroupForOrder(fresh);
+    }
     return this.startPickingPhase(newGroup);
   }
 
@@ -1675,6 +1683,42 @@ export class OrderGroupsService {
     }
   }
 
+  /**
+   * AOFP-330 — xử lý nhóm sau khi 1 đơn bị hủy, xong thì xoá cờ `group_resync_pending` của các đơn
+   * trong nhóm. Lỗi chỉ ghi log: đơn đã hủy, cron `resyncPendingCanceledGroups` sẽ thử lại.
+   */
+  async resyncGroupAfterCancel(groupId: string): Promise<boolean> {
+    try {
+      await this.handleOrderBecameUnfulfillable(groupId);
+      await this.orderModel.updateMany(
+        { consolidated_group_id: new Types.ObjectId(groupId), group_resync_pending: true },
+        { $unset: { group_resync_pending: 1 } },
+      );
+      return true;
+    } catch (error: unknown) {
+      this.logger.error(
+        `Xử lý nhóm ${groupId} sau khi hủy đơn thất bại — cron sẽ thử lại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return false;
+    }
+  }
+
+  /** AOFP-330 — lưới an toàn: đơn đã hủy mà nhóm chưa xử lý xong (cờ còn bật) → xử lý lại nhóm. */
+  async resyncPendingCanceledGroups(limit = 100): Promise<{ groups: number; failed: number }> {
+    const pending = await this.orderModel
+      .find({ group_resync_pending: true })
+      .select('consolidated_group_id')
+      .limit(limit)
+      .lean();
+    const groupIds = [...new Set(pending.flatMap((o) => (o.consolidated_group_id ? [String(o.consolidated_group_id)] : [])))];
+    let failed = 0;
+    for (const id of groupIds) if (!(await this.resyncGroupAfterCancel(id))) failed += 1;
+    // Đơn không còn nhóm thì không còn gì để xử lý.
+    const orphanIds = pending.filter((o) => !o.consolidated_group_id).map((o) => o._id);
+    if (orphanIds.length > 0) await this.orderModel.updateMany({ _id: { $in: orphanIds } }, { $unset: { group_resync_pending: 1 } });
+    return { groups: groupIds.length, failed };
+  }
+
   /** Nhóm đã có hàng lấy ra nhưng chưa bắt đầu đóng → trả phần dư về kệ. Best-effort. */
   private async returnSurplusIfPicking(groupId: string): Promise<void> {
     const group = await this.orderGroupModel.findById(groupId);
@@ -1875,34 +1919,52 @@ export class OrderGroupsService {
     ];
     if (group && locked.includes(group.fulfillment_status)) notAllowed('Nhóm đơn đã giao cho vận chuyển — không hủy được nữa.');
 
-    const updated = await this.orderModel.updateOne(
-      { _id: order._id, status: { $in: UNFULFILLED_ORDER_STATUSES } },
-      {
-        $set: { status: OrderStatus.CANCELED, 'items.$[].status': OrderStatus.CANCELED },
-        $push: { raw_statuses: 'seller_canceled' },
-      },
-    );
-    if (updated.modifiedCount === 0) notAllowed('Đơn vừa đổi trạng thái — tải lại rồi thử lại.');
-    await enqueueStatusPush(this.statusOutboxModel, {
-      orderGroupId: order.consolidated_group_id ?? order._id,
-      orderId: order._id,
-      status: 'canceled_by_seller',
-      reason: reason.trim() || 'Người bán không thể giao đơn này',
-      discriminator: 'seller',
-    });
-    if (group) await this.handleOrderBecameUnfulfillable(String(group._id));
-    await recordActivity(this.activityLogModel, {
-      category: 'orders',
-      action: 'order.seller_canceled',
-      summary: `Người bán hủy đơn AURELLE ${orderId.slice(-8)} — lý do: ${reason.trim() || 'không ghi'}`,
-      actorId,
-      orderGroupId: order.consolidated_group_id ?? null,
-      entityType: 'order',
-      entityId: order._id,
-      fromStatus: order.status,
-      toStatus: OrderStatus.CANCELED,
-      note: reason.trim() || null,
-    });
+    // AOFP-330 — hủy đơn + xếp lịch báo website + nhật ký trong CÙNG transaction (quy tắc DB #6):
+    // báo sàn lỗi thì đơn không bị hủy nửa vời. Cờ `group_resync_pending` để cron xử lý lại nhóm nếu bước sau lỗi.
+    const session = await this.connection.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const updated = await this.orderModel.updateOne(
+          { _id: order._id, status: { $in: UNFULFILLED_ORDER_STATUSES } },
+          {
+            $set: {
+              status: OrderStatus.CANCELED,
+              'items.$[].status': OrderStatus.CANCELED,
+              ...(group ? { group_resync_pending: true } : {}),
+            },
+            $push: { raw_statuses: 'seller_canceled' },
+          },
+          { session },
+        );
+        if (updated.modifiedCount === 0) notAllowed('Đơn vừa đổi trạng thái — tải lại rồi thử lại.');
+        await enqueueStatusPush(
+          this.statusOutboxModel,
+          {
+            orderGroupId: order.consolidated_group_id ?? order._id,
+            orderId: order._id,
+            status: 'canceled_by_seller',
+            reason: reason.trim() || 'Người bán không thể giao đơn này',
+            discriminator: 'seller',
+          },
+          session,
+        );
+        await recordActivity(this.activityLogModel, {
+          category: 'orders',
+          action: 'order.seller_canceled',
+          summary: `Người bán hủy đơn AURELLE ${orderId.slice(-8)} — lý do: ${reason.trim() || 'không ghi'}`,
+          actorId,
+          orderGroupId: order.consolidated_group_id ?? null,
+          entityType: 'order',
+          entityId: order._id,
+          fromStatus: order.status,
+          toStatus: OrderStatus.CANCELED,
+          note: reason.trim() || null,
+        }, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+    if (group) await this.resyncGroupAfterCancel(String(group._id));
     this.logger.warn(`Người bán hủy đơn AURELLE ${orderId}: ${reason}`);
     return { order_id: String(order._id), status: OrderStatus.CANCELED };
   }

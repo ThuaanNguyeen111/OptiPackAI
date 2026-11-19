@@ -771,6 +771,8 @@ Mã lỗi `SF_*`: xem "Bảng mã lỗi".
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
 | POST | `/marketplace-writeback/stock/push` | Admin, Store Owner | Đẩy ngay tồn bán được của kho OptiPack sang website AURELLE (khỏi chờ cron). Query `force=true` gửi lại mọi SKU kể cả số không đổi. Response `{ checked, pushed, unchanged, unmanaged, failed }` |
+| 🆕 GET | `/admin/writeback/failed` | Admin | AOFP-330 — các dòng báo trạng thái lên website đã **dừng** sau 8 lần lỗi (mới nhất trước, tối đa 100). Response `{ rows: [{ id, orderGroupId, orderId, kind, status, attempts, lastError, eventTime, updatedAt }] }`. Dòng dừng còn bắn thông báo `sync_failed` (critical) cho Admin |
+| 🆕 POST | `/admin/writeback/:id/retry` | Admin | AOFP-330 — gửi lại 1 dòng đã dừng: về `pending`, đếm lượt từ 0, cron gửi trong ≤ 1 phút. `404 MKT_WRITEBACK_NOT_RETRYABLE` nếu dòng không còn `failed`. Ghi chú: dòng của 1 nhóm chờ dòng cũ hơn cùng nhóm gửi xong mới gửi; "chờ mã hãng" không tính vào số lần thử |
 
 - Cron mỗi phút (giây 30) chạy cùng logic, chỉ gửi SKU có số đổi.
 - Số đẩy = tồn thực OptiPack − đang giữ chỗ (mọi kênh). Website đặt `quantity_on_hand = số đẩy + giữ chỗ của website` nên đơn đặt giữa 2 lượt vẫn bị trừ đúng 1 lần.
@@ -893,7 +895,7 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
-| 🆕 POST | `/order-groups/orders/:orderId/seller-cancel` | Store Owner, Admin | `{ reason }` — người bán hủy 1 đơn **AURELLE** chưa giao vận chuyển. Đơn `canceled` (raw `seller_canceled`), nhóm xử lý như đơn bị hủy, xếp hàng báo website `canceled_by_seller`. `404 ORD_GROUP_ORDER_NOT_FOUND`, `409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED` |
+| 🆕 POST | `/order-groups/orders/:orderId/seller-cancel` | Store Owner, Admin | `{ reason }` — người bán hủy 1 đơn **AURELLE** chưa giao vận chuyển. Đơn `canceled` (raw `seller_canceled`), nhóm xử lý như đơn bị hủy, xếp hàng báo website `canceled_by_seller`. `404 ORD_GROUP_ORDER_NOT_FOUND`, `409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED`. 🔄 AOFP-330: hủy đơn + xếp lịch báo website + nhật ký chung 1 transaction (báo website lỗi → đơn không đổi); xử lý nhóm lỗi thì cron 5 phút làm lại. FE bắt buộc hộp xác nhận, nút **Hủy đơn và báo khách** khoá tới khi có lý do |
 | 🔄 GET | `/orders/:id` | Admin, Store Owner | Thêm `sellerCanceled`, `origin` |
 | 🔄 POST | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin | `approve: true` → thêm: chia số đã lấy cho từng đơn (đơn cũ trước), mỗi đơn AURELLE bị thiếu được xếp hàng báo website `short_shipped` kèm `items[{ sku, shipped_quantity }]` |
 | 🆕 GET/POST | `/storefront/admin/categories` | Admin website AURELLE | Danh sách (kèm `skuCategoryCode`, `productCount`) / tạo danh mục website. Body `{ name, description?, parentId?, sortOrder?, isActive?, skuCategoryCode? }` — `skuCategoryCode` phải là danh mục cấp 2 đang dùng của OptiPack |

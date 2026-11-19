@@ -83,6 +83,36 @@ export class RedisCacheService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * AOFP-330 — khoá ngắn hạn (SET NX PX). Trả token khi giành được, null khi đang có người giữ.
+   * Redis lỗi thì ném ra — người gọi tự quyết chạy không khoá.
+   */
+  async acquireLock(key: string, ttlMs: number): Promise<string | null> {
+    const token = `${String(process.pid)}:${String(Date.now())}:${Math.random().toString(36).slice(2)}`;
+    const ok = await this.client.set(key, token, 'PX', ttlMs, 'NX');
+    return ok === 'OK' ? token : null;
+  }
+
+  /** Chỉ xoá khoá khi còn đúng token của mình (khoá hết hạn rồi bị người khác giành thì không xoá nhầm). */
+  async releaseLock(key: string, token: string): Promise<void> {
+    await this.client.eval(
+      "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+      1,
+      key,
+      token,
+    );
+  }
+
+  /** Cờ có hạn: bật. */
+  async setFlag(key: string, ttlSeconds: number): Promise<void> {
+    await this.client.set(key, '1', 'EX', ttlSeconds);
+  }
+
+  /** Cờ có hạn: lấy và xoá — true nếu cờ đang bật. */
+  async takeFlag(key: string): Promise<boolean> {
+    return (await this.client.del(key)) > 0;
+  }
+
   onModuleDestroy(): void {
     this.client.disconnect();
   }
