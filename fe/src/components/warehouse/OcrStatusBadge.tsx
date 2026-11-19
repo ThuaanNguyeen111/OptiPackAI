@@ -5,6 +5,7 @@ import { Badge } from '../ui/Badge'
 export function OcrStatusBadge({ status, vi }: { status: OcrStatus | null; vi: boolean }) {
   if (!status) return null
   if (status === 'mismatch') return <Badge tone="danger">{vi ? 'Lệch phiếu' : 'Mismatch'}</Badge>
+  if (status === 'partial') return <Badge tone="warning">{vi ? 'Khớp một phần' : 'Partial'}</Badge>
   if (status === 'matched') return <Badge tone="success">{vi ? 'Khớp phiếu' : 'Matched'}</Badge>
   return <Badge tone="default">{vi ? 'Chưa đối chiếu' : 'Not checked'}</Badge>
 }

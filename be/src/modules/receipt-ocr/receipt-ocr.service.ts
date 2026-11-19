@@ -18,6 +18,7 @@ import {
   requireMaterialPhotos,
   type MaterialIntakeFields,
   type OcrCheckInput,
+  type OcrCheckOptions,
   type ResolvedOcrChecks,
 } from './receipt-ocr.util';
 import type { SupplierReceiptEvidenceDto } from './dto/supplier-receipt-evidence.dto';
@@ -130,7 +131,7 @@ export class ReceiptOcrService {
    * Lấy số trên phiếu từ scan (không tin số client gửi), đối chiếu từng dòng.
    * Ảnh đã OCR phải nằm trong ảnh minh chứng của phiếu — không mượn kết quả đọc của phiếu khác.
    */
-  async resolveChecks(scanId: string | undefined, photoUrls: string[], inputs: OcrCheckInput[]): Promise<ResolvedOcrChecks> {
+  async resolveChecks(scanId: string | undefined, photoUrls: string[], inputs: OcrCheckInput[], options: OcrCheckOptions = {}): Promise<ResolvedOcrChecks> {
     let scan: { _id: Types.ObjectId; photo_urls: string[]; ai_model: string; supplier: string | null; document_date: string | null; lines: ReceiptOcrLine[]; created_at: Date } | null = null;
     if (scanId) {
       scan = Types.ObjectId.isValid(scanId) ? await this.scanModel.findById(new Types.ObjectId(scanId)).lean() : null;
@@ -142,9 +143,16 @@ export class ReceiptOcrService {
         throw new AppException(E.OCR_SCAN_INVALID, 'Ảnh đã đọc không nằm trong ảnh phiếu gửi kèm.', HttpStatus.BAD_REQUEST, { scanId, missingPhotoUrls: missing });
       }
     }
-    const result = checkAgainstScan(scan?.lines ?? null, inputs);
+    const result = checkAgainstScan(scan?.lines ?? null, inputs, options);
     if (!result.ok) {
       const p = result.problem;
+      if (p.kind === 'partial_reason_required') {
+        const parts = [
+          p.extraOcrLines.length > 0 ? `phiếu có dòng ${p.extraOcrLines.map((i) => String(i + 1)).join(', ')} chưa gắn` : null,
+          p.unlinkedLines.length > 0 ? `dòng nhập ${p.unlinkedLines.map((i) => String(i + 1)).join(', ')} không có trên phiếu` : null,
+        ].filter(Boolean);
+        throw new AppException(E.PARTIAL_REASON_REQUIRED, `Phiếu chỉ khớp một phần (${parts.join('; ')}) — ghi lý do.`, HttpStatus.BAD_REQUEST, { ...p });
+      }
       const line = String(p.lineIndex + 1);
       if (p.kind === 'reason_required') {
         throw new AppException(
@@ -167,6 +175,8 @@ export class ReceiptOcrService {
       snapshot: scan ? { ai_model: scan.ai_model, read_at: scan.created_at, supplier: scan.supplier, document_date: scan.document_date, lines: scan.lines } : null,
       checks: result.checks,
       status: result.status,
+      extraOcrLines: result.extraOcrLines,
+      partialReason: result.status === 'partial' ? (options.partialReason?.trim() ?? null) : null,
     };
   }
 

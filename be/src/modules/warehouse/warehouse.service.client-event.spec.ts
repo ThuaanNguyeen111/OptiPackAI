@@ -93,6 +93,27 @@ describe('WarehouseService — client_event_id (kiểm kê, chuyển ô, nhập 
       .rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.CLIENT_EVENT_REUSED });
   });
 
+  // AOFP-328 (Q3) — nhập thêm là cộng tồn từ NCC: bắt ảnh phiếu; chỉ ADMIN nhập không ảnh và phải ghi lý do.
+  it('nhân viên kho nhập thêm không ảnh phiếu → 400 WH_RECEIPT_PHOTO_REQUIRED, không cộng tồn', async () => {
+    await expect(service.restockSku(warehouseId.toString(), assignmentId.toString(), 5, false, 'u1', {}))
+      .rejects.toMatchObject({ errorCode: 'WH_RECEIPT_PHOTO_REQUIRED' });
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('Admin nhập thêm không ảnh mà không ghi lý do → 400 WH_NO_PHOTO_REASON_REQUIRED', async () => {
+    await expect(service.restockSku(warehouseId.toString(), assignmentId.toString(), 5, false, 'u1', { isAdmin: true, noPhotoReason: '  ' }))
+      .rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.NO_PHOTO_REASON_REQUIRED });
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('nhập thêm vào ô đã tắt → 409 WH_BIN_INACTIVE, không cộng tồn', async () => {
+    assignmentModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(assignment(5)) });
+    binModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: srcBin, bin_code: 'A-01', is_active: false, capacity: null }) });
+    await expect(service.restockSku(warehouseId.toString(), assignmentId.toString(), 5, false, 'u1', { photoUrls: ['https://res.cloudinary.com/x/receipts/a.jpg'] }))
+      .rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.BIN_INACTIVE });
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it('nhập thêm gửi lại cùng mã → không cộng tồn lần 2', async () => {
     movementModel.findOne.mockResolvedValue({ type: 'receive', assignment_id: assignmentId });
     assignmentModel.findOne.mockResolvedValue(assignment(60));

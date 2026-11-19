@@ -16,7 +16,6 @@ import {
   listWarehouseZones,
   listWarehouses,
   readStoredWarehouseId,
-  restockSkuAssignment,
   transferStockAssignment,
   writeStoredWarehouseId,
 } from '../api/warehouse.api'
@@ -60,7 +59,7 @@ const fieldClass =
   'h-9 w-full rounded-md border border-hairline bg-surface-1 px-3 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
 type StockFilter = 'all' | 'in_stock' | 'empty'
-type ActionId = 'receive' | 'count' | 'move' | 'lots' | 'ledger'
+type ActionId = 'count' | 'move' | 'lots' | 'ledger'
 
 type WarehouseData = {
   key: string
@@ -513,13 +512,12 @@ function ActionPanel({
   onClose: () => void
   onDone: (message: string) => void
 }) {
-  const [action, setAction] = useState<ActionId>('receive')
+  const [action, setAction] = useState<ActionId>('lots')
   // Mỗi loại thao tác giữ một mã tới khi thành công: bấm lại sau lỗi mạng sẽ không ghi trùng.
   const eventIds = useRef<Partial<Record<'receive' | 'count' | 'move', string>>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [receiveQty, setReceiveQty] = useState(1)
   const [counted, setCounted] = useState(row.quantityOnHand)
   const [reason, setReason] = useState<StockAdjustReason>('count_correction')
   const [note, setNote] = useState('')
@@ -530,9 +528,26 @@ function ActionPanel({
   const [receivedAt, setReceivedAt] = useState('')
   const [lotCode, setLotCode] = useState('')
   const [supplier, setSupplier] = useState('')
+  const [partialReason, setPartialReason] = useState('')
   const [receiptQty, setReceiptQty] = useState(0)
   const [evidence, setEvidence] = useState<ReceiptEvidenceState>(EMPTY_RECEIPT_EVIDENCE)
-  const evidenceProblem = receiptEvidenceProblem(evidence, receiptQty, vi)
+  // AOFP-328 — phiếu NCC nhiều dòng mà phiếu nhập này chỉ gắn 1 → BE ghi "khớp một phần", bắt lý do.
+  const partialLines =
+    evidence.scan && evidence.ocrLineIndex !== null ? evidence.scan.lines.length - 1 : 0
+  const evidenceProblem =
+    receiptEvidenceProblem(evidence, receiptQty, vi) ??
+    (partialLines > 0 && !partialReason.trim()
+      ? vi
+        ? `Phiếu NCC còn ${partialLines} dòng chưa gắn — ghi lý do khớp một phần.`
+        : `${partialLines} supplier slip line(s) not linked — enter a partial-match reason.`
+      : null)
+
+  // Mở bảng là vào thẳng "Lập phiếu nhập" → tải lô của ô ngay.
+  useEffect(() => {
+    listAssignmentLots(warehouseId, row.id)
+      .then(setLots)
+      .catch((err: unknown) => setError(formatApiError(err)))
+  }, [warehouseId, row.id])
 
   function eventIdFor(kind: 'receive' | 'count' | 'move'): string {
     const current = eventIds.current[kind] ?? newClientEventId(kind)
@@ -557,25 +572,6 @@ function ActionPanel({
   function confirmOverCapacity(err: unknown, question: string): boolean {
     if (getApiErrorCode(err) !== 'WH_BIN_OVER_CAPACITY') return false
     return window.confirm(`${formatApiError(err)}\n\n${question}`)
-  }
-
-  function receive() {
-    const extra = {
-      received_at: toReceivedAtIso(receivedAt),
-      lot_code: lotCode.trim() || undefined,
-      client_event_id: eventIdFor('receive'),
-    }
-    void run(async () => {
-      try {
-        await restockSkuAssignment(warehouseId, row.id, receiveQty, false, extra)
-      } catch (err: unknown) {
-        if (!confirmOverCapacity(err, vi ? 'Vẫn nhập?' : 'Receive anyway?')) throw err
-        await restockSkuAssignment(warehouseId, row.id, receiveQty, true, extra)
-      }
-      return vi
-        ? `Đã nhập ${receiveQty} cái ${row.sellerSku} vào ô ${row.binLabel}.`
-        : `Received ${receiveQty} × ${row.sellerSku} into ${row.binLabel}.`
-    }, 'receive')
   }
 
   function count() {
@@ -642,7 +638,10 @@ function ActionPanel({
       lot_code: lotCode.trim() || undefined,
       supplier: supplier.trim() || undefined,
       note: note.trim() || undefined,
+      partial_reason: partialLines > 0 ? partialReason.trim() : undefined,
       lines: [{ assignment_id: row.id, quantity: receiptQty, ocr_line_index, mismatch_reason }],
+      // AOFP-328 — giữ mã tới khi lưu được: mất phản hồi rồi bấm lại thì BE trả phiếu cũ.
+      client_event_id: eventIdFor('receive'),
     }
     void run(async () => {
       const code = lotCode.trim()
@@ -655,10 +654,11 @@ function ActionPanel({
         }
         receipt = await createStockReceipt(warehouseId, { ...base, force: true })
       }
-      // Xoá form ngay để bấm Lưu lần nữa không lập trùng phiếu (phiếu không có idempotency key).
+      // Xoá form sau khi lưu; gửi lại cùng mã (mất phản hồi) đã được BE chống trùng.
       setEvidence(EMPTY_RECEIPT_EVIDENCE)
       setReceiptQty(0)
       setSupplier('')
+      setPartialReason('')
       setNote('')
       setLotCode('')
       setReceivedAt('')
@@ -673,16 +673,17 @@ function ActionPanel({
       const flag =
         receipt.ocrStatus === 'mismatch'
           ? vi ? ' · đã ghi LỆCH PHIẾU và báo chủ shop' : ' · flagged as MISMATCH'
-          : ''
+          : receipt.ocrStatus === 'partial'
+            ? vi ? ' · khớp một phần' : ' · partial match'
+            : ''
       return vi
         ? `Đã lập phiếu nhập ${receipt.receiptCode} · ${receiptQty} cái ${row.sellerSku}${code ? ` · lô ${code}` : ''}${flag}.`
         : `Receipt ${receipt.receiptCode} saved for ${receiptQty} × ${row.sellerSku}${code ? ` · lot ${code}` : ''}${flag}.`
-    })
+    }, 'receive')
   }
 
   const tabs: [ActionId, string][] = [
-    ['receive', vi ? 'Nhập hàng' : 'Receive'],
-    ['lots', vi ? 'Phiếu nhập / lô' : 'Receipt / lots'],
+    ['lots', vi ? 'Lập phiếu nhập' : 'New receipt'],
     ['count', vi ? 'Kiểm kê' : 'Count'],
     ['move', vi ? 'Chuyển ô' : 'Move'],
     ['ledger', vi ? 'Sổ cái' : 'Ledger'],
@@ -735,7 +736,7 @@ function ActionPanel({
       </div>
 
       <div className="space-y-3 p-4">
-        {action === 'receive' || action === 'lots' ? (
+        {action === 'lots' ? (
           <Field label={vi ? 'Ngày nhập (để trống = bây giờ)' : 'Received at (blank = now)'}>
             <Input
               className={fieldClass}
@@ -744,31 +745,6 @@ function ActionPanel({
               onChange={(e) => setReceivedAt(e.target.value)}
             />
           </Field>
-        ) : null}
-
-        {action === 'receive' ? (
-          <>
-            <Field label={vi ? 'Mã lô (để trống thì hệ thống tự đặt)' : 'Lot code (blank = system)'}>
-              <Input
-                className={fieldClass}
-                value={lotCode}
-                maxLength={40}
-                onChange={(e) => setLotCode(e.target.value)}
-              />
-            </Field>
-            <Field label={vi ? 'Số lượng nhập thêm' : 'Quantity to add'}>
-              <Input
-                className={fieldClass}
-                type="number"
-                min={1}
-                value={receiveQty}
-                onChange={(e) => setReceiveQty(Math.max(1, Number(e.target.value) || 1))}
-              />
-              <p className="text-[11px] text-ink-muted">
-                {vi ? 'Sau khi nhập' : 'After'}: {row.quantityOnHand + receiveQty}
-              </p>
-            </Field>
-          </>
         ) : null}
 
         {action === 'lots' ? (
@@ -784,6 +760,23 @@ function ActionPanel({
                 if (next.scan?.supplier && !supplier.trim()) setSupplier(next.scan.supplier)
               }}
             />
+            {partialLines > 0 ? (
+              <Field
+                label={
+                  vi
+                    ? `Lý do khớp một phần (phiếu NCC còn ${partialLines} dòng chưa gắn)`
+                    : `Partial-match reason (${partialLines} slip line(s) not linked)`
+                }
+              >
+                <Input
+                  className={fieldClass}
+                  value={partialReason}
+                  maxLength={300}
+                  placeholder={vi ? 'VD: các dòng khác nhập ở ô khác' : 'e.g. other lines go to other bins'}
+                  onChange={(e) => setPartialReason(e.target.value)}
+                />
+              </Field>
+            ) : null}
             <Field label={vi ? 'Nhà cung cấp' : 'Supplier'}>
               <Input
                 className={fieldClass}
@@ -944,28 +937,23 @@ function ActionPanel({
                 (action === 'lots' && evidenceProblem !== null)
               }
               onClick={() => {
-                if (action === 'receive') receive()
-                else if (action === 'count') count()
+                if (action === 'count') count()
                 else if (action === 'lots') saveReceipt()
                 else move()
               }}
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              {action === 'receive'
+              {action === 'lots'
                 ? vi
-                  ? 'Nhập hàng'
-                  : 'Receive'
-                : action === 'lots'
+                  ? 'Lưu phiếu nhập'
+                  : 'Save receipt'
+                : action === 'count'
                   ? vi
-                    ? 'Lưu phiếu nhập'
-                    : 'Save receipt'
-                  : action === 'count'
-                    ? vi
-                      ? 'Lưu kiểm kê'
-                      : 'Save count'
-                    : vi
-                      ? 'Chuyển ô'
-                      : 'Move'}
+                    ? 'Lưu kiểm kê'
+                    : 'Save count'
+                  : vi
+                    ? 'Chuyển ô'
+                    : 'Move'}
             </Button>
           </div>
         ) : null}

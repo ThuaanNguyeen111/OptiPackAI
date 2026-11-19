@@ -279,6 +279,8 @@ export type CreateStockReceiptInput = ReceiptEvidenceHeader & {
   supplier?: string
   note?: string
   force?: boolean
+  partial_reason?: string // AOFP-328 — bắt buộc khi phiếu NCC còn dòng chưa gắn
+  client_event_id?: string // AOFP-328 — gửi lại cùng mã → BE trả phiếu cũ
   lines: {
     assignment_id?: string
     bin_location_id?: string
