@@ -4,8 +4,10 @@ import { SaveAdminProductDto } from './dto/storefront-admin.dto';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
 import { StorefrontAdminService } from './storefront-admin.service';
 import type { AdminCatalogProduct, SkuOptions } from './storefront-admin.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 @ApiTags('Storefront Admin')
+@NoFeatureGate('Admin website AURELLE, đăng nhập riêng')
 @Controller('storefront/admin/products')
 @UseGuards(StorefrontAdminOriginGuard, StorefrontAdminGuard)
 export class StorefrontAdminController {

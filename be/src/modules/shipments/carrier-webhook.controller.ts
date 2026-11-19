@@ -2,6 +2,7 @@ import { Body, Controller, Headers, HttpCode, HttpStatus, Post, Query } from '@n
 import { ApiExcludeController } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ShipmentsService, type CarrierEventPayload } from './shipments.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 /**
  * ===================================================================
@@ -16,6 +17,7 @@ import { ShipmentsService, type CarrierEventPayload } from './shipments.service'
  * ===================================================================
  */
 @ApiExcludeController()
+@NoFeatureGate('Webhook hãng vận chuyển, xác thực bằng chữ ký')
 @Controller('carriers')
 export class CarrierWebhookController {
   constructor(private readonly shipmentsService: ShipmentsService) {}

@@ -58,6 +58,7 @@ export class ColorsController {
 @ApiTags('Master SKUs')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('inventory', 'picking', 'packing', 'orders', 'order_groups', 'packaging_rules')
 @Controller('master-skus')
 export class MasterSkusController {
   constructor(private readonly service: MasterSkusService) {}

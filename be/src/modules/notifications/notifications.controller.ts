@@ -24,9 +24,11 @@ import { AppException } from '../../common/exceptions/app-exception';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 @ApiTags('Notifications')
 @ApiBearerAuth('JWT-auth')
+@NoFeatureGate('Chuông thông báo của chính người đăng nhập — mọi vai trò')
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {

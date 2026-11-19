@@ -13,7 +13,6 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { isUserRole, UserRole } from '../../common/enums/user-role.enum';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { ForcePasswordChangeGuard } from '../auth/guards/force-password-change.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
@@ -123,7 +122,7 @@ function toAdminListItem(user: UserDocument): AdminUserListItem {
 
 @ApiTags('Users')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard, ForcePasswordChangeGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Features('staff')
 @Controller('users')
 export class UsersController {
@@ -191,8 +190,9 @@ export class UsersController {
   @Post(':id/reset-password')
   async resetPassword(
     @Param('id') id: string,
+    @CurrentUser() admin: AuthenticatedUser,
   ): Promise<{ message: string; temporary_password: string }> {
-    const { temporaryPassword } = await this.usersService.adminResetPassword(id);
+    const { temporaryPassword } = await this.usersService.adminResetPassword(id, admin.userId);
     return {
       message: 'Đã reset mật khẩu. Mật khẩu tạm cũng đã được gửi qua email nhân viên.',
       temporary_password: temporaryPassword,
@@ -221,8 +221,9 @@ export class UsersController {
   async adminUpdate(
     @Param('id') id: string,
     @Body() dto: AdminUpdateUserDto,
+    @CurrentUser() admin: AuthenticatedUser,
   ): Promise<ReturnType<typeof toPublicProfile>> {
-    const updated = await this.usersService.adminUpdateUser(id, dto);
+    const updated = await this.usersService.adminUpdateUser(id, dto, admin.userId);
     return toPublicProfile(updated);
   }
 
@@ -239,8 +240,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Vô hiệu hóa tài khoản nhân viên (xóa mềm)' })
   @Roles(UserRole.ADMIN)
   @Delete(':id')
-  async deactivate(@Param('id') id: string): Promise<{ message: string }> {
-    await this.usersService.deactivate(id);
+  async deactivate(
+    @Param('id') id: string,
+    @CurrentUser() admin: AuthenticatedUser,
+  ): Promise<{ message: string }> {
+    await this.usersService.deactivate(id, admin.userId);
     return { message: 'Đã vô hiệu hóa tài khoản và thu hồi mọi phiên đăng nhập liên quan' };
   }
 }

@@ -12,6 +12,11 @@ type ConfirmDialogProps = {
   onCancel: () => void
   loading?: boolean
   icon?: ReactNode
+  /** Nội dung thêm dưới mô tả (VD ô gõ email xác nhận). */
+  children?: ReactNode
+  confirmDisabled?: boolean
+  /** Nút xác nhận màu đỏ cho thao tác khó hoàn tác. */
+  danger?: boolean
 }
 
 export function ConfirmDialog({
@@ -24,6 +29,9 @@ export function ConfirmDialog({
   onCancel,
   loading = false,
   icon,
+  children,
+  confirmDisabled = false,
+  danger = false,
 }: ConfirmDialogProps) {
   if (!open) return null
 
@@ -61,6 +69,7 @@ export function ConfirmDialog({
         </div>
         <div className="p-4">
           <p className="text-sm leading-relaxed text-ink-muted">{description}</p>
+          {children}
         </div>
         <div className="flex gap-2 border-t border-hairline p-4">
           <Button
@@ -73,9 +82,9 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant="primary"
-            className="flex-1"
+            className={`flex-1${danger ? ' !bg-[#DC2626] !text-white hover:!bg-[#B91C1C]' : ''}`}
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
           >
             {confirmLabel}
           </Button>
