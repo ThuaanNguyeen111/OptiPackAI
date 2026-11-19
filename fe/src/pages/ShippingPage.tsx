@@ -2167,6 +2167,7 @@ export function ShippingPage() {
                           <p key={parcel.parcelNo} className="font-mono text-[11px] text-[var(--ls-muted)]">
                             {line}
                             {parcel.sortCode ? ` · ${parcel.sortCode}` : ''}
+                            {parcel.carrierStatus === 'cancel' ? (vi ? ' · đã hủy ở hãng — bấm "Đặt lại"' : ' · cancelled at carrier — press "Rebook"') : ''}
                             {parcel.bookingError ? ` · ${parcel.bookingError}` : ''}
                           </p>
                         )

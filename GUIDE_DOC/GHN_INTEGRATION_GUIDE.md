@@ -321,6 +321,7 @@ Bảng map trạng thái GHN → OptiPack:
 | `delivery_fail` | `delivery_failed` (lưu `ReasonCode` GHN-DFC…/DCD…) | `shipped` |
 | `waiting_to_return`, `return`, `return_transporting`, `return_sorting`, `returning`, `return_fail` | `returning_to_warehouse` | `shipped` |
 | `returned` | `returned_to_warehouse` → tạo RMA `failed_delivery` (G3) | `returned` |
+| `cancel` (1 kiện, kiện khác còn chạy) | không đổi; vận đơn không thể thành `delivered`, `carrier_incident` = "Kiện N đã hủy" → bấm "Đặt lại" để tạo kiện mới (`client_order_code` `…-C2`) — AOFP-326 | — |
 | `cancel` | `cancelled` | quay về `packed` (tạo lại vận đơn được) |
 | `exception`, `lost`, `damage`, `scrap` | Giữ trạng thái cũ + cờ `incident` + thông báo Store Owner | — |
 
