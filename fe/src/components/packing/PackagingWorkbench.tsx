@@ -20,7 +20,6 @@ import {
   approvePackingPlan,
   undoApprovePackingPlan,
   assignPacker,
-  backToPicking,
   changeParcelBox,
   getPackingPlan,
   getPackingSettings,
@@ -54,6 +53,7 @@ import {
   parcelOrderHeading,
 } from '../../lib/parcel-order-display'
 import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
+import { RejectedPlanPanel } from './RejectedPlanPanel'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
@@ -449,10 +449,6 @@ export function PackagingWorkbench() {
   const isPackagingStaff = session?.role === UserRole.PACKAGING_STAFF
   const [queueScope, setQueueScope] = useState<'mine' | 'all'>('mine')
   const [myUserId, setMyUserId] = useState<string | null>(null)
-  const [returnSku, setReturnSku] = useState('')
-  const [returnQty, setReturnQty] = useState('1')
-  const [returnRestock, setReturnRestock] = useState(false)
-  const [returnNote, setReturnNote] = useState('')
   const [requireScan, setRequireScan] = useState(false)
   const [requireSealPhoto, setRequireSealPhoto] = useState(false)
   /** Ảnh niêm phong của lối đóng nhanh, khoá `${planId}:${parcelNo}`. */
@@ -1160,10 +1156,6 @@ export function PackagingWorkbench() {
     }
   }
 
-  async function onPack(): Promise<void> {
-    await submitPack()
-  }
-
   async function onAssign(mode: 'auto' | 'manual', staffId?: string): Promise<void> {
     if (!group) return
     setActionBusy(true)
@@ -1196,30 +1188,6 @@ export function PackagingWorkbench() {
       void loadList()
     } catch (err: unknown) {
       setActionError(formatApiError(err))
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
-  async function onBackToPicking(): Promise<void> {
-    if (!group || !plan) return
-    const quantity = Number(returnQty)
-    if (!returnSku.trim() || !Number.isInteger(quantity) || quantity < 1) {
-      setActionError(vi ? 'Nhập SKU và số lượng.' : 'Enter SKU and quantity.')
-      return
-    }
-    setActionBusy(true)
-    setActionError(null)
-    try {
-      const next = await backToPicking(group.id, {
-        expectedVersion: plan.version,
-        items: [{ sku: returnSku.trim(), quantity, restock: returnRestock }],
-        note: returnNote.trim() || undefined,
-      })
-      setPlan((current) => retainProfileStale(current, next))
-      setToast(vi ? 'Đã trả về lấy hàng.' : 'Sent back to picking.')
-    } catch (err: unknown) {
-      reloadPlanAfterConflict(err)
     } finally {
       setActionBusy(false)
     }
@@ -1282,6 +1250,12 @@ export function PackagingWorkbench() {
     () =>
       [
         [
+          'picked',
+          vi ? 'Đã lấy hàng' : 'Picked',
+          counts.picked,
+          false,
+        ],
+        [
           'pending_approval',
           vi ? 'Chờ chấp nhận kế hoạch' : 'Pending plan',
           counts.pending,
@@ -1314,6 +1288,7 @@ export function PackagingWorkbench() {
       ] as const,
     [
       vi,
+      counts.picked,
       counts.pending,
       counts.blocked,
       counts.partial,
@@ -1902,49 +1877,6 @@ export function PackagingWorkbench() {
                   ) : null}
                   {group?.fulfillmentStatus === 'approved_for_packing' ? (
                     <>
-                      {canAssign && plan ? (
-                        <div className="mt-3 space-y-2 rounded-lg border border-hairline bg-surface p-3 text-xs">
-                          <p className="font-semibold text-ink">
-                            {vi ? 'Trả món về bước lấy hàng' : 'Return items to picking'}
-                          </p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <input
-                              value={returnSku}
-                              onChange={(e) => setReturnSku(e.target.value)}
-                              placeholder="SKU"
-                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
-                            />
-                            <input
-                              value={returnQty}
-                              onChange={(e) => setReturnQty(e.target.value)}
-                              inputMode="numeric"
-                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
-                            />
-                          </div>
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={returnRestock}
-                              onChange={(e) => setReturnRestock(e.target.checked)}
-                            />
-                            {vi ? 'Hàng còn tốt, nhập lại kệ' : 'Good item, restock'}
-                          </label>
-                          <input
-                            value={returnNote}
-                            onChange={(e) => setReturnNote(e.target.value)}
-                            placeholder={vi ? 'Ghi chú (tuỳ chọn)' : 'Note'}
-                            className="w-full rounded-lg border border-hairline bg-canvas px-2 py-1"
-                          />
-                          <button
-                            type="button"
-                            disabled={actionBusy}
-                            onClick={() => void onBackToPicking()}
-                            className="rounded-lg border border-hairline px-2 py-1"
-                          >
-                            {vi ? 'Trả về lấy hàng' : 'Back to picking'}
-                          </button>
-                        </div>
-                      ) : null}
                       {plan &&
                       (plan.status === 'approved' || plan.status === 'packing') ? (
                         <PackingSessionPanel
@@ -2292,35 +2224,26 @@ export function PackagingWorkbench() {
 
                   {tab === 'picked' &&
                   group.fulfillmentStatus === 'picked' ? (
-                    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
-                      <p className="text-sm font-medium text-emerald-950 dark:text-emerald-100">
+                    plan?.status === 'rejected' ? (
+                      <RejectedPlanPanel
+                        key={`${plan.id}-${String(plan.version)}`}
+                        groupId={group.id}
+                        plan={plan}
+                        vi={vi}
+                        canAct={canAssign}
+                        onPlan={(next) => setPlan((current) => retainProfileStale(current, next))}
+                        onDone={(message) => {
+                          showToast(message)
+                          void refreshAfterAction()
+                        }}
+                      />
+                    ) : (
+                      <p className="rounded-lg border border-hairline bg-surface p-4 text-sm text-ink-muted">
                         {vi
-                          ? 'Kho đã lấy xong. Nhập cân từng kiện rồi xác nhận.'
-                          : 'Warehouse finished picking. Enter each parcel weight, then confirm.'}
+                          ? 'Kho đã lấy xong — hệ thống đang tính kế hoạch đóng gói. Có kế hoạch nhóm sẽ sang «Chờ chấp nhận kế hoạch».'
+                          : 'Picking finished — the packing plan is being computed. The group moves to pending approval when ready.'}
                       </p>
-                      {scanLocked ? (
-                        <p className="text-xs text-emerald-900 dark:text-emerald-100">
-                          {group?.packScanRequired
-                            ? quickPackBlockedCopy(group, vi)
-                            : vi
-                              ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
-                              : 'Scan is required. Open the approved tab and use the session.'}
-                        </p>
-                      ) : (
-                        <>
-                          {parcelWeightFields()}
-                          <button
-                            type="button"
-                            disabled={actionBusy || Boolean(group?.packScanRequired)}
-                            onClick={() => void onPack()}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    )
                   ) : null}
 
                 </>

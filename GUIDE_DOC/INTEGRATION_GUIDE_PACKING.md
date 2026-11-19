@@ -190,7 +190,7 @@ interface PackingPlan {
     boxComparison: BoxComparison | null; // 🆕 05/11/2026 — bảng so sánh thùng (mục 2.7.1); null = kiện nhập tay / dữ liệu cũ
     // + scans[], weighings[], reviews[], unpack, sealedBy, sealedAt, boxConsumed, hasFragile
   }[];
-  rejection: { reasonCode: string|null; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|'back_to_picking'|null } | null;   // 🆕 09/10: back_to_picking
+  rejection: { reasonCode: string|null; rejectedBy: string|null; rejectedByName: string|null /* 🆕 AOFP-322 */; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|'back_to_picking'|null } | null;   // 🆕 09/10: back_to_picking
   session: { assignedPackerId: string|null; startedAt: string|null; packMode: 'scan'|'quick'|null; parcelCounts: Record<string, number> };
   adjustments: { kind: string; detail: string; reason: string; note: string|null; at: string; oldBoxOutcome: 'unused'|'damaged'|null; wasteCostVnd: number }[];
   issues: …[]; activity: …[];
