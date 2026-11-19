@@ -381,7 +381,10 @@ export class OrderGroupPickingService {
         events: typeof events;
       }
     >();
+    // AOFP-321 — số đã lấy (ròng) theo SKU của lượt bị hủy, kể cả event cũ không lưu kho.
+    const pickedBySku = new Map<string, number>();
     for (const event of events) {
+      pickedBySku.set(event.seller_sku, (pickedBySku.get(event.seller_sku) ?? 0) + event.scanned_quantity);
       if (!event.warehouse_id) {
         skipped += 1;
         continue;
@@ -406,8 +409,19 @@ export class OrderGroupPickingService {
       this.mappingModel,
       group.platform,
       group.shop_id,
-      Array.from(new Set(Array.from(perLine.values(), (l) => l.sku))),
+      Array.from(pickedBySku.keys()),
     );
+    // AOFP-321 — lượt bị hủy không còn tính là "đã lấy": trả bộ đếm của giữ chỗ trong cùng
+    // transaction, để reconcile (sau đó) giữ lại đủ "đặt − đã lấy" cho lượt mới.
+    for (const [sku, qty] of pickedBySku) {
+      if (qty <= 0) continue;
+      await this.stockReservationService.unconsume(
+        group._id.toString(),
+        stockKeyOf(masters.get(sku), group.platform, group.shop_id, sku),
+        qty,
+        session,
+      );
+    }
     for (const line of perLine.values()) {
       // (05/10/2026) Event điều chỉnh âm (món hỏng/đã trả kệ lúc đóng) có thể làm
       // dòng ròng về 0 — không còn gì để nhập lại, chỉ đánh dấu đã xử lý.
