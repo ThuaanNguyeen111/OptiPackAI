@@ -22,6 +22,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
 import { ReturnsController } from './returns.controller';
 import { ShippingModule } from '../shipping/shipping.module';
 import { CarrierWebhookEvent, CarrierWebhookEventSchema } from './schemas/carrier-webhook-event.schema';
+import { RawPayload, RawPayloadSchema } from './schemas/raw-payload.schema';
 import { CarrierWebhookController } from './carrier-webhook.controller';
 import {
   MarketplaceStatusOutbox,
@@ -42,6 +43,7 @@ import { ActivityLog, ActivityLogSchema } from '../activity-log/schemas/activity
       { name: OrderGroup.name, schema: OrderGroupSchema }, // đổi hàng — gắn nhãn nhóm đơn thay thế
       { name: ProductMaster.name, schema: ProductMasterSchema }, // đổi hàng — kiểm hàng đổi sang
       { name: CarrierWebhookEvent.name, schema: CarrierWebhookEventSchema }, // C5 — chống xử lý trùng sự kiện hãng
+      { name: RawPayload.name, schema: RawPayloadSchema }, // AOFP-324 — payload gốc webhook hãng
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
       { name: ActivityLog.name, schema: ActivityLogSchema }, // 23/10/2026 — sổ hoạt động (lịch sử phiếu trả hàng)
       { name: User.name, schema: UserSchema }, // 29/10/2026 — shipper của shop (hỏa tốc tự giao), chỉ đọc
