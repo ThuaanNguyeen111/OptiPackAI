@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { ShipmentsService, carrierClientCode, orderWritebackChange } from './shipments.service';
 import { ShipmentStatus } from './enums/shipment-status.enum';
 import { ShipmentEventType } from './enums/shipment-event-type.enum';
@@ -29,6 +30,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
   let config: Record<string, unknown>;
   let service: ShipmentsService;
   let outboxModel: { updateOne: jest.Mock };
+  let notifications: { notify: jest.Mock };
 
   const liveShipment = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
     _id: shipmentId,
@@ -65,6 +67,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
     };
     eventModel = { create: jest.fn().mockResolvedValue([{}]) };
     outboxModel = { updateOne: jest.fn().mockResolvedValue({}) };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     orderGroupsService = {
       findOrderGroupById: jest.fn().mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.SHIPPED, __v: 5 }),
       transitionFulfillmentStatus: jest.fn().mockResolvedValue({}),
@@ -97,7 +100,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       orderGroupsService as never,
       { startSession: jest.fn().mockResolvedValue(session) } as never,
       { createFromFailedDelivery: jest.fn() } as never,
-      { notify: jest.fn().mockResolvedValue({}) } as never,
+      notifications as never,
       shippingService as never,
       liveCarrier as never,
       webhookEventModel as never,
@@ -145,6 +148,10 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       expect(set.estimated_cost_vnd).toBe(20900);
       expect(set.carrier_booking_error).toBeNull();
       expect(eventTypes()).toEqual([ShipmentEventType.START_DELIVERY, ShipmentEventType.CARRIER_BOOKED]);
+      // AOFP-325 (AC2) — "shipped" báo sàn đúng 1 lần, lúc mọi kiện đã có mã hãng (CARRIER_BOOKED).
+      const statuses = outboxModel.updateOne.mock.calls.map((c) => (c as [unknown, { $setOnInsert: { status: string } }])[1].$setOnInsert.status);
+      expect(statuses).toEqual(['shipped']);
+      expect(notifications.notify).not.toHaveBeenCalled();
     });
 
     it('AOFP-319 — kiện 1 (đơn A) đã có mã, đặt tiếp kiện 2 gộp A+B → chỉ thu B, lưu cod_amount (AC1/AC3)', async () => {
@@ -185,6 +192,19 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
 
       expect(result.carrier_booking_error).toContain('CARRIER_ADDRESS_CONFLICT');
       expect(eventTypes()).toEqual([ShipmentEventType.START_DELIVERY]);
+      // AOFP-325 (AC1) — chưa có mã hãng → AURELLE chưa nhận "shipped"; Coordinator nhận cảnh báo.
+      expect(outboxModel.updateOne).not.toHaveBeenCalled();
+      expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({
+        recipientRole: UserRole.SHIPPING_COORDINATOR,
+        severity: 'warning',
+        message: expect.stringContaining('Chưa tạo được vận đơn GHN cho kiện 1: Số nhà/đường không thuộc phường') as string,
+      }));
+    });
+
+    it('AOFP-325 (AC3) — cờ mô phỏng tắt → không trả trạng thái mô phỏng (web ẩn nút "Mô phỏng GHN")', () => {
+      expect(service.simulatableCarrierStatuses().length).toBeGreaterThan(0);
+      config['carrier.manualStatusEnabled'] = false;
+      expect(service.simulatableCarrierStatuses()).toEqual([]);
     });
 
     it('vận đơn hãng đã HUỶ → tạo lại dùng đúng document, lần đặt 2, client_order_code có R2', async () => {

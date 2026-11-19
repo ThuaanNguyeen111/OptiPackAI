@@ -83,6 +83,7 @@ export function mapShipment(raw: unknown): Shipment | null {
     carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
     carrierBookingError: pickString(row.carrierBookingError, row.carrier_booking_error) || null,
     carrierIncident: pickString(row.carrierIncident, row.carrier_incident) || null,
+    carrierIncidentLabel: pickString(row.carrierIncidentLabel) || null,
     estimatedCostVnd:
       typeof row.estimatedCostVnd === 'number'
         ? row.estimatedCostVnd
