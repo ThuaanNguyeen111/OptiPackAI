@@ -71,6 +71,11 @@ jobs:
         working-directory: be
         run: npm run test
 
+      # AOFP-314 — bộ dữ liệu đóng gói: sinh lại mẫu nhỏ + replay qua solver và validator (offline, không cần DB).
+      - name: Packing dataset check
+        working-directory: be
+        run: npm run dataset:packing -- check
+
   fe:
     name: Frontend (typecheck, build, lint)
     runs-on: ubuntu-latest
