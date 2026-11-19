@@ -175,7 +175,8 @@ abstract class ShippingRepository {
   Future<List<CarrierQuote>> quote(String groupId);
   Future<ShipmentView> create(String groupId, String carrierCode);
   Future<List<ShipmentView>> shipments();
-  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const []});
+  /// AOFP-315 — shop tự giao: `scannedCode` đọc từ QR/mã vạch nhãn kiện, hoặc `scanSkippedReason` khi tem hỏng.
+  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const [], String? scannedCode, String? scanSkippedReason});
   Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []});
   Future<ShipmentView> retry(String id);
 
@@ -301,7 +302,7 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const []}) async {
+  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const [], String? scannedCode, String? scanSkippedReason}) async {
     await _latency();
     final s = _get(id);
     if (s.status != ShipmentStatus.outForDelivery) {
@@ -309,6 +310,16 @@ class MockShippingRepository implements ShippingRepository {
     }
     if (s.selfDelivery && photoUrls.isEmpty) {
       throw const ShippingException('Vận đơn shop tự giao cần ít nhất 1 ảnh bằng chứng.', code: 'SHP_PROOF_PHOTO_REQUIRED');
+    }
+    if (s.selfDelivery && (scanSkippedReason ?? '').trim().isEmpty) {
+      final scanned = (scannedCode ?? '').trim().toUpperCase();
+      if (scanned.isEmpty) {
+        throw const ShippingException('Quét QR trên nhãn kiện hoặc chọn "Nhãn hỏng".', code: 'SHP_LABEL_SCAN_REQUIRED');
+      }
+      final own = {s.code.toUpperCase(), s.trackingCode.toUpperCase()};
+      if (!scanned.split('|').any((p) => own.contains(p.trim()))) {
+        throw const ShippingException('Mã nhãn kiện không khớp với đơn hàng đang giao.', code: 'SHP_LABEL_SCAN_MISMATCH');
+      }
     }
     final v = s.copyWith(status: ShipmentStatus.delivered);
     _set(v);

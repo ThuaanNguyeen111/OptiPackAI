@@ -351,9 +351,11 @@ export class ShipmentsController {
 
   @Post(':id/deliver')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Giao thành công] out_for_delivery -> delivered; nhóm đơn -> delivered. 🆕 10/11: vận đơn shop tự giao (không có hãng) bắt buộc photo_urls ≥ 1 ảnh (POST /proof-photos) → 400 SHP_PROOF_PHOTO_REQUIRED.' })
+  @ApiOperation({ summary: '[Giao thành công] out_for_delivery -> delivered; nhóm đơn -> delivered. 🆕 10/11: vận đơn shop tự giao (không có hãng) bắt buộc photo_urls ≥ 1 ảnh (POST /proof-photos) → 400 SHP_PROOF_PHOTO_REQUIRED. 🆕 AOFP-315: + scanned_code (QR nhãn kiện) hoặc scan_skipped_reason → 400 SHP_LABEL_SCAN_REQUIRED; quét nhầm vận đơn → 422 SHP_LABEL_SCAN_MISMATCH.' })
   async deliver(@Param('id') id: string, @Body() dto: DeliverShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.markDelivered(id, dto.expected_version, actorOf(user), dto.note, undefined, dto.photo_urls ?? []));
+    return toShipmentResponse(await this.shipmentsService.markDelivered(id, dto.expected_version, actorOf(user), dto.note, undefined, {
+      photoUrls: dto.photo_urls ?? [], scannedCode: dto.scanned_code, scanSkippedReason: dto.scan_skipped_reason,
+    }));
   }
 
   @Post(':id/fail')

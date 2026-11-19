@@ -173,8 +173,12 @@ class ApiShippingRepository implements ShippingRepository {
       });
 
   @override
-  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const []}) =>
-      _act(id, 'deliver', {if (photoUrls.isNotEmpty) 'photo_urls': photoUrls});
+  Future<ShipmentView> deliver(String id, {List<String> photoUrls = const [], String? scannedCode, String? scanSkippedReason}) =>
+      _act(id, 'deliver', {
+        if (photoUrls.isNotEmpty) 'photo_urls': photoUrls,
+        if (scannedCode != null && scannedCode.trim().isNotEmpty) 'scanned_code': scannedCode.trim(),
+        if (scanSkippedReason != null && scanSkippedReason.trim().isNotEmpty) 'scan_skipped_reason': scanSkippedReason.trim(),
+      });
 
   @override
   Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []}) =>

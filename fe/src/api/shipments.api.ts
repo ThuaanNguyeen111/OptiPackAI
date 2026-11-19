@@ -394,6 +394,8 @@ export async function deliverShipment(
   note?: string,
   /** (13/11/2026) Link ảnh từ POST /proof-photos. Vận đơn shop tự giao: BE bắt ≥ 1 ảnh (SHP_PROOF_PHOTO_REQUIRED). */
   photoUrls: string[] = [],
+  /** AOFP-315 — shop tự giao: mã quét trên nhãn kiện, hoặc lý do bỏ quét khi tem hỏng. */
+  labelScan: { scannedCode?: string; scanSkippedReason?: string } = {},
 ): Promise<Shipment> {
   return requireShipment(
     await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/deliver`, {
@@ -403,6 +405,8 @@ export async function deliverShipment(
         expected_version: expectedVersion,
         ...(note?.trim() ? { note: note.trim() } : {}),
         ...(photoUrls.length > 0 ? { photo_urls: photoUrls } : {}),
+        ...(labelScan.scannedCode?.trim() ? { scanned_code: labelScan.scannedCode.trim() } : {}),
+        ...(labelScan.scanSkippedReason?.trim() ? { scan_skipped_reason: labelScan.scanSkippedReason.trim() } : {}),
       },
     }),
   )

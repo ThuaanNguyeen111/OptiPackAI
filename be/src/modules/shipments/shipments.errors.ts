@@ -8,6 +8,8 @@ export const SHIPMENT_ERROR_CODES = {
   STATE_CONFLICT: 'SHP_STATE_CONFLICT', // version không khớp
   NOTE_REQUIRED: 'SHP_NOTE_REQUIRED', // lý do "other" phải có ghi chú
   PROOF_PHOTO_REQUIRED: 'SHP_PROOF_PHOTO_REQUIRED', // 10/11/2026 — shop tự giao thành công phải có ≥ 1 ảnh
+  LABEL_SCAN_REQUIRED: 'SHP_LABEL_SCAN_REQUIRED', // AOFP-315 — shop tự giao: quét QR nhãn kiện hoặc nêu lý do bỏ quét
+  LABEL_SCAN_MISMATCH: 'SHP_LABEL_SCAN_MISMATCH', // AOFP-315 — mã quét không thuộc vận đơn đang giao (422)
   RETRY_TOO_EARLY: 'SHP_RETRY_TOO_EARLY', // giao lại trước giờ cho phép mà không nêu lý do
   INVALID_RESCHEDULE: 'SHP_INVALID_RESCHEDULE', // giờ hẹn giao lại ở quá khứ
   // Gộp từ thi_dev (04/10/2026) — giao chung chuyến + chọn hãng

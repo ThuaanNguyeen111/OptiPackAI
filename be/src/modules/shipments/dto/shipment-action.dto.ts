@@ -93,6 +93,15 @@ export class DeliverShipmentDto extends ShipmentActionDto {
   @ApiPropertyOptional({ type: [String], example: PHOTO_URLS_EXAMPLE, description: 'Ảnh bằng chứng (tối đa 3), URL lấy từ POST /proof-photos. Vận đơn shop tự giao (không có hãng): bắt buộc ≥ 1 ảnh.' })
   @IsOptional() @IsProofPhotoUrls()
   photo_urls?: string[];
+
+  // AOFP-315 — shop tự giao: quét QR/mã vạch trên nhãn kiện, phải thuộc đúng vận đơn này.
+  @ApiPropertyOptional({ example: 'SHP-261119-8F3A1C|TRIP-261119-01', description: 'Chuỗi đọc được từ QR (hoặc mã vạch) trên nhãn kiện. Vận đơn shop tự giao: bắt buộc, trừ khi gửi scan_skipped_reason. Sai vận đơn → 422 SHP_LABEL_SCAN_MISMATCH.' })
+  @IsOptional() @IsString() @MaxLength(300)
+  scanned_code?: string;
+
+  @ApiPropertyOptional({ example: 'Tem rách, không quét được', description: 'Nhãn hỏng không quét được: lý do bỏ quét (≥ 5 ký tự), ghi vào activity_logs. Vẫn bắt ảnh.' })
+  @IsOptional() @IsString() @MinLength(5) @MaxLength(300)
+  scan_skipped_reason?: string;
 }
 
 export class FailShipmentDto extends ShipmentActionDto {
