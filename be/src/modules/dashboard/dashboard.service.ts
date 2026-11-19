@@ -57,6 +57,8 @@ const PRE_PACK_STATUSES: GroupFulfillmentStatus[] = [
   GroupFulfillmentStatus.PICKED,
   GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
 ];
+/** Ngày theo giờ VN khi gộp ở Mongo — khớp `vnDayKey` (UTC+7, không đổi giờ mùa hè). */
+const VN_TIMEZONE = '+07:00';
 const IN_FLIGHT_SHIPMENT_STATUSES: ShipmentStatus[] = [
   ShipmentStatus.AWAITING_PICKUP,
   ShipmentStatus.IN_TRANSIT,
@@ -69,13 +71,16 @@ export interface SalesTotals {
   /** Đơn OptiPack nhận trong kỳ (theo thời điểm đồng bộ về), không gồm đơn thay thế khi đổi hàng. */
   ordersReceived: number;
   ordersCanceled: number;
-  /** Tổng `total_amount` của đơn nhận trong kỳ, trừ đơn đã hủy ("doanh thu đặt hàng"). */
+  /**
+   * Tổng `total_amount` của đơn nhận trong kỳ còn tính doanh thu ("doanh thu đặt hàng"): trừ đơn
+   * đã hủy, chưa thanh toán, thất bại, đã hoàn (AOFP-338, xem `countsAsPlacedRevenue`).
+   */
   revenuePlacedVnd: number;
   /** Đơn thuộc vận đơn giao thành công trong kỳ (theo `delivered_at`). */
   ordersDelivered: number;
   /** Tổng `total_amount` của các đơn đó ("doanh thu đã giao"). */
   revenueDeliveredVnd: number;
-  /** revenuePlaced / (ordersReceived − ordersCanceled). */
+  /** revenuePlaced / số đơn còn tính doanh thu. */
   avgOrderValueVnd: number | null;
   cancelRate: number | null;
 }
@@ -163,6 +168,30 @@ export interface DashboardSummary {
     /** Thùng / vật tư đang dùng được (mới + tái sử dụng) ≤ mức đặt lại. */
     materialsBelowReorder: { code: string; name: string; kind: string; usable: number; reorderLevel: number }[];
   };
+}
+
+/**
+ * AOFP-338 F-49 (Q12) — đơn KHÔNG tính vào "doanh thu đặt hàng": đã hủy, chưa thanh toán, thất bại, đã hoàn.
+ * Một nơi duy nhất cho cả tổng, theo sàn và theo ngày.
+ */
+const NOT_PLACED_REVENUE: ReadonlySet<OrderStatus> = new Set([
+  OrderStatus.CANCELED,
+  OrderStatus.UNPAID,
+  OrderStatus.FAILED,
+  OrderStatus.RETURNED,
+]);
+
+export function countsAsPlacedRevenue(status: OrderStatus): boolean {
+  return !NOT_PLACED_REVENUE.has(status);
+}
+
+/** Đơn nhận trong kỳ đã gộp ở Mongo theo sàn × ngày (giờ VN) × trạng thái — không nạp từng đơn vào RAM. */
+interface ReceivedBucket {
+  platform: string;
+  day: string;
+  status: OrderStatus;
+  orders: number;
+  amount: number;
 }
 
 interface OrderRow {
@@ -351,17 +380,15 @@ export class DashboardService {
       return row;
     };
     const days = new Map(vnDaysBetween(range.from, range.to).map((d) => [d, { date: d, ordersReceived: 0, revenuePlacedVnd: 0, ordersDelivered: 0, revenueDeliveredVnd: 0 }]));
-    for (const o of received) {
-      const row = platformRow(o.platform);
-      row.ordersReceived += 1;
-      const day = o.created_at ? days.get(vnDayKey(o.created_at)) : undefined;
-      if (day) day.ordersReceived += 1;
-      if (o.status === OrderStatus.CANCELED) {
-        row.ordersCanceled += 1;
-        continue;
-      }
-      row.revenuePlacedVnd += o.total_amount;
-      if (day) day.revenuePlacedVnd += o.total_amount;
+    for (const b of received) {
+      const row = platformRow(b.platform);
+      row.ordersReceived += b.orders;
+      const day = days.get(b.day);
+      if (day) day.ordersReceived += b.orders;
+      if (b.status === OrderStatus.CANCELED) row.ordersCanceled += b.orders;
+      if (!countsAsPlacedRevenue(b.status)) continue;
+      row.revenuePlacedVnd += b.amount;
+      if (day) day.revenuePlacedVnd += b.amount;
     }
     for (const { order, deliveredAt } of delivered) {
       const row = platformRow(order.platform);
@@ -389,11 +416,26 @@ export class DashboardService {
     };
   }
 
-  private async ordersReceived(from: Date, to: Date, platform: MarketplacePlatform | null): Promise<OrderRow[]> {
-    return this.orderModel
-      .find({ created_at: { $gte: from, $lt: to }, origin: { $ne: 'replacement' }, ...(platform ? { platform } : {}) })
-      .select('_id platform status total_amount created_at')
-      .lean<OrderRow[]>();
+  private async ordersReceived(from: Date, to: Date, platform: MarketplacePlatform | null): Promise<ReceivedBucket[]> {
+    const rows = await this.orderModel.aggregate<{
+      _id: { platform: string; day: string; status: OrderStatus };
+      orders: number;
+      amount: number;
+    }>([
+      { $match: { created_at: { $gte: from, $lt: to }, origin: { $ne: 'replacement' }, ...(platform ? { platform } : {}) } },
+      {
+        $group: {
+          _id: {
+            platform: '$platform',
+            status: '$status',
+            day: { $dateToString: { format: '%Y-%m-%d', date: '$created_at', timezone: VN_TIMEZONE } },
+          },
+          orders: { $sum: 1 },
+          amount: { $sum: '$total_amount' },
+        },
+      },
+    ]);
+    return rows.map((r) => ({ ...r._id, orders: r.orders, amount: r.amount }));
   }
 
   /**
@@ -574,17 +616,20 @@ export class DashboardService {
   }
 }
 
-function totals(received: readonly OrderRow[], delivered: readonly OrderRow[]): SalesTotals {
-  const canceled = received.filter((o) => o.status === OrderStatus.CANCELED).length;
-  const revenuePlacedVnd = received.reduce((sum, o) => (o.status === OrderStatus.CANCELED ? sum : sum + o.total_amount), 0);
-  const kept = received.length - canceled;
+function totals(received: readonly ReceivedBucket[], delivered: readonly OrderRow[]): SalesTotals {
+  const sum = (rows: readonly ReceivedBucket[], key: 'orders' | 'amount'): number => rows.reduce((acc, r) => acc + r[key], 0);
+  const placed = received.filter((b) => countsAsPlacedRevenue(b.status));
+  const ordersReceived = sum(received, 'orders');
+  const canceled = sum(received.filter((b) => b.status === OrderStatus.CANCELED), 'orders');
+  const revenuePlacedVnd = sum(placed, 'amount');
+  const kept = sum(placed, 'orders');
   return {
-    ordersReceived: received.length,
+    ordersReceived,
     ordersCanceled: canceled,
     revenuePlacedVnd,
     ordersDelivered: delivered.length,
     revenueDeliveredVnd: delivered.reduce((sum, o) => sum + o.total_amount, 0),
     avgOrderValueVnd: kept === 0 ? null : Math.round(revenuePlacedVnd / kept),
-    cancelRate: ratio(canceled, received.length),
+    cancelRate: ratio(canceled, ordersReceived),
   };
 }

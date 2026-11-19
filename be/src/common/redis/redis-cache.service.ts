@@ -63,6 +63,11 @@ export class RedisCacheService implements OnModuleDestroy {
     await this.client.del(`user:auth:${userId}`);
   }
 
+  /** Đặt khoá nếu chưa có (SET NX EX) — true nếu lần này giành được, false nếu đã có người dùng. */
+  async claimOnce(key: string, ttlSeconds: number): Promise<boolean> {
+    return (await this.client.set(key, '1', 'EX', ttlSeconds, 'NX')) === 'OK';
+  }
+
   /** Kiểm tra Redis còn trả lời (GET /health). Có hạn chờ: ioredis xếp hàng lệnh khi mất kết nối nên ping trần có thể treo. */
   async ping(timeoutMs = 1500): Promise<boolean> {
     let timer: NodeJS.Timeout | undefined;

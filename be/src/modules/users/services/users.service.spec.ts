@@ -21,6 +21,7 @@ describe('UsersService', () => {
     findOne: jest.Mock;
     findById: jest.Mock;
     findByIdAndUpdate: jest.Mock;
+    updateOne: jest.Mock;
     create: jest.Mock;
     find: jest.Mock;
     countDocuments: jest.Mock;
@@ -42,6 +43,7 @@ describe('UsersService', () => {
       findOne: jest.fn(),
       findById: jest.fn(),
       findByIdAndUpdate: jest.fn(),
+      updateOne: jest.fn(),
       create: jest.fn(),
       find: jest.fn(),
       countDocuments: jest.fn(),
@@ -254,27 +256,14 @@ describe('UsersService', () => {
   });
 
   describe('consumeBackupCode', () => {
-    it('xóa đúng 1 mã tại đúng vị trí index, lưu lại document', async () => {
-      const saveMock = jest.fn().mockResolvedValue(undefined);
-      //!=============================================
-      // STRICT FIX: giữ tham chiếu TỪ ĐẦU bằng 1 biến đã khai kiểu rõ ràng,
-      // KHÔNG gọi lại `await userModel.findById(...)` để "lấy user ra xem" -
-      // vì userModel.findById là jest.Mock KHÔNG có generic, gọi await vào
-      // nó luôn trả về `any` (unsafe assignment/member access). Test trước
-      // đây còn SAI LUÔN CẢ assertion (so sánh với mảng CHƯA bị xóa phần tử
-      // nào) - đã sửa lại đúng: sau khi consumeBackupCode(userId, 1), phần
-      // tử ở index 1 ("hash-1") phải biến mất khỏi mảng.
-      //!=============================================
-      const mockUserDoc = {
-        mfa_backup_codes: ['hash-0', 'hash-1', 'hash-2'],
-        save: saveMock,
-      };
-      userModel.findById.mockResolvedValue(mockUserDoc);
-
-      await service.consumeBackupCode(userId, 1);
-
-      expect(mockUserDoc.mfa_backup_codes).toEqual(['hash-0', 'hash-2']);
-      expect(saveMock).toHaveBeenCalled();
+    it('AOFP-338 F-50: xoá có điều kiện theo hash — lần thứ 2 cùng mã (song song) không xoá được → false', async () => {
+      userModel.updateOne.mockResolvedValueOnce({ modifiedCount: 1 }).mockResolvedValueOnce({ modifiedCount: 0 });
+      await expect(service.consumeBackupCode(userId, 'hash-1')).resolves.toBe(true);
+      await expect(service.consumeBackupCode(userId, 'hash-1')).resolves.toBe(false);
+      expect(userModel.updateOne).toHaveBeenCalledWith(
+        { _id: new Types.ObjectId(userId), mfa_backup_codes: 'hash-1' },
+        { $pull: { mfa_backup_codes: 'hash-1' } },
+      );
     });
   });
 

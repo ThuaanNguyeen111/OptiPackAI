@@ -5,6 +5,7 @@ import { ShipmentEventType } from './enums/shipment-event-type.enum';
 import { SHIPMENT_ERROR_CODES } from './shipments.errors';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { AppException } from '../../common/exceptions/app-exception';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
 
 //!=============================================
 // C4/C5 (14/10/2026) — vận đơn giao qua HÃNG API (GHN/mock).
@@ -25,6 +26,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
   let shippingService: Record<'countParcelsToUnpack' | 'quoteChosenService' | 'persistCosts' | 'resolveLiveService' | 'parcelsOfGroup', jest.Mock>;
   let adapter: Record<'cancelShipment' | 'createLabel' | 'getShipmentDetail', jest.Mock>;
   let liveCarrier: { adapterCode: string; adapterInstance: typeof adapter; bookParcel: jest.Mock };
+  let notifications: { notify: jest.Mock };
   let webhookEventModel: Record<'create' | 'updateOne' | 'deleteOne', jest.Mock>;
   let config: Record<string, unknown>;
   let service: ShipmentsService;
@@ -91,13 +93,14 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
     };
     config = { 'carrier.manualStatusEnabled': true, 'carrier.ghn.webhookSecret': 's3cret', 'carrier.ghn.shopId': '227609' };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
+    notifications = { notify: jest.fn().mockResolvedValue({}) };
     service = new ShipmentsService(
       shipmentModel as never,
       eventModel as never,
       orderGroupsService as never,
       { startSession: jest.fn().mockResolvedValue(session) } as never,
       { createFromFailedDelivery: jest.fn() } as never,
-      { notify: jest.fn().mockResolvedValue({}) } as never,
+      notifications as never,
       shippingService as never,
       liveCarrier as never,
       webhookEventModel as never,
@@ -238,6 +241,8 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       expect(result).toBe('incident:lost');
       expect(eventTypes()).toEqual([ShipmentEventType.CARRIER_INCIDENT]);
       expect(shipmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+      // AOFP-338 F-52 — loại thông báo riêng, không phải "đang hoàn về kho".
+      expect(notifications.notify).toHaveBeenCalledWith(expect.objectContaining({ type: NotificationType.CARRIER_INCIDENT }));
     });
 
     it('delivery_fail → delivery_failed, lý do GHN-DFC1A4 → customer_unreachable', async () => {

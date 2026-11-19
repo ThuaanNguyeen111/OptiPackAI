@@ -1173,7 +1173,9 @@ export class PackingSessionService {
   }
 
   private isAbnormal(estimatedG: number, actualKg: number, threshold: number): boolean {
-    if (estimatedG <= 0) return false;
+    // AOFP-338 F-46 — không có cân ước tính (SKU thiếu cân nặng) thì không so được: giữ để người khác xem lại,
+    // trước đây coi như khớp nên kiện sai hàng vẫn đi.
+    if (estimatedG <= 0) return true;
     const estimatedKg = estimatedG / 1000;
     return Math.abs(actualKg - estimatedKg) / estimatedKg > threshold;
   }
@@ -1202,9 +1204,11 @@ export class PackingSessionService {
     const actual = parcel.actual_weight_kg ?? 0;
     const label = `${parcel.platform_order_id ?? groupId} (kiện ${String(parcel.parcel_no)})`;
     const title = `Kiện ${label} lệch cân — chờ xem lại`;
-    const message =
-      `Cân thật ${formatKg(actual)}, ước tính ${formatKg(estimated)} (lệch quá ${String(Math.round(threshold * 100))}%). ` +
-      'Kiện chưa được bàn giao. Một nhân viên khác cần chấp nhận, cân lại hoặc mở kiện ra kiểm tra.';
+    const reason =
+      estimated > 0
+        ? `Cân thật ${formatKg(actual)}, ước tính ${formatKg(estimated)} (lệch quá ${String(Math.round(threshold * 100))}%). `
+        : `Cân thật ${formatKg(actual)}, kiện chưa có cân ước tính (SKU thiếu cân nặng) nên không đối chiếu được. `;
+    const message = reason + 'Kiện chưa được bàn giao. Một nhân viên khác cần chấp nhận, cân lại hoặc mở kiện ra kiểm tra.';
     for (const recipientRole of [UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER]) {
       await this.safeNotify({
         recipientRole,
