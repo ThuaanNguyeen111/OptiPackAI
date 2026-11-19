@@ -82,6 +82,8 @@ export type PackingPlanParcel = {
   boxSourceUsed?: 'new' | 'reused' | null
   /** (13/11/2026) Ảnh bằng chứng lúc niêm phong; [] = không chụp. */
   sealPhotoUrls?: string[]
+  /** Id người niêm phong (AOFP-331: người này không tự chấp nhận / cân lại kiện lệch cân). */
+  sealedBy?: string | null
   boxSourceOverride?: {
     source: 'new' | 'reused'
     planned: 'new' | 'reused' | null

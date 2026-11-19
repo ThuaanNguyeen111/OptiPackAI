@@ -14,6 +14,8 @@ vi.mock('../../api/packing-plan.api', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   ...api,
 }))
+// AOFP-331: panel đọc người đang đăng nhập (người niêm phong không tự xem lại kiện lệch cân).
+vi.mock('../../context/use-auth', () => ({ useAuth: () => ({ session: null }) }))
 
 /**
  * AOFP-323 — phiên đóng gói: ô cân riêng từng kiện (xoá sau niêm phong), ô quét nhận Enter và
