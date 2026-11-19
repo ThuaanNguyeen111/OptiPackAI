@@ -21,6 +21,7 @@ describe('UsersService', () => {
     findOne: jest.Mock;
     findById: jest.Mock;
     findByIdAndUpdate: jest.Mock;
+    updateOne: jest.Mock;
     create: jest.Mock;
     find: jest.Mock;
     countDocuments: jest.Mock;
@@ -42,6 +43,7 @@ describe('UsersService', () => {
       findOne: jest.fn(),
       findById: jest.fn(),
       findByIdAndUpdate: jest.fn(),
+      updateOne: jest.fn(),
       create: jest.fn(),
       find: jest.fn(),
       countDocuments: jest.fn(),
@@ -187,6 +189,64 @@ describe('UsersService', () => {
     });
   });
 
+  // AOFP-335 AC2 — Admin cuối cùng + tự thao tác + ghi sổ hoạt động.
+  describe('bảo vệ tài khoản Admin', () => {
+    let activityModel: { create: jest.Mock };
+    beforeEach(() => {
+      activityModel = { create: jest.fn().mockResolvedValue({}) };
+      service = new UsersService(
+        userModel as never,
+        connection as unknown as Connection,
+        tokenService as unknown as TokenService,
+        redisCache as unknown as RedisCacheService,
+        mailService as unknown as MailService,
+        notificationsService as unknown as NotificationsService,
+        activityModel as never,
+      );
+    });
+
+    it('khoá Admin cuối cùng → 409 USR_LAST_ADMIN, không ghi gì', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.ADMIN, is_active: true });
+      userModel.countDocuments.mockResolvedValue(1);
+      await expect(service.deactivate(adminId, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.LAST_ADMIN,
+        status: 409,
+      });
+      expect(userModel.findByIdAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('hạ quyền Admin cuối cùng → 409 USR_LAST_ADMIN; sửa tên thì không chặn', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.ADMIN, is_active: true });
+      userModel.countDocuments.mockResolvedValue(1);
+      await expect(service.adminUpdateUser(userId, { role: UserRole.STORE_OWNER }, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.LAST_ADMIN,
+      });
+      userModel.findByIdAndUpdate.mockResolvedValue({ id: adminId, email: 'a@x' });
+      await expect(service.adminUpdateUser(adminId, { name: 'A' }, adminId)).resolves.toBeDefined();
+    });
+
+    it('còn Admin khác: tự khoá / tự reset mật khẩu → 403 USR_SELF_ACTION_FORBIDDEN', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.ADMIN, is_active: true });
+      userModel.countDocuments.mockResolvedValue(2);
+      await expect(service.deactivate(adminId, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.SELF_ACTION_FORBIDDEN,
+        status: 403,
+      });
+      await expect(service.adminResetPassword(adminId, adminId)).rejects.toMatchObject({
+        errorCode: USER_ERROR_CODES.SELF_ACTION_FORBIDDEN,
+      });
+    });
+
+    it('khoá nhân viên khác → ghi sổ hoạt động user.deactivated', async () => {
+      userModel.findById.mockResolvedValue({ role: UserRole.WAREHOUSE_STAFF, is_active: true });
+      userModel.findByIdAndUpdate.mockResolvedValue({ id: userId, email: 'kho@x' });
+      await service.deactivate(userId, adminId);
+      expect(activityModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'user.deactivated', actor_id: adminId, entity_code: 'kho@x' }),
+      );
+    });
+  });
+
   describe('reactivate / adminDisableMfa / adminUpdateUser', () => {
     it('reactivate: user tồn tại -> is_active=true, xóa cache', async () => {
       userModel.findByIdAndUpdate.mockResolvedValue({ id: userId });
@@ -254,27 +314,14 @@ describe('UsersService', () => {
   });
 
   describe('consumeBackupCode', () => {
-    it('xóa đúng 1 mã tại đúng vị trí index, lưu lại document', async () => {
-      const saveMock = jest.fn().mockResolvedValue(undefined);
-      //!=============================================
-      // STRICT FIX: giữ tham chiếu TỪ ĐẦU bằng 1 biến đã khai kiểu rõ ràng,
-      // KHÔNG gọi lại `await userModel.findById(...)` để "lấy user ra xem" -
-      // vì userModel.findById là jest.Mock KHÔNG có generic, gọi await vào
-      // nó luôn trả về `any` (unsafe assignment/member access). Test trước
-      // đây còn SAI LUÔN CẢ assertion (so sánh với mảng CHƯA bị xóa phần tử
-      // nào) - đã sửa lại đúng: sau khi consumeBackupCode(userId, 1), phần
-      // tử ở index 1 ("hash-1") phải biến mất khỏi mảng.
-      //!=============================================
-      const mockUserDoc = {
-        mfa_backup_codes: ['hash-0', 'hash-1', 'hash-2'],
-        save: saveMock,
-      };
-      userModel.findById.mockResolvedValue(mockUserDoc);
-
-      await service.consumeBackupCode(userId, 1);
-
-      expect(mockUserDoc.mfa_backup_codes).toEqual(['hash-0', 'hash-2']);
-      expect(saveMock).toHaveBeenCalled();
+    it('AOFP-338 F-50: xoá có điều kiện theo hash — lần thứ 2 cùng mã (song song) không xoá được → false', async () => {
+      userModel.updateOne.mockResolvedValueOnce({ modifiedCount: 1 }).mockResolvedValueOnce({ modifiedCount: 0 });
+      await expect(service.consumeBackupCode(userId, 'hash-1')).resolves.toBe(true);
+      await expect(service.consumeBackupCode(userId, 'hash-1')).resolves.toBe(false);
+      expect(userModel.updateOne).toHaveBeenCalledWith(
+        { _id: new Types.ObjectId(userId), mfa_backup_codes: 'hash-1' },
+        { $pull: { mfa_backup_codes: 'hash-1' } },
+      );
     });
   });
 

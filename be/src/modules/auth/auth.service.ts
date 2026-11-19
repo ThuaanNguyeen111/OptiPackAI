@@ -12,6 +12,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Model, Types } from 'mongoose';
+import QRCode from 'qrcode';
+import { RedisCacheService } from '../../common/redis/redis-cache.service';
 import { hashToken } from '../../common/utils/hash.util';
 import { requireEnv } from '../../common/utils/env.util';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -49,6 +51,8 @@ export interface LoginResult extends TokenPair {
 
 export interface MfaRequiredResult {
   mfa_required: true;
+  /** AOFP-333 — chỉ có ở đăng nhập Google: gửi kèm mã ở POST /auth/google/mfa. */
+  mfa_challenge?: string;
 }
 
 export interface LoginParams {
@@ -106,6 +110,11 @@ const DUMMY_PASSWORD_HASH =
 const TRUSTED_DEVICE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 // FIX #24: link quên mật khẩu có hạn 30 phút
 const PASSWORD_RESET_WINDOW_MINUTES = 30;
+// AOFP-333 — challenge MFA sau Google sống 5 phút; mã đổi token trên URL redirect sống 60 giây.
+const GOOGLE_MFA_KEY = 'auth:google-mfa:';
+const GOOGLE_MFA_TTL_S = 300;
+const GOOGLE_LOGIN_CODE_KEY = 'auth:google-login:';
+const GOOGLE_LOGIN_CODE_TTL_S = 60;
 
 @Injectable()
 export class AuthService {
@@ -122,6 +131,7 @@ export class AuthService {
     private readonly auditLogModel: Model<LoginAuditLogDocument>,
     @InjectModel(TrustedDevice.name)
     private readonly trustedDeviceModel: Model<TrustedDeviceDocument>,
+    private readonly redisCache: RedisCacheService,
     // 10/11/2026 — gỡ token push khi đăng xuất. Optional: test cũ dựng AuthService không có model này.
     @Optional() @InjectModel(DeviceToken.name)
     private readonly deviceTokenModel?: Model<DeviceTokenDocument>,
@@ -184,76 +194,10 @@ export class AuthService {
     }
 
     let newTrustedDeviceToken: string | undefined;
-
     if (user.mfa_enabled) {
-      if (!user.mfa_secret) {
-        await this.writeAuditLog(
-          email,
-          false,
-          meta,
-          user.id,
-          'mfa_misconfigured',
-        );
-        throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_MISCONFIGURED, AUTH_MESSAGES.MFA_MISCONFIGURED));
-      }
-
-      //!=============================================
-      // Ưu tiên kiểm tra device_token TRƯỚC — nếu thiết bị đã tin
-      // cậy (verify MFA thành công trong 30 ngày gần đây trên đúng thiết bị
-      // này), bỏ qua hoàn toàn bước hỏi mã MFA.
-      //!=============================================
-      const isTrustedDevice = deviceToken
-        ? await this.isDeviceTrusted(user.id, deviceToken)
-        : false;
-
-      if (!isTrustedDevice) {
-        //!=============================================
-        // Cho phép đăng nhập bằng 1 trong 10 mã dự phòng thay vì mã
-        // TOTP — dùng khi mất điện thoại/mất app Authenticator.
-        //!=============================================
-        if (backupCode) {
-          const usedIndex = await this.mfaService.verifyBackupCode(
-            backupCode,
-            user.mfa_backup_codes,
-          );
-          if (usedIndex === -1) {
-            await this.writeAuditLog(
-              email,
-              false,
-              meta,
-              user.id,
-              'invalid_mfa_backup_code',
-            );
-            throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_BACKUP_CODE_INVALID, AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID));
-          }
-          await this.usersService.consumeBackupCode(user.id, usedIndex);
-          newTrustedDeviceToken = await this.issueTrustedDeviceToken(
-            user.id,
-            meta,
-          );
-        } else if (mfaToken) {
-          const isMfaValid = this.mfaService.verifyToken(
-            mfaToken,
-            user.mfa_secret,
-          );
-          if (!isMfaValid) {
-            await this.writeAuditLog(
-              email,
-              false,
-              meta,
-              user.id,
-              'invalid_mfa',
-            );
-            throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_TOKEN_INVALID, AUTH_MESSAGES.MFA_TOKEN_INVALID));
-          }
-          newTrustedDeviceToken = await this.issueTrustedDeviceToken(
-            user.id,
-            meta,
-          );
-        } else {
-          return { mfa_required: true };
-        }
-      }
+      const second = await this.checkSecondFactor(user, email, { mfaToken, backupCode, deviceToken }, meta);
+      if (!second.passed) return { mfa_required: true };
+      newTrustedDeviceToken = second.trustedDeviceToken;
     }
 
     await this.usersService.resetFailedLoginAttempts(user.id);
@@ -272,6 +216,93 @@ export class AuthService {
         ? { trusted_device_token: newTrustedDeviceToken }
         : {}),
     };
+  }
+
+  /**
+   * Bước 2 lớp chung (đăng nhập mật khẩu + Google, AOFP-333). `passed: false` = chưa gửi mã.
+   * Sai mã → ném 401 như trước.
+   */
+  private async checkSecondFactor(
+    user: UserDocument,
+    email: string,
+    input: { mfaToken?: string; backupCode?: string; deviceToken?: string },
+    meta: RequestMeta,
+  ): Promise<{ passed: false } | { passed: true; trustedDeviceToken?: string }> {
+    const { mfaToken, backupCode, deviceToken } = input;
+    let newTrustedDeviceToken: string | undefined;
+    if (!user.mfa_secret) {
+      await this.writeAuditLog(
+        email,
+        false,
+        meta,
+        user.id,
+        'mfa_misconfigured',
+      );
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_MISCONFIGURED, AUTH_MESSAGES.MFA_MISCONFIGURED));
+    }
+
+    //!=============================================
+    // Ưu tiên kiểm tra device_token TRƯỚC — nếu thiết bị đã tin
+    // cậy (verify MFA thành công trong 30 ngày gần đây trên đúng thiết bị
+    // này), bỏ qua hoàn toàn bước hỏi mã MFA.
+    //!=============================================
+    const isTrustedDevice = deviceToken
+      ? await this.isDeviceTrusted(user.id, deviceToken)
+      : false;
+
+    if (!isTrustedDevice) {
+      //!=============================================
+      // Cho phép đăng nhập bằng 1 trong 10 mã dự phòng thay vì mã
+      // TOTP — dùng khi mất điện thoại/mất app Authenticator.
+      //!=============================================
+      if (backupCode) {
+        const usedIndex = await this.mfaService.verifyBackupCode(
+          backupCode,
+          user.mfa_backup_codes,
+        );
+        if (usedIndex === -1) {
+          await this.writeAuditLog(
+            email,
+            false,
+            meta,
+            user.id,
+            'invalid_mfa_backup_code',
+          );
+          throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_BACKUP_CODE_INVALID, AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID));
+        }
+        // AOFP-338: $pull có điều kiện — 2 request cùng mã chỉ 1 cái qua.
+        const consumed = await this.usersService.consumeBackupCode(user.id, user.mfa_backup_codes[usedIndex] ?? '');
+        if (!consumed) {
+          throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_BACKUP_CODE_INVALID, AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID));
+        }
+        newTrustedDeviceToken = await this.issueTrustedDeviceToken(
+          user.id,
+          meta,
+        );
+      } else if (mfaToken) {
+        // AOFP-338: mã TOTP chỉ dùng được 1 lần trong cửa sổ hợp lệ.
+        const isMfaValid =
+          this.mfaService.verifyToken(mfaToken, user.mfa_secret) &&
+          (await this.mfaService.claimToken(user.id, mfaToken));
+        if (!isMfaValid) {
+          await this.writeAuditLog(
+            email,
+            false,
+            meta,
+            user.id,
+            'invalid_mfa',
+          );
+          throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_TOKEN_INVALID, AUTH_MESSAGES.MFA_TOKEN_INVALID));
+        }
+        newTrustedDeviceToken = await this.issueTrustedDeviceToken(
+          user.id,
+          meta,
+        );
+      } else {
+        return { passed: false };
+      }
+    }
+    return { passed: true, trustedDeviceToken: newTrustedDeviceToken };
   }
 
   //!=============================================
@@ -312,7 +343,7 @@ export class AuthService {
     state: string,
     meta: RequestMeta,
     codeVerifier?: string,
-  ): Promise<LoginResult> {
+  ): Promise<LoginResult | MfaRequiredResult> {
     this.verifyOAuthState(state);
 
     const googleUserInfo = await this.getGoogleUserInfo(code, codeVerifier);
@@ -326,7 +357,7 @@ export class AuthService {
    * khoá / chưa kích hoạt / quá hạn đổi mật khẩu), trả cùng dạng `POST /auth/login`.
    * Lỗi trả mã rõ ràng (app hiện thông báo), không redirect như luồng web.
    */
-  async googleMobileLogin(idToken: string, meta: RequestMeta): Promise<LoginResult> {
+  async googleMobileLogin(idToken: string, meta: RequestMeta): Promise<LoginResult | MfaRequiredResult> {
     const info = await this.verifyGoogleIdToken(idToken);
     try {
       return await this.completeGoogleLogin(info, meta);
@@ -383,7 +414,10 @@ export class AuthService {
   }
 
   /** Phần chung của đăng nhập Google web + mobile: chỉ tài khoản đã có, cùng luật khoá. */
-  private async completeGoogleLogin(googleUserInfo: GoogleUserInfo, meta: RequestMeta): Promise<LoginResult> {
+  private async completeGoogleLogin(
+    googleUserInfo: GoogleUserInfo,
+    meta: RequestMeta,
+  ): Promise<LoginResult | MfaRequiredResult> {
     if (!googleUserInfo.email_verified) {
       throw new GoogleEmailNotVerifiedException(
         GOOGLE_OAUTH_MESSAGES.EMAIL_NOT_VERIFIED,
@@ -433,18 +467,81 @@ export class AuthService {
 
     await this.usersService.syncGoogleAvatar(user, googleUserInfo.picture);
 
+    // AOFP-333 — Google chỉ thay mật khẩu, không thay mã MFA: hỏi mã ở POST /auth/google/mfa.
+    if (user.mfa_enabled) {
+      const challenge = randomBytes(32).toString('hex');
+      await this.redisCache.setTemp(GOOGLE_MFA_KEY + challenge, user.id, GOOGLE_MFA_TTL_S);
+      return { mfa_required: true, mfa_challenge: challenge };
+    }
+    return this.finishGoogleLogin(user, meta);
+  }
+
+  private async finishGoogleLogin(
+    user: UserDocument,
+    meta: RequestMeta,
+    trustedDeviceToken?: string,
+  ): Promise<LoginResult> {
     const tokens = await this.tokenService.generateTokenPair(
       { id: user.id, email: user.email, role: user.role },
       meta,
     );
     await this.usersService.updateLastLogin(user.id);
-    await this.writeAuditLog(normalizedEmail, true, meta, user.id);
+    await this.writeAuditLog(user.email, true, meta, user.id);
 
     return {
       ...tokens,
       must_change_password: user.must_change_password,
       role: user.role,
+      ...(trustedDeviceToken ? { trusted_device_token: trustedDeviceToken } : {}),
     };
+  }
+
+  /** AOFP-333 — bước nhập mã TOTP / mã dự phòng sau đăng nhập Google. Challenge dùng 1 lần. */
+  async googleMfaLogin(
+    challenge: string,
+    codes: { mfaToken?: string; backupCode?: string },
+    meta: RequestMeta,
+  ): Promise<LoginResult> {
+    const key = GOOGLE_MFA_KEY + challenge;
+    const expired = (): UnauthorizedException =>
+      new UnauthorizedException(
+        authError(
+          AUTH_ERROR_CODES.GOOGLE_MFA_CHALLENGE_INVALID,
+          'Phiên đăng nhập Google đã hết hạn. Vui lòng đăng nhập Google lại.',
+        ),
+      );
+    const userId = await this.redisCache.getTemp(key);
+    if (!userId) throw expired();
+    const user = await this.usersService.findById(userId);
+    if (!user.is_active) {
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, AUTH_MESSAGES.ACCOUNT_INACTIVE));
+    }
+    const second = await this.checkSecondFactor(user, user.email, codes, meta);
+    if (!second.passed) {
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_TOKEN_INVALID, AUTH_MESSAGES.MFA_TOKEN_INVALID));
+    }
+    if ((await this.redisCache.takeTemp(key)) === null) throw expired();
+    return this.finishGoogleLogin(user, meta, second.trustedDeviceToken);
+  }
+
+  /** AOFP-333 — callback web không để token trên URL: cất kết quả 60 giây dưới mã dùng 1 lần. */
+  async stashGoogleResult(result: LoginResult | MfaRequiredResult): Promise<string> {
+    const code = randomBytes(32).toString('hex');
+    await this.redisCache.setTemp(GOOGLE_LOGIN_CODE_KEY + code, JSON.stringify(result), GOOGLE_LOGIN_CODE_TTL_S);
+    return code;
+  }
+
+  async exchangeGoogleLoginCode(code: string): Promise<LoginResult | MfaRequiredResult> {
+    const raw = await this.redisCache.takeTemp(GOOGLE_LOGIN_CODE_KEY + code);
+    if (raw === null) {
+      throw new UnauthorizedException(
+        authError(
+          AUTH_ERROR_CODES.GOOGLE_LOGIN_CODE_INVALID,
+          'Mã đăng nhập Google đã hết hạn hoặc đã dùng. Vui lòng đăng nhập Google lại.',
+        ),
+      );
+    }
+    return JSON.parse(raw) as LoginResult | MfaRequiredResult;
   }
 
   generateOAuthState(): string {
@@ -618,6 +715,8 @@ export class AuthService {
 
     await this.usersService.changePassword(user.id, newPassword);
     await this.usersService.clearPasswordResetToken(user.id);
+    // AOFP-338 F-50 — đặt lại mật khẩu xong phải đăng nhập được ngay, không còn bị khoá 15 phút vì lần sai cũ.
+    await this.usersService.resetFailedLoginAttempts(user.id);
     // Đổi mật khẩu qua đường quên mật khẩu cũng phải thu hồi mọi session cũ,
     // giống hệt đổi mật khẩu thông thường (FIX #3 gốc) — phòng trường hợp
     // chính kẻ chiếm được máy cũ mới là người kích hoạt luồng quên mật khẩu.
@@ -632,10 +731,31 @@ export class AuthService {
   async setupMfa(
     userId: string,
     email: string,
-  ): Promise<{ otpauthUrl: string }> {
+    reauth: { currentToken?: string; password?: string } = {},
+  ): Promise<{ otpauthUrl: string; qrDataUrl: string }> {
+    // AOFP-333 — đang bật MFA thì cầm access token thôi chưa đủ để thay secret.
+    const user = await this.usersService.findById(userId);
+    if (user.mfa_enabled) {
+      const tokenOk =
+        !!reauth.currentToken &&
+        !!user.mfa_secret &&
+        this.mfaService.verifyToken(reauth.currentToken, user.mfa_secret);
+      const passwordOk =
+        !tokenOk && !!reauth.password && !!user.password && (await bcrypt.compare(reauth.password, user.password));
+      if (!tokenOk && !passwordOk) {
+        throw new UnauthorizedException(
+          authError(
+            AUTH_ERROR_CODES.MFA_REAUTH_REQUIRED,
+            'MFA đang bật. Nhập mã xác thực hiện tại hoặc mật khẩu để cài lại.',
+          ),
+        );
+      }
+    }
     const { secret, otpauthUrl } = this.mfaService.generateSecret(email);
     await this.usersService.setPendingMfaSecret(userId, secret);
-    return { otpauthUrl };
+    // QR vẽ ngay ở BE: secret không đi qua dịch vụ QR bên ngoài.
+    const qrDataUrl = await QRCode.toDataURL(otpauthUrl, { margin: 1, width: 180 });
+    return { otpauthUrl, qrDataUrl };
   }
 
   //!=============================================
@@ -648,17 +768,18 @@ export class AuthService {
     token: string,
   ): Promise<{ message: string; backup_codes: string[] }> {
     const user = await this.usersService.findById(userId);
-    if (!user.mfa_secret) {
+    const pending = user.mfa_pending_secret;
+    if (!pending) {
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_SETUP_NOT_STARTED, AUTH_MESSAGES.MFA_SETUP_NOT_STARTED));
     }
-    const isValid = this.mfaService.verifyToken(token, user.mfa_secret);
+    const isValid = this.mfaService.verifyToken(token, pending);
     if (!isValid) {
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_TOKEN_INVALID, AUTH_MESSAGES.MFA_TOKEN_INVALID));
     }
 
     const { plainCodes, hashedCodes } =
       await this.mfaService.generateBackupCodes();
-    await this.usersService.enableMfa(userId, hashedCodes);
+    await this.usersService.enableMfa(userId, pending, hashedCodes);
     void this.mailService.sendMfaEnabled({ to: user.email, name: user.name });
 
     return {
@@ -692,6 +813,7 @@ export class AuthService {
 
   async logout(refreshToken: string, userId?: string, pushToken?: string): Promise<{ message: string }> {
     await this.tokenService.revokeToken(refreshToken);
+    if (userId && Types.ObjectId.isValid(userId)) await this.tokenService.revokeAccessTokens(userId);
     // 10/11/2026 — app mobile gửi kèm token push: gỡ máy để không nhận push của người vừa đăng xuất.
     if (pushToken && userId && this.deviceTokenModel && Types.ObjectId.isValid(userId)) {
       try {

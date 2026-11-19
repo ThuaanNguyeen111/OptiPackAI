@@ -69,7 +69,8 @@ const PROGRESS: Record<ShipmentStatus, number> = {
 
 /**
  * Trạng thái của CẢ vận đơn từ trạng thái hãng của từng kiện (1 kiện = 1 đơn hãng):
- * - mọi kiện huỷ → cancelled; bỏ qua kiện đã huỷ khi còn kiện khác;
+ * - mọi kiện huỷ → cancelled; bỏ qua kiện đã huỷ khi còn kiện khác, NHƯNG (AOFP-326) còn kiện
+ *   huỷ thì không bao giờ ra delivered (hàng kiện đó chưa đi) → null, chờ đặt lại kiện huỷ;
  * - có kiện đang hoàn → returning (cả vận đơn phải về kho kiểm);
  * - có kiện giao thất bại → delivery_failed;
  * - mọi kiện đã giao → delivered (nhóm đơn chỉ "đã giao" khi đủ kiện);
@@ -86,9 +87,16 @@ export function aggregateCarrierStatus(parcelStatuses: (string | null)[]): Shipm
   const live = known.filter((m) => m !== ShipmentStatus.CANCELLED);
   if (live.includes(ShipmentStatus.RETURNING_TO_WAREHOUSE)) return ShipmentStatus.RETURNING_TO_WAREHOUSE;
   if (live.includes(ShipmentStatus.DELIVERY_FAILED)) return ShipmentStatus.DELIVERY_FAILED;
-  if (live.every((m) => m === ShipmentStatus.DELIVERED)) return ShipmentStatus.DELIVERED;
+  if (live.every((m) => m === ShipmentStatus.DELIVERED)) return live.length === known.length ? ShipmentStatus.DELIVERED : null;
   const pending = live.filter((m) => m !== ShipmentStatus.DELIVERED);
   return pending.reduce((slowest, m) => (PROGRESS[m] < PROGRESS[slowest] ? m : slowest));
+}
+
+/** AOFP-326 — kiện huỷ lẻ (còn kiện khác chạy) → "Kiện 2 đã hủy"; không có / huỷ cả vận đơn → null. */
+export function cancelledParcelsIncident(parcels: readonly { parcel_no: number; carrier_status?: string | null }[]): string | null {
+  const nos = parcels.filter((p) => p.carrier_status === 'cancel').map((p) => p.parcel_no);
+  if (nos.length === 0 || nos.length === parcels.length) return null;
+  return `Kiện ${nos.join(', ')} đã hủy`;
 }
 
 /**

@@ -38,6 +38,7 @@ export class CarrierParcel {
   @Prop({ type: String, default: null }) carrier_status!: string | null; // trạng thái gốc của hãng
   @Prop({ type: Date, default: null }) carrier_status_at!: Date | null;
   @Prop({ type: String, default: null }) booking_error!: string | null;
+  @Prop({ type: Number, default: 0 }) cod_amount?: number; // AOFP-319 — tiền hãng thu hộ ở kiện này
 }
 export const CarrierParcelSchema = SchemaFactory.createForClass(CarrierParcel);
 

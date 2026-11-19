@@ -40,6 +40,13 @@ export class OrderGroupBackfillScheduler {
       // (09/10/2026) Cứu nhóm kẹt awaiting_packaging (bước chuyển sang picking lúc tạo bị lỗi).
       const resumed = await this.orderGroupsService.resumeStuckAwaitingGroups();
       if (resumed > 0) this.logger.warn(`Đã đưa ${String(resumed)} nhóm kẹt awaiting_packaging sang picking.`);
+      // AOFP-330 — đơn đã hủy mà nhóm chưa xử lý xong (nhả giữ chỗ / tháo kiện / hủy nhóm).
+      try {
+        const { groups, failed } = await this.orderGroupsService.resyncPendingCanceledGroups();
+        if (groups > 0) this.logger.warn(`Xử lý lại ${String(groups)} nhóm có đơn đã hủy (${String(failed)} lỗi).`);
+      } catch (error) {
+        this.logger.warn('Xử lý lại nhóm có đơn đã hủy thất bại.', error);
+      }
       // 22/10/2026 — lưới an toàn: nhóm thiếu hàng tự tính lại (đường chính: ngay sau khi nhập hàng).
       try {
         await this.orderGroupsService.recheckShortageGroups('cron 5 phút');

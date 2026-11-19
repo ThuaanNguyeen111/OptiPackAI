@@ -82,10 +82,10 @@ class _PickScreenState extends ConsumerState<PickScreen> {
       _toast('Mã "${code.trim()}" không thuộc nhóm này. Kiểm tra đúng ô và SKU.', error: true);
       return;
     }
-    await _openConfirm(data, line, method);
+    await _openConfirm(data, line, method, fromBin: otherBinForScan(line, code));
   }
 
-  Future<void> _openConfirm(PickData data, PickLine line, ScanMethod method) async {
+  Future<void> _openConfirm(PickData data, PickLine line, ScanMethod method, {OtherBin? fromBin}) async {
     if (!line.hasBin) {
       HapticFeedback.heavyImpact();
       _toast('SKU ${line.sku} chưa được gán ô. Báo Admin gán ô trước khi lấy.', error: true);
@@ -100,7 +100,7 @@ class _PickScreenState extends ConsumerState<PickScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _ConfirmPickSheet(line: line, canReport: !data.fromCache),
+      builder: (_) => _ConfirmPickSheet(line: line, canReport: !data.fromCache, fromBin: fromBin),
     );
     if (result == null || !mounted) return;
 
@@ -116,6 +116,7 @@ class _PickScreenState extends ConsumerState<PickScreen> {
       quantity: result.quantity,
       method: method,
       warehouseId: data.warehouseId,
+      binLocationId: fromBin?.binLocationId,
     );
     await ref.read(syncControllerProvider.notifier).enqueue(action);
     HapticFeedback.mediumImpact();
@@ -460,10 +461,12 @@ class _ConfirmResult {
 }
 
 class _ConfirmPickSheet extends StatefulWidget {
-  const _ConfirmPickSheet({required this.line, required this.canReport});
+  const _ConfirmPickSheet({required this.line, required this.canReport, this.fromBin});
 
   final PickLine line;
   final bool canReport;
+  /// AOFP-327 — quét khớp ô phụ thì lấy ở ô này thay ô chính.
+  final OtherBin? fromBin;
 
   @override
   State<_ConfirmPickSheet> createState() => _ConfirmPickSheetState();
@@ -484,7 +487,7 @@ class _ConfirmPickSheetState extends State<_ConfirmPickSheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              line.binCode,
+              widget.fromBin?.binCode ?? line.binCode,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontFamily: 'monospace',
@@ -497,6 +500,12 @@ class _ConfirmPickSheetState extends State<_ConfirmPickSheet> {
               textAlign: TextAlign.center,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 15),
             ),
+            if (widget.fromBin case final b?)
+              Text(
+                'Lấy từ ô ${b.binCode} (còn ${b.quantityOnHand}) thay ô chính ${line.binCode}',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.w600),
+              ),
             const SizedBox(height: 4),
             Text(
               'Còn cần lấy $max (đặt ${line.quantity}, đã lấy ${line.pickedQuantity})',

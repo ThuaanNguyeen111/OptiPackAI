@@ -20,7 +20,6 @@ import {
   approvePackingPlan,
   undoApprovePackingPlan,
   assignPacker,
-  backToPicking,
   changeParcelBox,
   getPackingPlan,
   getPackingSettings,
@@ -45,7 +44,7 @@ import {
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { usePortal } from '../../context/use-portal'
 import { UserRole } from '../../types/auth'
-import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
+import { ApiError, formatApiError, getApiErrorCode, isUncertainWrite } from '../../lib/api'
 import { groupStatusTone } from '../../lib/stage-colors'
 import {
   groupParcelsByOrder,
@@ -54,6 +53,8 @@ import {
   parcelOrderHeading,
 } from '../../lib/parcel-order-display'
 import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
+import { RejectedPlanPanel } from './RejectedPlanPanel'
+import { missingReportLine } from '../../utils/missing-report'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
@@ -101,7 +102,7 @@ import { MaterialTags } from './MaterialTags'
 import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
- * Bàn đóng gói (Packaging Staff + Admin) — duyệt / điều chỉnh / từ chối / đóng kiện.
+ * Bàn đóng gói (Packaging Staff + Admin) — chấp nhận / điều chỉnh / từ chối / đóng kiện.
  * BE tự tính và gán kế hoạch sau lấy hàng (không còn bước Admin chốt riêng).
  * Khung 3D dựng từ kế hoạch thật (placements + itemProfiles); chỉ xem, không ghi trạng thái lên BE.
  */
@@ -265,11 +266,11 @@ function emptyCopy(
     if (counts.awaiting > 0 || counts.picked > 0) {
       return vi
         ? {
-            title: 'Chưa có việc duyệt ngay',
+            title: 'Chưa có kế hoạch chờ chấp nhận',
             body:
               counts.picked > 0
-                ? `Có ${String(counts.picked)} nhóm đã lấy xong, hệ thống đang tính kế hoạch. Có kế hoạch là đơn hiện tại đây để bạn duyệt.`
-                : `Kho đang lấy ${String(counts.awaiting)} nhóm. Lấy xong, hệ thống tự tính kế hoạch rồi đơn sẽ hiện tại đây để duyệt.`,
+                ? `Có ${String(counts.picked)} nhóm đã lấy xong, hệ thống đang tính kế hoạch. Có kế hoạch là nhóm hiện tại đây để bạn chấp nhận.`
+                : `Kho đang lấy ${String(counts.awaiting)} nhóm. Lấy xong, hệ thống tự tính kế hoạch rồi nhóm sẽ hiện tại đây để chấp nhận.`,
           }
         : {
             title: 'Nothing to approve yet',
@@ -281,19 +282,19 @@ function emptyCopy(
     }
     return vi
       ? {
-          title: 'Chưa có kế hoạch thùng chờ duyệt',
-          body: 'Đây là việc chính của bạn: duyệt / điều chỉnh / từ chối gợi ý thùng. Hiện chưa có nhóm nào ở pending_approval.',
+          title: 'Chưa có kế hoạch chờ chấp nhận',
+          body: 'Đây là việc chính của bạn: chấp nhận / điều chỉnh / từ chối kế hoạch đóng gói. Hiện chưa có nhóm nào chờ chấp nhận.',
         }
       : {
           title: 'No packing plans pending',
-          body: 'Your main job: approve, adjust, or reject carton plans. No groups in pending_approval yet.',
+          body: 'Your main job: accept, adjust, or reject packing plans. No groups waiting yet.',
         }
   }
   if (tab === 'partial_needs_review') {
     return vi
       ? {
           title: 'Không có đơn thiếu hàng',
-          body: 'Warehouse đã báo thiếu (report-missing) — quyết định tiếp tục với phần còn lại hoặc hủy làm lại.',
+          body: 'Kho đã báo thiếu hàng — quyết định tiếp tục với phần còn lại hoặc hủy làm lại.',
         }
       : {
           title: 'No partial-review groups',
@@ -303,7 +304,7 @@ function emptyCopy(
   if (tab === 'approved_for_packing') {
     return vi
       ? {
-          title: 'Không có nhóm đã duyệt kế hoạch',
+          title: 'Không có nhóm đang đóng gói',
           body: 'Sau khi bạn chấp nhận kế hoạch, nhóm hiện ở đây — bấm «Xác nhận đã đóng gói» khi gói xong.',
         }
       : {
@@ -333,7 +334,7 @@ function emptyCopy(
       }
 }
 
-/** Route ghi trả profileStale=false. Giữ cờ từ lần GET khi kế hoạch vẫn chờ duyệt hoặc đã duyệt. */
+/** Route ghi trả profileStale=false. Giữ cờ từ lần GET khi kế hoạch vẫn chờ chấp nhận hoặc đã chấp nhận. */
 function retainProfileStale(
   previous: PackingPlan | null,
   next: PackingPlan,
@@ -374,13 +375,30 @@ function boxViewerSub(plan: PackingPlan | null, parcelNo: number | null, vi: boo
     : `${String(count)} items · follow the steps in the 3D view`
 }
 
+/** Giá trị ô cân giữ đúng kiểu cũ ("1,2"). */
+function kgInputValue(kg: number): string {
+  return String(Math.round(kg * 1000) / 1000).replace('.', ',')
+}
+
+/**
+ * AOFP-331 — chỉ điền cân THẬT đã có (kiện đã cân). Không điền ước tính: bấm luôn thì
+ * "cân thật = ước tính" và kiện không bao giờ bị giữ vì lệch cân.
+ */
 function weightPrefill(plan: PackingPlan): Record<number, string> {
   const next: Record<number, string> = {}
   for (const parcel of plan.parcels) {
-    const kg = parcel.actualWeightKg ?? parcel.estimatedWeightG / 1000
-    next[parcel.parcelNo] = kg > 0 ? String(Math.round(kg * 1000) / 1000).replace('.', ',') : ''
+    const kg = parcel.actualWeightKg ?? 0
+    next[parcel.parcelNo] = kg > 0 ? kgInputValue(kg) : ''
   }
   return next
+}
+
+/** AOFP-331 — đã quét món hoặc đã niêm phong/tháo kiện nào → phiên đã bắt đầu, không đóng nhanh nữa. */
+function quickPackStarted(plan: PackingPlan | null): boolean {
+  if (!plan) return false
+  return plan.parcels.some(
+    (p) => p.status !== 'pending' || (p.scannedCount ?? p.scans?.length ?? 0) > 0,
+  )
 }
 
 function readParcelWeights(
@@ -388,7 +406,8 @@ function readParcelWeights(
   weights: Record<number, string>,
 ): { parcel_no: number; weight_kg: number }[] | null {
   const rows: { parcel_no: number; weight_kg: number }[] = []
-  for (const parcel of plan.parcels) {
+  // BE chỉ nhận cân của kiện đang chờ đóng (kiện đã niêm phong/tháo gửi kèm → 400 PACK_WEIGHTS_MISMATCH).
+  for (const parcel of plan.parcels.filter((p) => p.status === 'pending')) {
     const weight = parseDecimal(weights[parcel.parcelNo] ?? '') ?? Number.NaN
     if (!Number.isFinite(weight) || weight < 0.001 || weight > 100) return null
     rows.push({ parcel_no: parcel.parcelNo, weight_kg: weight })
@@ -449,10 +468,6 @@ export function PackagingWorkbench() {
   const isPackagingStaff = session?.role === UserRole.PACKAGING_STAFF
   const [queueScope, setQueueScope] = useState<'mine' | 'all'>('mine')
   const [myUserId, setMyUserId] = useState<string | null>(null)
-  const [returnSku, setReturnSku] = useState('')
-  const [returnQty, setReturnQty] = useState('1')
-  const [returnRestock, setReturnRestock] = useState(false)
-  const [returnNote, setReturnNote] = useState('')
   const [requireScan, setRequireScan] = useState(false)
   const [requireSealPhoto, setRequireSealPhoto] = useState(false)
   /** Ảnh niêm phong của lối đóng nhanh, khoá `${planId}:${parcelNo}`. */
@@ -872,8 +887,10 @@ export function PackagingWorkbench() {
   }
 
   function reloadPlanAfterConflict(err: unknown): void {
-    setActionError(formatApiError(err))
-    if (!(err instanceof ApiError) || err.status !== 409 || !group) return
+    // AOFP-323 — mất mạng / hết giờ sau khi bấm: không biết đã lưu chưa → tải lại kế hoạch.
+    const uncertain = isUncertainWrite(err)
+    setActionError(uncertain ? (vi ? 'Chưa chắc đã lưu, đang tải lại…' : 'Not sure it was saved, reloading…') : formatApiError(err))
+    if (!group || !(uncertain || (err instanceof ApiError && err.status === 409))) return
     lastPackagingKeyRef.current = null
     void getPackingPlan(group.id)
       .then((next) => {
@@ -949,8 +966,8 @@ export function PackagingWorkbench() {
       await undoApprovePackingPlan(group.id, plan.version)
       showToast(
         vi
-          ? 'Đã quay lại chờ duyệt. Có thể chấp nhận hoặc từ chối lại.'
-          : 'Returned to pending approval. You can accept or reject again.',
+          ? 'Đã quay lại chờ chấp nhận. Có thể chấp nhận hoặc từ chối lại.'
+          : 'Returned to pending acceptance. You can accept or reject again.',
       )
       setGuide3dActive(false)
       setPlanDialog(null)
@@ -1160,10 +1177,6 @@ export function PackagingWorkbench() {
     }
   }
 
-  async function onPack(): Promise<void> {
-    await submitPack()
-  }
-
   async function onAssign(mode: 'auto' | 'manual', staffId?: string): Promise<void> {
     if (!group) return
     setActionBusy(true)
@@ -1196,30 +1209,6 @@ export function PackagingWorkbench() {
       void loadList()
     } catch (err: unknown) {
       setActionError(formatApiError(err))
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
-  async function onBackToPicking(): Promise<void> {
-    if (!group || !plan) return
-    const quantity = Number(returnQty)
-    if (!returnSku.trim() || !Number.isInteger(quantity) || quantity < 1) {
-      setActionError(vi ? 'Nhập SKU và số lượng.' : 'Enter SKU and quantity.')
-      return
-    }
-    setActionBusy(true)
-    setActionError(null)
-    try {
-      const next = await backToPicking(group.id, {
-        expectedVersion: plan.version,
-        items: [{ sku: returnSku.trim(), quantity, restock: returnRestock }],
-        note: returnNote.trim() || undefined,
-      })
-      setPlan((current) => retainProfileStale(current, next))
-      setToast(vi ? 'Đã trả về lấy hàng.' : 'Sent back to picking.')
-    } catch (err: unknown) {
-      reloadPlanAfterConflict(err)
     } finally {
       setActionBusy(false)
     }
@@ -1282,6 +1271,12 @@ export function PackagingWorkbench() {
     () =>
       [
         [
+          'picked',
+          vi ? 'Đã lấy hàng' : 'Picked',
+          counts.picked,
+          false,
+        ],
+        [
           'pending_approval',
           vi ? 'Chờ chấp nhận kế hoạch' : 'Pending plan',
           counts.pending,
@@ -1301,7 +1296,7 @@ export function PackagingWorkbench() {
         ],
         [
           'approved_for_packing',
-          vi ? 'Đã duyệt — đóng gói' : 'Approved — pack',
+          vi ? 'Đang đóng gói' : 'Packing',
           counts.approved,
           false,
         ],
@@ -1314,6 +1309,7 @@ export function PackagingWorkbench() {
       ] as const,
     [
       vi,
+      counts.picked,
       counts.pending,
       counts.blocked,
       counts.partial,
@@ -1358,6 +1354,7 @@ export function PackagingWorkbench() {
                 max={100}
                 step="0.001"
                 value={parcelWeights[parcel.parcelNo] ?? ''}
+                placeholder={vi ? 'Cân thật' : 'Scale reading'}
                 onChange={(event) =>
                   setParcelWeights((prev) => ({
                     ...prev,
@@ -1367,6 +1364,11 @@ export function PackagingWorkbench() {
                 className="w-28 rounded-lg border border-hairline bg-canvas px-2 py-1.5"
               />
               <span className="text-xs text-ink-muted">kg</span>
+              {parcel.estimatedWeightG > 0 ? (
+                <span className="text-xs text-ink-muted">
+                  {vi ? 'Ước tính' : 'Estimated'} {formatGAsKg(parcel.estimatedWeightG)}
+                </span>
+              ) : null}
             </label>
             {caption ? (
               <p className="pl-1 text-[11px] text-ink-muted">{caption}</p>
@@ -1676,7 +1678,7 @@ export function PackagingWorkbench() {
             <p className="text-sm text-rose-600">{detailError}</p>
           ) : group ? (
             <div className="space-y-5">
-              {/* Trạng thái trùng tên tab thì bỏ; chỉ hiện khi khác (vd nhóm đang đóng trong tab Đã duyệt). */}
+              {/* Trạng thái trùng tên tab thì bỏ; chỉ hiện khi khác (vd nhóm đang đóng trong tab Đang đóng gói). */}
               {group.fulfillmentStatus !== tab ||
               group.packagingDeadline ||
               group.deliveryDeadline ||
@@ -1897,54 +1899,11 @@ export function PackagingWorkbench() {
                       onClick={() => void onUndoApprove()}
                       className="mt-3 inline-flex items-center rounded-lg border border-emerald-800/30 bg-white px-3 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50 dark:bg-transparent dark:text-emerald-100"
                     >
-                      {vi ? 'Quay lại chờ duyệt' : 'Return to pending approval'}
+                      {vi ? 'Quay lại chờ chấp nhận' : 'Return to pending acceptance'}
                     </button>
                   ) : null}
                   {group?.fulfillmentStatus === 'approved_for_packing' ? (
                     <>
-                      {canAssign && plan ? (
-                        <div className="mt-3 space-y-2 rounded-lg border border-hairline bg-surface p-3 text-xs">
-                          <p className="font-semibold text-ink">
-                            {vi ? 'Trả món về bước lấy hàng' : 'Return items to picking'}
-                          </p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <input
-                              value={returnSku}
-                              onChange={(e) => setReturnSku(e.target.value)}
-                              placeholder="SKU"
-                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
-                            />
-                            <input
-                              value={returnQty}
-                              onChange={(e) => setReturnQty(e.target.value)}
-                              inputMode="numeric"
-                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
-                            />
-                          </div>
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={returnRestock}
-                              onChange={(e) => setReturnRestock(e.target.checked)}
-                            />
-                            {vi ? 'Hàng còn tốt, nhập lại kệ' : 'Good item, restock'}
-                          </label>
-                          <input
-                            value={returnNote}
-                            onChange={(e) => setReturnNote(e.target.value)}
-                            placeholder={vi ? 'Ghi chú (tuỳ chọn)' : 'Note'}
-                            className="w-full rounded-lg border border-hairline bg-canvas px-2 py-1"
-                          />
-                          <button
-                            type="button"
-                            disabled={actionBusy}
-                            onClick={() => void onBackToPicking()}
-                            className="rounded-lg border border-hairline px-2 py-1"
-                          >
-                            {vi ? 'Trả về lấy hàng' : 'Back to picking'}
-                          </button>
-                        </div>
-                      ) : null}
                       {plan &&
                       (plan.status === 'approved' || plan.status === 'packing') ? (
                         <PackingSessionPanel
@@ -1956,11 +1915,23 @@ export function PackagingWorkbench() {
                           onPlan={(next) => {
                             setPlan((current) => retainProfileStale(current, next))
                             setParcelWeights(weightPrefill(next))
+                            // Niêm phong kiện cuối → BE tự chuyển nhóm sang packed; làm mới hàng đợi như nút xác nhận đóng gói.
+                            if (next.status === 'packed') {
+                              showToast(vi ? 'Đã đóng gói xong — nhóm chuyển sang packed.' : 'Packing done — group is now packed.')
+                              setGuide3dActive(false)
+                              void refreshAfterAction().then(() => loadBoxStock())
+                            }
                           }}
                           onError={(err) => reloadPlanAfterConflict(err)}
                         />
                       ) : null}
-                      {scanLocked ? (
+                      {quickPackStarted(plan) ? (
+                        <p className="mt-3 text-xs text-ink-muted">
+                          {vi
+                            ? 'Đã quét hoặc niêm phong kiện trong phiên — đóng tiếp bằng phiên đóng gói phía trên.'
+                            : 'Items were scanned or parcels sealed — finish with the packing session above.'}
+                        </p>
+                      ) : scanLocked ? (
                         <p className="mt-3 text-xs text-ink-muted">
                           {group?.packScanRequired
                             ? quickPackBlockedCopy(group, vi)
@@ -2000,9 +1971,14 @@ export function PackagingWorkbench() {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
                   <p className="text-sm font-medium text-amber-950 dark:text-amber-100">
                     {vi
-                      ? 'Warehouse đã báo thiếu hàng. Chọn tiếp tục với phần còn lại hoặc hủy làm lại.'
-                      : 'Warehouse reported missing items. Continue with available stock or cancel to restart.'}
+                      ? 'Kho đã báo thiếu hàng. Chọn giao phần có sẵn hoặc lấy lại.'
+                      : 'Warehouse reported missing items. Ship what is available or pick again.'}
                   </p>
+                  {group?.missingReport ? (
+                    <p className="mt-1 text-sm text-amber-950 dark:text-amber-100">
+                      {missingReportLine(group.missingReport, vi, formatDateTime)}
+                    </p>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -2020,7 +1996,7 @@ export function PackagingWorkbench() {
                       className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink disabled:opacity-50"
                     >
                       <XCircle className="h-4 w-4" />
-                      {vi ? 'Hủy làm lại' : 'Cancel & restart'}
+                      {vi ? 'Lấy lại (trả hàng đã lấy về kệ)' : 'Pick again (return picked items)'}
                     </button>
                   </div>
                   <p className="mt-2 text-xs text-amber-900 dark:text-amber-200">
@@ -2115,7 +2091,7 @@ export function PackagingWorkbench() {
                     {!plan ? (
                       <p className="mt-2 text-sm text-ink-subtle">
                         {vi
-                          ? 'Chưa có kế hoạch. Hệ thống tự tính sau khi lấy hàng xong, có kế hoạch mới duyệt được.'
+                          ? 'Chưa có kế hoạch. Hệ thống tự tính sau khi lấy hàng xong, có kế hoạch mới chấp nhận được.'
                           : 'No plan yet. It is computed after picking finishes. Cannot approve without one.'}
                       </p>
                     ) : (
@@ -2292,35 +2268,26 @@ export function PackagingWorkbench() {
 
                   {tab === 'picked' &&
                   group.fulfillmentStatus === 'picked' ? (
-                    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
-                      <p className="text-sm font-medium text-emerald-950 dark:text-emerald-100">
+                    plan?.status === 'rejected' ? (
+                      <RejectedPlanPanel
+                        key={`${plan.id}-${String(plan.version)}`}
+                        groupId={group.id}
+                        plan={plan}
+                        vi={vi}
+                        canAct={canAssign}
+                        onPlan={(next) => setPlan((current) => retainProfileStale(current, next))}
+                        onDone={(message) => {
+                          showToast(message)
+                          void refreshAfterAction()
+                        }}
+                      />
+                    ) : (
+                      <p className="rounded-lg border border-hairline bg-surface p-4 text-sm text-ink-muted">
                         {vi
-                          ? 'Kho đã lấy xong. Nhập cân từng kiện rồi xác nhận.'
-                          : 'Warehouse finished picking. Enter each parcel weight, then confirm.'}
+                          ? 'Kho đã lấy xong — hệ thống đang tính kế hoạch đóng gói. Có kế hoạch nhóm sẽ sang «Chờ chấp nhận kế hoạch».'
+                          : 'Picking finished — the packing plan is being computed. The group moves to pending approval when ready.'}
                       </p>
-                      {scanLocked ? (
-                        <p className="text-xs text-emerald-900 dark:text-emerald-100">
-                          {group?.packScanRequired
-                            ? quickPackBlockedCopy(group, vi)
-                            : vi
-                              ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
-                              : 'Scan is required. Open the approved tab and use the session.'}
-                        </p>
-                      ) : (
-                        <>
-                          {parcelWeightFields()}
-                          <button
-                            type="button"
-                            disabled={actionBusy || Boolean(group?.packScanRequired)}
-                            onClick={() => void onPack()}
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    )
                   ) : null}
 
                 </>
@@ -2384,7 +2351,7 @@ export function PackagingWorkbench() {
                 type="button"
                 disabled={actionBusy}
                 onClick={() => {
-                  // Vượt số kiện cần lý do — ô nhập nằm trong hộp thoại duyệt.
+                  // Vượt số kiện cần lý do — ô nhập nằm trong hộp thoại chấp nhận kế hoạch.
                   if (overParcelLimit) {
                     setActionError(null)
                     setPlanDialog('approve')
@@ -2600,8 +2567,8 @@ export function PackagingWorkbench() {
             <h3 id="plan-dialog-title" className="text-base font-semibold text-ink">
               {planDialog === 'approve'
                 ? vi
-                  ? 'Duyệt kế hoạch'
-                  : 'Approve plan'
+                  ? 'Chấp nhận kế hoạch'
+                  : 'Accept plan'
                 : vi
                   ? 'Điều chỉnh thùng'
                   : 'Adjust box'}

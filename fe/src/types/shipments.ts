@@ -56,6 +56,8 @@ export type Shipment = {
   carrierStatusLabel?: string | null
   carrierBookingError?: string | null
   carrierIncident?: string | null
+  /** AOFP-325 — sự cố hãng bằng tiếng Việt. */
+  carrierIncidentLabel?: string | null
   estimatedCostVnd?: number | null
   tripCode?: string | null
   pickupAt?: string | null
@@ -70,6 +72,7 @@ export type Shipment = {
     carrierOrderCode: string | null
     sortCode: string | null
     feeTotalVnd: number | null
+    carrierStatus?: string | null
     carrierStatusLabel: string | null
     bookingError: string | null
     recipientName?: string | null

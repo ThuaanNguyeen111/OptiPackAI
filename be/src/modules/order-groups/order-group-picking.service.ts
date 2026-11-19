@@ -221,6 +221,16 @@ export class OrderGroupPickingService {
         const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
           ? new Types.ObjectId(warehouseId)
           : warehouseId;
+        // AOFP-327 — không lấy phần tồn đang giữ cho nhóm khác (nhóm giữ trước được giữ trước).
+        if (warehouseObjectId instanceof Types.ObjectId) {
+          await this.stockReservationService.assertNotReservedByOthers(
+            group._id,
+            { master: masterSku, platform: group.platform, shopId: group.shop_id, sku },
+            warehouseObjectId,
+            scannedQuantity,
+            session,
+          );
+        }
         // Atomic check-and-decrement — điều kiện `quantity_on_hand: {$gte}` trong
         // CÙNG 1 lệnh. Phạm vi tồn: kho + (SKU nội bộ | sàn+shop+SKU) [+ ô nếu chỉ định].
         const scope = {
@@ -381,7 +391,10 @@ export class OrderGroupPickingService {
         events: typeof events;
       }
     >();
+    // AOFP-321 — số đã lấy (ròng) theo SKU của lượt bị hủy, kể cả event cũ không lưu kho.
+    const pickedBySku = new Map<string, number>();
     for (const event of events) {
+      pickedBySku.set(event.seller_sku, (pickedBySku.get(event.seller_sku) ?? 0) + event.scanned_quantity);
       if (!event.warehouse_id) {
         skipped += 1;
         continue;
@@ -406,8 +419,19 @@ export class OrderGroupPickingService {
       this.mappingModel,
       group.platform,
       group.shop_id,
-      Array.from(new Set(Array.from(perLine.values(), (l) => l.sku))),
+      Array.from(pickedBySku.keys()),
     );
+    // AOFP-321 — lượt bị hủy không còn tính là "đã lấy": trả bộ đếm của giữ chỗ trong cùng
+    // transaction, để reconcile (sau đó) giữ lại đủ "đặt − đã lấy" cho lượt mới.
+    for (const [sku, qty] of pickedBySku) {
+      if (qty <= 0) continue;
+      await this.stockReservationService.unconsume(
+        group._id.toString(),
+        stockKeyOf(masters.get(sku), group.platform, group.shop_id, sku),
+        qty,
+        session,
+      );
+    }
     for (const line of perLine.values()) {
       // (05/10/2026) Event điều chỉnh âm (món hỏng/đã trả kệ lúc đóng) có thể làm
       // dòng ròng về 0 — không còn gì để nhập lại, chỉ đánh dấu đã xử lý.
@@ -491,6 +515,8 @@ export class OrderGroupPickingService {
     expectedVersion: number,
   ): Promise<OrderGroupDocument> {
     const group = await this.core.loadGroupOrThrow(groupId);
+    // AOFP-312 — bấm trùng "lấy xong": bên đến sau thấy nhóm đã picked → phải là 409 version.
+    if (group.__v !== expectedVersion) throw this.core.versionConflict(groupId, expectedVersion);
     if (group.fulfillment_status === GroupFulfillmentStatus.PICKING) {
       const ordered = await this.core.getOrderedSkuQuantities(group);
       const picked = await this.core.getPickedSkuQuantities(group);
@@ -614,18 +640,76 @@ export class OrderGroupPickingService {
     missingQuantity: number,
     expectedVersion: number,
     note?: string,
+    warehouseId?: string,
   ): Promise<OrderGroupDocument> {
-    const reporter = await this.userModel
-      .findById(reporterId)
-      .select('name')
-      .lean();
-    const reporterName = reporter?.name ?? 'Nhân viên kho';
+    // AOFP-329 — kiểm dữ liệu trước khi dừng nhóm: SKU phải thuộc nhóm, số thiếu ≤ số còn cần lấy.
+    const current = await this.core.loadGroupOrThrow(groupId);
+    const ordered = (await this.core.getOrderedSkuQuantities(current)).get(sku);
+    if (ordered === undefined) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.MISSING_REPORT_INVALID,
+        `SKU "${sku}" không thuộc nhóm đơn này — không báo thiếu được.`,
+        HttpStatus.BAD_REQUEST,
+        { groupId, sku },
+      );
+    }
+    const picked = (await this.core.getPickedSkuQuantities(current, sku)).get(sku) ?? 0;
+    const stillNeeded = Math.max(0, ordered - picked);
+    if (missingQuantity > stillNeeded) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.MISSING_REPORT_INVALID,
+        `SKU "${sku}" chỉ còn cần ${String(stillNeeded)} (đặt ${String(ordered)}, đã lấy ${String(picked)}) — không báo thiếu ${String(missingQuantity)}.`,
+        HttpStatus.BAD_REQUEST,
+        { groupId, sku, ordered, picked, stillNeeded, missingQuantity },
+      );
+    }
 
-    const group = await this.core.transitionFulfillmentStatus(
-      groupId,
-      GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
-      expectedVersion,
-    );
+    const reporter = Types.ObjectId.isValid(reporterId)
+      ? await this.userModel.findById(reporterId).select('name').lean()
+      : null;
+    const reporterName = reporter?.name ?? 'Nhân viên kho';
+    const trimmedNote = note?.trim() ? note.trim().slice(0, 500) : null;
+    const report = {
+      sku,
+      quantity: missingQuantity,
+      still_needed: stillNeeded,
+      ordered,
+      note: trimmedNote,
+      reporter_id: Types.ObjectId.isValid(reporterId) ? new Types.ObjectId(reporterId) : null,
+      reporter_name: reporterName,
+      warehouse_id: warehouseId && Types.ObjectId.isValid(warehouseId) ? new Types.ObjectId(warehouseId) : null,
+      pick_round: current.pick_round,
+      at: new Date(),
+    };
+
+    // Đổi trạng thái + lưu báo cáo + nhật ký trong CÙNG transaction.
+    const session = await this.connection.startSession();
+    let group: OrderGroupDocument;
+    try {
+      group = await session.withTransaction(async () => {
+        const moved = await this.core.transitionFulfillmentStatus(
+          groupId,
+          GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+          expectedVersion,
+          session,
+        );
+        await this.orderGroupModel.updateOne({ _id: moved._id }, { $set: { missing_report: report } }, { session });
+        await recordActivity(this.activityLogModel, {
+          category: 'orders',
+          action: 'order_group.missing_reported',
+          summary: `Báo thiếu ${sku}: thiếu ${String(missingQuantity)}/${String(stillNeeded)} còn cần — ${reporterName}${trimmedNote ? ` (${trimmedNote})` : ''}`,
+          orderGroupId: moved._id,
+          entityType: 'order_group',
+          entityId: moved._id,
+          skus: [sku],
+          actorId: reporterId,
+        }, session);
+        moved.set('missing_report', report);
+        return moved;
+      });
+    } finally {
+      await session.endSession();
+    }
 
     const { title, message } =
       this.notificationsService.buildMissingItemMessage({

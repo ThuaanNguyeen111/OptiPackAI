@@ -81,6 +81,7 @@ import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehou
 import { formatDateTime, formatLotReceived } from '../utils/format'
 import { formatDimsCm, formatKg } from '../utils/units'
 import { newClientEventId } from '../utils/client-event-id'
+import { createPickEventIds, matchPickScan, pickScanLabel } from '../utils/pick-scan'
 import { setVisibleInterval } from '../utils/visible-interval'
 
 type QueueTab =
@@ -344,7 +345,8 @@ function mergeLines(
       order_allocations: Array.isArray(enriched.order_allocations)
         ? enriched.order_allocations
         : [],
-      qtyPicked: saved?.qtyPicked ?? 0,
+      // AOFP-327 — tiến độ theo server (đổi máy / tab mới / sau «Lấy lại» vẫn đúng); sessionStorage chỉ là đường lùi BE cũ.
+      qtyPicked: typeof item.picked_quantity === 'number' ? item.picked_quantity : (saved?.qtyPicked ?? 0),
       remainingStock: saved?.remainingStock ?? null,
     }
   })
@@ -487,19 +489,8 @@ function AllocationChips({
   )
 }
 
-function normalizeScan(value: string): string {
-  return value.trim().toLowerCase()
-}
-
 function lineMatchesScan(line: PickLine, scanned: string): boolean {
-  const needle = normalizeScan(scanned)
-  if (!needle) return false
-  if (normalizeScan(line.sku) === needle) return true
-  if (line.master_sku && normalizeScan(line.master_sku) === needle) return true
-  if (line.bin_code && normalizeScan(line.bin_code) === needle) return true
-  if (line.other_bins.some((bin) => normalizeScan(bin.bin_code) === needle)) return true
-  const combined = `${normalizeScan(line.bin_code)} ${normalizeScan(line.sku)}`
-  return combined === needle
+  return matchPickScan(line, scanned) !== null
 }
 
 function BarcodeGraphic({ code }: { code: string }) {
@@ -626,6 +617,8 @@ export function WarehousePage() {
   const [groupPickerOpen, setGroupPickerOpen] = useState(false)
   const [groupSearch, setGroupSearch] = useState('')
   const groupPickerRef = useRef<HTMLDivElement>(null)
+  // AOFP-327 — mã thao tác lấy hàng giữ nguyên tới khi ghi thành công.
+  const pickEventIds = useRef(createPickEventIds(() => newClientEventId('pick'))).current
 
   const [activeKey, setActiveKey] = useState('')
   const [combinedIds, setCombinedIds] = useState<string[] | null>(null)
@@ -995,7 +988,8 @@ export function WarehousePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, skuKey])
 
-  const isVerified = Boolean(activeLine && lineMatchesScan(activeLine, scanInput))
+  const scanMatch = activeLine ? matchPickScan(activeLine, scanInput) : null
+  const isVerified = scanMatch !== null
   const remainingForActive = activeLine
     ? Math.max(0, activeLine.quantity - activeLine.qtyPicked)
     : 0
@@ -1160,6 +1154,10 @@ export function WarehousePage() {
       )
       return
     }
+    // AOFP-327 — quét khớp ô phụ thì trừ tồn ở ô phụ đó, không phải ô chính.
+    const match = matchPickScan(activeLine, scanInput)
+    const binId = match?.binLocationId ?? activeLine.bin_location_id
+    const eventKey = `${activeLine.key}|${String(currentQty)}|${binId ?? ''}`
     setBusy(true)
     setActionError(null)
     try {
@@ -1168,11 +1166,10 @@ export function WarehousePage() {
         scanned_quantity: currentQty,
         scan_method: scanMethod,
         warehouse_id: warehouseId,
-        ...(activeLine.bin_location_id
-          ? { bin_location_id: activeLine.bin_location_id }
-          : {}),
-        client_event_id: newClientEventId('pick'),
+        ...(binId ? { bin_location_id: binId } : {}),
+        client_event_id: pickEventIds.idFor(eventKey),
       })
+      pickEventIds.done(eventKey)
       const nextLines = lines.map((line) =>
         line.key === activeLine.key
           ? {
@@ -1202,7 +1199,21 @@ export function WarehousePage() {
       )
     } catch (err: unknown) {
       const code = getApiErrorCode(err)
-      if (code === 'ORD_GROUP_INSUFFICIENT_STOCK') {
+      if (!(err instanceof ApiError)) {
+        // Mất mạng / không có phản hồi: có thể server đã ghi — giữ nguyên mã thao tác để bấm lại không trừ 2 lần.
+        setActionError(
+          vi
+            ? 'Chưa chắc đã ghi — bấm «Xác nhận lấy» lại (không bị trừ 2 lần).'
+            : 'Not sure it was saved — press Confirm again (it will not be deducted twice).',
+        )
+      } else if (code === 'ORD_GROUP_STOCK_RESERVED_BY_OTHER') {
+        pickEventIds.done(eventKey)
+        setActionError(
+          vi
+            ? `Hàng này đang giữ cho nhóm khác. ${formatApiError(err)}`
+            : `This stock is reserved for another group. ${formatApiError(err)}`,
+        )
+      } else if (code === 'ORD_GROUP_INSUFFICIENT_STOCK') {
         setActionError(
           vi
             ? 'Không đủ tồn kho. Dùng «Báo thiếu hàng» để dừng đơn và báo chủ shop.'
@@ -1275,7 +1286,7 @@ export function WarehousePage() {
       setMissingNote('')
       showToast(
         vi
-          ? 'Đã báo thiếu hàng. Đơn dừng lại, chờ Packaging Staff duyệt.'
+          ? 'Đã báo thiếu hàng. Nhóm đơn tạm dừng, chờ nhân viên đóng gói quyết định.'
           : 'Missing item reported. Group paused for packaging review.',
       )
       navigate(`/app/warehouse?groupId=${latest.id}`)
@@ -2194,7 +2205,7 @@ export function WarehousePage() {
                               {isVerified ? (
                                 <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
                                   <Check className="h-3 w-3 stroke-[3]" />
-                                  {vi ? 'Đã khớp' : 'Matched'}
+                                  {scanMatch ? pickScanLabel(scanMatch, vi) : vi ? 'Đã khớp' : 'Matched'}
                                 </span>
                               ) : (
               <button
@@ -2211,6 +2222,13 @@ export function WarehousePage() {
                               )}
           </div>
           </div>
+                          {scanMatch?.kind === 'other_bin' ? (
+                            <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                              {vi
+                                ? `Lấy từ ô ${scanMatch.code} (còn ${String(scanMatch.quantityOnHand)}) thay ô chính ${activeLine.bin_code || '—'}.`
+                                : `Picking from bin ${scanMatch.code} (${String(scanMatch.quantityOnHand)} left) instead of main bin ${activeLine.bin_code || '—'}.`}
+                            </p>
+                          ) : null}
 
                           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-end">
                             <div className="flex flex-col items-center gap-1 sm:items-start">
@@ -2260,7 +2278,7 @@ export function WarehousePage() {
                               ) : (
                                 <CheckCircle2 className="h-4 w-4" />
                               )}
-                              {vi ? 'Xác nhận lấy' : 'Confirm SKU pick'}
+                              {busy ? (vi ? 'Đang ghi…' : 'Saving…') : vi ? 'Xác nhận lấy' : 'Confirm SKU pick'}
                             </button>
                           </div>
                         </div>

@@ -62,11 +62,22 @@ export class User {
   @Prop({ default: 0 })
   failed_login_attempts!: number;
 
+  /**
+   * AOFP-334 — tăng mỗi lần thu hồi mọi phiên (đổi/đặt lại mật khẩu, vô hiệu hoá).
+   * Access token mang `tv`; lệch với số này → 401 AUTH_SESSION_REVOKED. User cũ chưa có = 0.
+   */
+  @Prop({ type: Number, default: 0 })
+  token_version!: number;
+
   @Prop({ type: Date })
   locked_until?: Date;
 
   @Prop()
   mfa_secret?: string;
+
+  /** AOFP-333 — secret mới khi cài (lại) MFA; chỉ thay `mfa_secret` khi verify đúng mã. */
+  @Prop()
+  mfa_pending_secret?: string;
 
   @Prop({ default: false })
   mfa_enabled!: boolean;

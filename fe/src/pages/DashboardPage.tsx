@@ -457,7 +457,7 @@ export function DashboardPage() {
                   label={vi ? 'Doanh thu đặt hàng' : 'Revenue placed'}
                   value={`${formatVnd(sales?.current.revenuePlacedVnd ?? 0)}₫`}
                   change={sales?.change.revenuePlacedVnd}
-                  hint={`${sales?.current.ordersReceived ?? 0} ${vi ? 'đơn nhận' : 'orders'}`}
+                  hint={`${sales?.current.ordersReceived ?? 0} ${vi ? 'đơn nhận · không tính đơn hủy, chưa thanh toán, thất bại, đã hoàn' : 'orders · excludes canceled, unpaid, failed, returned'}`}
                 />
                 <Metric
                   icon={Truck}

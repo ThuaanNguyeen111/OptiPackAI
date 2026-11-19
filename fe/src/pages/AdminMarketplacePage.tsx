@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Package, Store } from 'lucide-react'
 import { DirectConnectPanel } from '../components/marketplace/DirectConnectPanel'
+import { FailedWritebackPanel } from '../components/marketplace/FailedWritebackPanel'
 import { LazadaConnectPanel } from '../components/marketplace/LazadaConnectPanel'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { useLazadaConnection } from '../hooks/useLazadaConnection'
@@ -48,6 +49,10 @@ export function AdminMarketplacePage() {
 
           <section className="rounded-xl border border-hairline bg-surface-1 p-4">
             <DirectConnectPanel locale={locale} platform="tiki" />
+          </section>
+
+          <section className="rounded-xl border border-hairline bg-surface-1 p-4">
+            <FailedWritebackPanel vi={vi} />
           </section>
 
           <section className="grid gap-3 sm:grid-cols-1">

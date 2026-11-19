@@ -80,3 +80,25 @@ export async function disconnectMarketplaceShop(
     { method: 'DELETE', auth: true },
   )
 }
+
+/** AOFP-330 — dòng báo trạng thái lên website đã dừng sau 8 lần lỗi (BE `GET /admin/writeback/failed`). */
+export type FailedWriteback = {
+  id: string
+  orderGroupId: string
+  orderId: string | null
+  kind: string
+  status: string
+  attempts: number
+  lastError: string | null
+  eventTime: string
+  updatedAt: string | null
+}
+
+export async function listFailedWritebacks(): Promise<FailedWriteback[]> {
+  const res = await apiRequest<{ rows: FailedWriteback[] }>('/admin/writeback/failed', { auth: true })
+  return res.rows
+}
+
+export async function retryWriteback(id: string): Promise<void> {
+  await apiRequest<unknown>(`/admin/writeback/${encodeURIComponent(id)}/retry`, { method: 'POST', auth: true })
+}

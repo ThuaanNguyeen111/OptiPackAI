@@ -117,6 +117,10 @@ class ShipmentView {
     this.selfDelivery = false,
     this.managedByCarrier = false,
     this.version = 0,
+    this.recipientPhone,
+    this.recipientAddress,
+    this.codVnd = 0,
+    this.nextAttemptAt,
   });
 
   final String id;
@@ -142,6 +146,17 @@ class ShipmentView {
   /// `version` của vận đơn: gửi làm `expected_version`.
   final int version;
 
+  /// AOFP-336 — người nhận để shipper gọi / tìm đường, và tiền phải thu (0 = đã trả trước).
+  final String? recipientPhone;
+  final String? recipientAddress;
+  final int codVnd;
+
+  /// Sau giao thất bại: chưa tới giờ này mà giao lại thì phải nêu lý do (`override_reason`).
+  final DateTime? nextAttemptAt;
+
+  /// Còn phải chờ tới [nextAttemptAt] mới được giao lại (theo [now]).
+  bool retryTooEarly(DateTime now) => nextAttemptAt != null && now.isBefore(nextAttemptAt!);
+
   bool get canRetry => status == ShipmentStatus.deliveryFailed && attempt < maxDeliveryAttempts;
 
   ShipmentView copyWith({ShipmentStatus? status, int? attempt, FailureReason? failureReason}) => ShipmentView(
@@ -159,6 +174,10 @@ class ShipmentView {
         selfDelivery: selfDelivery,
         managedByCarrier: managedByCarrier,
         version: version,
+        recipientPhone: recipientPhone,
+        recipientAddress: recipientAddress,
+        codVnd: codVnd,
+        nextAttemptAt: nextAttemptAt,
       );
 }
 
@@ -174,11 +193,13 @@ abstract class ShippingRepository {
   Future<List<ShipGroup>> readyToShip();
   Future<List<CarrierQuote>> quote(String groupId);
   Future<ShipmentView> create(String groupId, String carrierCode);
-  Future<List<ShipmentView>> shipments();
+  /// [mine] = chỉ vận đơn giao cho người đang đăng nhập.
+  Future<List<ShipmentView>> shipments({bool mine = false});
   /// AOFP-315 — shop tự giao: `scannedCode` đọc từ QR/mã vạch nhãn kiện, hoặc `scanSkippedReason` khi tem hỏng.
   Future<ShipmentView> deliver(String id, {List<String> photoUrls = const [], String? scannedCode, String? scanSkippedReason});
-  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []});
-  Future<ShipmentView> retry(String id);
+  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const [], DateTime? rescheduleAt});
+  /// [overrideReason] bắt buộc khi giao lại sớm hơn [ShipmentView.nextAttemptAt].
+  Future<ShipmentView> retry(String id, {String? overrideReason});
 
   /// PDF nhãn kiện của nhóm đơn (mỗi kiện 1 nhãn). Cần đã có vận đơn.
   Future<List<int>> shippingLabel(String groupId);
@@ -296,7 +317,7 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<List<ShipmentView>> shipments() async {
+  Future<List<ShipmentView>> shipments({bool mine = false}) async {
     await _latency();
     return List.unmodifiable(_shipments);
   }
@@ -327,7 +348,7 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const []}) async {
+  Future<ShipmentView> fail(String id, FailureReason reason, {String? note, List<String> photoUrls = const [], DateTime? rescheduleAt}) async {
     await _latency();
     final s = _get(id);
     if (s.status != ShipmentStatus.outForDelivery) {
@@ -356,7 +377,7 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<ShipmentView> retry(String id) async {
+  Future<ShipmentView> retry(String id, {String? overrideReason}) async {
     await _latency();
     final s = _get(id);
     if (!s.canRetry) {

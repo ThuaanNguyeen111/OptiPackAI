@@ -330,7 +330,7 @@
 
 | Method | Đường dẫn | Ai gọi được | Body / Query DTO | Mô tả |
 |---|---|---|---|---|
-| POST | `/carriers/ghn/webhook` | Công khai — header `X-OptiPack-Secret` (hoặc `?secret=`) + kiểm ShopID | `CarrierEventPayload` (khuôn GHN) | C5 — Nhận Order Status Callback của GHN; trả 200 cho sự kiện đã nhận (kể cả trùng/bỏ qua), 5xx khi lỗi tạm thời để GHN gửi lại. |
+| POST | `/carriers/ghn/webhook` | Công khai — header `X-OptiPack-Secret` + kiểm ShopID | `GhnWebhookDto` (khuôn GHN, giữ trường lạ; sai kiểu → 400) | C5 — Nhận Order Status Callback của GHN; trả 200 cho sự kiện đã nhận (kể cả trùng/bỏ qua/cũ `ignored:stale`), 5xx khi lỗi tạm thời hoặc xung đột phiên bản (503) để GHN gửi lại. |
 | POST | `/order-groups/:id/fulfillment/deliver` | Coordinator, Admin | `TransitionOrderGroupDto` | (Cũ) shipped -> delivered. Nay đi qua vận đơn. Dùng POST /shipments/:id/deliver. |
 | POST | `/order-groups/:id/fulfillment/return` | Coordinator, Warehouse, Admin | `TransitionOrderGroupDto` | (Cũ) shipped/delivered -> returned. Nay ghi lịch sử vận đơn. Dùng luồng /shipments. |
 | POST | `/order-groups/:id/fulfillment/ship` | Coordinator, Admin | `TransitionOrderGroupDto` | (Cũ) packed -> shipped. Nay tạo vận đơn out_for_delivery. Dùng POST /shipments. |

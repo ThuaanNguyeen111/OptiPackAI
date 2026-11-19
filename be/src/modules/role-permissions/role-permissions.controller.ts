@@ -10,6 +10,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UpdateRolePermissionsDto } from './dto/update-role-permissions.dto';
 import { type RoleFeatureMatrix, RolePermissionsService } from './role-permissions.service';
+import { NoFeatureGate } from './feature-scope';
 
 export interface RolePermissionsResponse {
   features: readonly Feature[];
@@ -26,6 +27,7 @@ export interface MyPermissionsResponse {
 @ApiTags('Role permissions')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
+@NoFeatureGate('/me cho mọi vai trò; còn lại chỉ Admin')
 @Controller('role-permissions')
 export class RolePermissionsController {
   constructor(private readonly service: RolePermissionsService) {}

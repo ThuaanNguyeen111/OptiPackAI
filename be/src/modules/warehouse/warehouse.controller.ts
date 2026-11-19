@@ -103,7 +103,10 @@ interface StockReceiptResponse {
   photoSuspect: boolean;
   ocrStatus: OcrStatus;
   ocr: { model: string; readAt: Date; supplier: string | null; documentDate: string | null; lines: { index: number; text: string; code: string | null; quantity: number; unit: string | null }[] } | null;
-  ocrChecks: { lineIndex: number; label: string; ocrLineIndex: number; ocrText: string; ocrQuantity: number; quantity: number; mismatchReason: string | null }[];
+  ocrChecks: { lineIndex: number; label: string; ocrLineIndex: number; ocrText: string; ocrQuantity: number; quantity: number; mismatchReason: string | null; codeMismatch: boolean }[];
+  ocrExtraLineIndexes: number[];
+  ocrPartialReason: string | null;
+  noPhotoReason: string | null;
 }
 function toReceiptResponse(doc: StockReceiptDocument): StockReceiptResponse {
   return {
@@ -147,7 +150,12 @@ function toReceiptResponse(doc: StockReceiptDocument): StockReceiptResponse {
       ocrQuantity: c.ocr_quantity,
       quantity: c.quantity,
       mismatchReason: c.mismatch_reason,
+      codeMismatch: c.code_mismatch, // AOFP-328 — schema default false cho phiếu cũ
     })),
+    // AOFP-328 — khớp một phần + nhập không ảnh (chỉ Admin).
+    ocrExtraLineIndexes: doc.ocr_extra_line_indexes,
+    ocrPartialReason: doc.ocr_partial_reason,
+    noPhotoReason: doc.no_photo_reason,
   };
 }
 
@@ -453,7 +461,10 @@ export class WarehouseController {
       dto.quantity,
       dto.force === true, // K2 — vượt sức chứa chỉ cho qua khi FE xác nhận force
       user.userId, // K3 — sổ cái
-      { receivedAt: dto.received_at, lotCode: dto.lot_code, clientEventId: dto.client_event_id }, // 15/10/2026 — lô hàng; 08/11 — chống ghi trùng
+      {
+        receivedAt: dto.received_at, lotCode: dto.lot_code, clientEventId: dto.client_event_id, // 15/10/2026 — lô hàng; 08/11 — chống ghi trùng
+        photoUrls: dto.document_photo_urls, noPhotoReason: dto.no_photo_reason, isAdmin: user.role === UserRole.ADMIN, // AOFP-328
+      },
     );
     this.warehouseService.notifyStockIn('nhập thêm hàng'); // 22/10/2026
     return toAssignmentResponse(doc);

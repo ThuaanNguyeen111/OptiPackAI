@@ -1,4 +1,5 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { RedisCacheService } from '../../common/redis/redis-cache.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, OrderDocument } from './schemas/order.schema';
@@ -34,12 +35,21 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // last_polled_at vẫn tiến lên). Chặn trên 50 trang/lượt; phần còn lại lượt sau lấy tiếp.
 const SYNC_PAGE_SIZE = 100;
 const SYNC_MAX_PAGES = 50;
+/** AOFP-320 — đơn lỗi liên tục ở bấy nhiêu lượt đồng bộ thì báo ADMIN và thôi giữ mốc chờ đơn đó. */
+export const SYNC_FAILURE_ALERT_AFTER = 5;
 
 export interface SyncResult {
   fetched: number;
   upserted: number;
   newlyConsolidated: number;
+  /** AOFP-330 — shop đang có lượt đồng bộ khác: lượt này được xếp chạy ngay sau lượt đó. */
+  queued?: boolean;
 }
+
+/** AOFP-330 — giữ khoá đồng bộ 1 shop tối đa chừng này (lượt dài hơn thì khoá tự hết hạn). */
+const SYNC_LOCK_TTL_MS = 5 * 60 * 1000;
+/** Đang có lượt chạy mà có yêu cầu mới → chạy thêm tối đa chừng này lượt rồi thôi (cron sẽ bắt phần còn lại). */
+const SYNC_MAX_RERUNS = 3;
 
 export interface ListOrdersFilter {
   shopId?: string;
@@ -96,6 +106,8 @@ export class OrdersService {
     // tra trước — OrderGroupsModule chủ động KHÔNG import OrdersModule
     // (comment sẵn trong order-groups.module.ts dự đoán đúng việc này).
     private readonly orderGroupsService: OrderGroupsService,
+    // AOFP-330 — khoá theo shop cho syncShopOrders. @Optional: spec cũ không truyền.
+    @Optional() private readonly redis?: RedisCacheService,
   ) {}
 
   /**
@@ -115,6 +127,46 @@ export class OrdersService {
    * cần sửa gì bên trong hàm này khi thêm sàn mới.
    */
   async syncShopOrders(
+    platform: MarketplacePlatform,
+    shopId: string,
+  ): Promise<SyncResult> {
+    // AOFP-330 — webhook và cron cùng ingest 1 shop → 2 đơn cùng người mua gộp chéo / sinh nhóm rỗng.
+    // Khoá theo shop: ai đến sau thì bật cờ "chạy lại" rồi trả về; người đang giữ khoá chạy thêm 1 lượt
+    // sau khi xong (lượt thêm bắt đầu SAU yêu cầu nên chắc chắn kéo được đơn mới). Redis lỗi → chạy không khoá.
+    if (!this.redis) return this.runShopSync(platform, shopId);
+    const lockKey = `lock:order-sync:${platform}:${shopId}`;
+    const rerunKey = `rerun:order-sync:${platform}:${shopId}`;
+    let token: string | null;
+    try {
+      token = await this.redis.acquireLock(lockKey, SYNC_LOCK_TTL_MS);
+      if (!token) {
+        await this.redis.setFlag(rerunKey, Math.ceil(SYNC_LOCK_TTL_MS / 1000));
+        return { fetched: 0, upserted: 0, newlyConsolidated: 0, queued: true };
+      }
+    } catch (error: unknown) {
+      this.logger.warn(`Không lấy được khoá đồng bộ shop ${shopId} (Redis) — chạy không khoá: ${describeError(error)}`);
+      return this.runShopSync(platform, shopId);
+    }
+    const total: SyncResult = { fetched: 0, upserted: 0, newlyConsolidated: 0 };
+    for (let run = 0; token && run <= SYNC_MAX_RERUNS; run += 1) {
+      try {
+        const r = await this.runShopSync(platform, shopId);
+        total.fetched += r.fetched;
+        total.upserted += r.upserted;
+        total.newlyConsolidated += r.newlyConsolidated;
+      } finally {
+        await this.redis.releaseLock(lockKey, token).catch((error: unknown) => {
+          this.logger.warn(`Nhả khoá đồng bộ shop ${shopId} lỗi (tự hết hạn): ${describeError(error)}`);
+        });
+      }
+      // Nhả khoá TRƯỚC rồi mới xem cờ: tránh mất yêu cầu đến đúng lúc giữa "xem cờ" và "nhả khoá".
+      if (!(await this.redis.takeFlag(rerunKey).catch(() => false))) break;
+      token = await this.redis.acquireLock(lockKey, SYNC_LOCK_TTL_MS).catch(() => null);
+    }
+    return total;
+  }
+
+  private async runShopSync(
     platform: MarketplacePlatform,
     shopId: string,
   ): Promise<SyncResult> {
@@ -172,6 +224,10 @@ export class OrdersService {
 
     let upserted = 0;
     let newlyConsolidated = 0;
+    // AOFP-320 — đơn lỗi lượt này + mốc sớm nhất phải giữ lại để lượt sau kéo lại đơn đó.
+    const previousFailures = new Map((shopDoc.sync_failures ?? []).map((f) => [f.order_id, f.count]));
+    const syncFailures: { order_id: string; count: number; last_error: string }[] = [];
+    let holdBefore: Date | null = null;
 
     // Tuần tự (KHÔNG Promise.all) — mỗi đơn cần thêm 1 lần gọi
     // GetOrderItems riêng, chạy tuần tự để không dồn dập request lên
@@ -195,19 +251,49 @@ export class OrdersService {
           `Xử lý đơn ${platform} order_id=${String(rawOrder.order_id)} thất bại, bỏ qua đơn này, tiếp tục các đơn còn lại: ${describeError(error)}`,
           error instanceof Error && !isAxiosError(error) ? error.stack : undefined,
         );
+        const id = String(rawOrder.order_id);
+        const reason = describeError(error).slice(0, 500);
+        const count = (previousFailures.get(id) ?? 0) + 1;
+        syncFailures.push({ order_id: id, count, last_error: reason });
+        if (count < SYNC_FAILURE_ALERT_AFTER) {
+          // Không đọc được giờ sửa của đơn → giữ nguyên mốc cũ (an toàn: lượt sau kéo lại cả lô).
+          const at = new Date(rawOrder.updated_at);
+          const hold = Number.isNaN(at.getTime()) ? updatedAfter : at;
+          if (!holdBefore || hold < holdBefore) holdBefore = hold;
+        } else if (count === SYNC_FAILURE_ALERT_AFTER) {
+          await this.alertSyncFailure(platform, shopId, id, reason);
+        }
       }
     }
 
-    await this.marketplaceIntegrationService.markShopPolled(
-      shopDoc._id,
-      syncStartedAt,
-    );
+    // AOFP-320 — có đơn lỗi tạm thời → mốc chỉ tiến tới ngay trước đơn lỗi sớm nhất (lượt sau
+    // lấy `updated_at > mốc` nên kéo lại được đơn đó); không có → tiến như cũ.
+    const polledAt = holdBefore
+      ? new Date(Math.max(updatedAfter.getTime(), Math.min(syncStartedAt.getTime(), holdBefore.getTime() - 1000)))
+      : syncStartedAt;
+    await this.marketplaceIntegrationService.markShopPolled(shopDoc._id, polledAt, syncFailures);
 
     this.logger.log(
       `Sync ${platform} shop ${shopId}: lấy ${String(rawOrders.length)} đơn, upsert ${String(upserted)}, gộp mới ${String(newlyConsolidated)}.`,
     );
 
     return { fetched: rawOrders.length, upserted, newlyConsolidated };
+  }
+
+  /** AOFP-320 — báo ADMIN 1 đơn đồng bộ lỗi liên tục; lỗi gửi thông báo không làm hỏng lượt sync. */
+  private async alertSyncFailure(platform: MarketplacePlatform, shopId: string, platformOrderId: string, reason: string): Promise<void> {
+    try {
+      await this.notificationsService.notify({
+        recipientRole: UserRole.ADMIN,
+        type: NotificationType.SYNC_FAILED,
+        severity: 'warning',
+        title: `Đơn ${platform} không đồng bộ được`,
+        // Không gắn relatedEntity: đơn chưa từng vào DB nên không có id để mở.
+        message: `Đơn ${platformOrderId} không đồng bộ được: ${reason} (shop ${shopId}, lỗi ${String(SYNC_FAILURE_ALERT_AFTER)} lượt liên tiếp).`,
+      });
+    } catch (error) {
+      this.logger.error(`Không gửi được thông báo đơn ${platformOrderId} đồng bộ lỗi: ${describeError(error)}`);
+    }
   }
 
   /**
@@ -361,13 +447,15 @@ export class OrdersService {
         // (xem order-groups.service.ts). BEST-EFFORT, dùng chung cho cả
         // cron lẫn webhook vì cả 2 đều gọi qua syncShopOrders() này.
         if (notPackableStatuses().includes(freshOrder.status)) {
+          // AOFP-330 — lỗi thì bật cờ để cron 5 phút xử lý lại nhóm (trước đây chỉ ghi log rồi bỏ).
           await this.orderGroupsService
             .handleOrderBecameUnfulfillable(group._id.toString())
-            .catch((cancelError: unknown) => {
+            .catch(async (cancelError: unknown) => {
               this.logger.error(
-                `Kiểm tra tự động hủy nhóm ${group._id.toString()} thất bại — không chặn lượt sync.`,
+                `Kiểm tra tự động hủy nhóm ${group._id.toString()} thất bại — không chặn lượt sync, cron sẽ thử lại.`,
                 cancelError,
               );
+              await this.orderModel.updateOne({ _id: freshOrder._id }, { $set: { group_resync_pending: true } });
             });
         }
       }
@@ -500,14 +588,16 @@ export class OrdersService {
     // dùng LẠI group_id đó, không tạo nhóm mới. Chưa có → tạo mới.
     const groupId = sibling.consolidated_group_id ?? new Types.ObjectId();
 
-    await this.orderModel.updateOne(
-      { _id: order._id },
+    // AOFP-330 — chỉ gán khi đơn còn chưa có nhóm (lượt khác có thể vừa gán): không ghi đè nhóm đã có.
+    const own = await this.orderModel.updateOne(
+      { _id: order._id, consolidated_group_id: null },
       { $set: { is_consolidated: true, consolidated_group_id: groupId } },
     );
+    if (own.matchedCount === 0) return false;
 
     if (!sibling.consolidated_group_id) {
       await this.orderModel.updateOne(
-        { _id: sibling._id },
+        { _id: sibling._id, consolidated_group_id: null },
         { $set: { is_consolidated: true, consolidated_group_id: groupId } },
       );
     }

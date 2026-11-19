@@ -75,7 +75,14 @@ class StockException implements Exception {
 
 abstract class StockRepository {
   Future<BinStock?> findBin(String binCode);
-  Future<StockItem> restock(String assignmentId, int quantity, {required String eventId, String? lotCode});
+  /// [photoUrls]: ảnh phiếu NCC (tải qua `POST /proof-photos?purpose=receipt`) — BE bắt buộc (AOFP-328).
+  Future<StockItem> restock(
+    String assignmentId,
+    int quantity, {
+    required String eventId,
+    String? lotCode,
+    List<String> photoUrls = const [],
+  });
   Future<StockItem> adjust(
     String assignmentId,
     int countedQuantity, {
@@ -101,6 +108,7 @@ abstract class StockRepository {
     required int quantity,
     required String eventId,
     StockAdjustReason? reason,
+    List<String> photoUrls = const [],
   });
 }
 
@@ -114,6 +122,7 @@ class MockStockRepository implements StockRepository {
     required int quantity,
     required String eventId,
     StockAdjustReason? reason,
+    List<String> photoUrls = const [],
   }) async =>
       null;
 
@@ -155,7 +164,13 @@ class MockStockRepository implements StockRepository {
   }
 
   @override
-  Future<StockItem> restock(String assignmentId, int quantity, {required String eventId, String? lotCode}) async {
+  Future<StockItem> restock(
+    String assignmentId,
+    int quantity, {
+    required String eventId,
+    String? lotCode,
+    List<String> photoUrls = const [],
+  }) async {
     await _latency();
     final seen = _seen[eventId];
     if (seen != null) return seen;

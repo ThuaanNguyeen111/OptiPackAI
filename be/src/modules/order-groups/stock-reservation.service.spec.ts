@@ -73,6 +73,39 @@ describe('StockReservationService — K5', () => {
     expect((totalModel.findOneAndUpdate.mock.calls[0] as [unknown])[0]).toEqual({ _id: 'M:ATHUN-005-DEN-M' });
   });
 
+  describe('AOFP-327 AC4 — không lấy phần tồn đang giữ cho nhóm khác', () => {
+    const wh = new Types.ObjectId();
+    const item = { master: undefined, platform: MarketplacePlatform.LAZADA, shopId: 's1', sku: 'ATD-M-01' };
+    const mineDoc = (doc: Record<string, unknown> | null): { select: () => { session: () => { lean: () => Promise<unknown> } } } =>
+      ({ select: () => ({ session: () => ({ lean: () => Promise.resolve(doc) }) }) });
+
+    it('nhóm X giữ 4/4 trên kệ, nhóm Y quét 1 → 409 "đang giữ cho nhóm khác"', async () => {
+      totalModel.findOneAndUpdate.mockResolvedValue({ reserved: 4 });
+      reservationModel.findOne.mockReturnValue(mineDoc(null));
+      assignmentModel.aggregate.mockReturnValue(agg(4));
+      await expect(service.assertNotReservedByOthers(g1._id, item, wh, 1, {} as never)).rejects.toMatchObject({
+        errorCode: 'ORD_GROUP_STOCK_RESERVED_BY_OTHER',
+        message: expect.stringContaining('Hàng này đang giữ cho nhóm khác') as unknown,
+      });
+      expect(totalModel.findOneAndUpdate).toHaveBeenCalledWith({ _id: `${wh.toString()}|S:lazada|s1|ATD-M-01` }, expect.anything(), expect.anything());
+    });
+
+    it('phần mình đang giữ + tồn chưa ai giữ thì lấy được', async () => {
+      // kệ 6, tổng giữ 5 (mình 1 + nhóm khác 4) → mình lấy tối đa 2
+      totalModel.findOneAndUpdate.mockResolvedValue({ reserved: 5 });
+      reservationModel.findOne.mockReturnValue(mineDoc({ quantity_reserved: 1, warehouse_id: wh }));
+      assignmentModel.aggregate.mockReturnValue(agg(6));
+      await expect(service.assertNotReservedByOthers(g1._id, item, wh, 2, {} as never)).resolves.toBeUndefined();
+      await expect(service.assertNotReservedByOthers(g1._id, item, wh, 3, {} as never)).rejects.toMatchObject({ errorCode: 'ORD_GROUP_STOCK_RESERVED_BY_OTHER' });
+    });
+
+    it('chưa ai giữ (không có tổng / tổng 0) → không chặn, không đọc tồn', async () => {
+      totalModel.findOneAndUpdate.mockResolvedValue(null);
+      await expect(service.assertNotReservedByOthers(g1._id, item, wh, 9, {} as never)).resolves.toBeUndefined();
+      expect(assignmentModel.aggregate).not.toHaveBeenCalled();
+    });
+  });
+
   it('quét hàng tiêu phần đã giữ + giảm tổng đã giữ', async () => {
     reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', quantity_reserved: 2 }));
     await service.consume(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
@@ -111,6 +144,19 @@ describe('StockReservationService — K5', () => {
       const shortages = await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 3 }]);
       expect(shortages).toEqual([]);
       expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
+    });
+
+    // AOFP-321 — đặt 5, lượt 1 lấy 3 rồi bị từ chối: bộ đếm trả về 0 → lượt mới giữ lại đủ 5.
+    it('lượt bị hủy đã trả bộ đếm (picked 0) → giữ lại đủ 5; còn picked 3 (lỗi cũ) thì chỉ giữ 2', async () => {
+      totalModel.findOneAndUpdate.mockResolvedValue({ reserved: 0 });
+      assignmentModel.aggregate.mockReturnValue(agg(10));
+      reservationModel.findOne.mockReturnValue(existing({ status: 'active', quantity_reserved: 0, quantity_picked: 0 }));
+      await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 5 }]);
+      expect(totalModel.updateOne).toHaveBeenLastCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 5 } }, expect.anything());
+
+      reservationModel.findOne.mockReturnValue(existing({ status: 'active', quantity_reserved: 0, quantity_picked: 3 }));
+      await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 5 }]);
+      expect(totalModel.updateOne).toHaveBeenLastCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 2 } }, expect.anything());
     });
 
     it('recordPicked: giữ chỗ đã nhả → chỉ cộng bộ đếm, không đụng tổng đã giữ', async () => {

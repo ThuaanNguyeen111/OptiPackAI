@@ -190,7 +190,7 @@ interface PackingPlan {
     boxComparison: BoxComparison | null; // 🆕 05/11/2026 — bảng so sánh thùng (mục 2.7.1); null = kiện nhập tay / dữ liệu cũ
     // + scans[], weighings[], reviews[], unpack, sealedBy, sealedAt, boxConsumed, hasFragile
   }[];
-  rejection: { reasonCode: string|null; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|'back_to_picking'|null } | null;   // 🆕 09/10: back_to_picking
+  rejection: { reasonCode: string|null; rejectedBy: string|null; rejectedByName: string|null /* 🆕 AOFP-322 */; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|'back_to_picking'|null } | null;   // 🆕 09/10: back_to_picking
   session: { assignedPackerId: string|null; startedAt: string|null; packMode: 'scan'|'quick'|null; parcelCounts: Record<string, number> };
   adjustments: { kind: string; detail: string; reason: string; note: string|null; at: string; oldBoxOutcome: 'unused'|'damaged'|null; wasteCostVnd: number }[];
   issues: …[]; activity: …[];
@@ -626,7 +626,7 @@ POST …/packing-plan/parcels/:parcelNo/review   Role: Packaging, Admin
   "rescan": false }                      // reopen: true = quét lại từ đầu
 ```
 
-- `accept` **phải do người KHÁC người niêm phong** → `403 PACKING_SELF_REVIEW_FORBIDDEN`. FE ẩn nút nếu `sealedBy === currentUserId`.
+- `accept` và 🔄 `reweigh` (19/11/2026, AOFP-331 — cân lại cũng gỡ được kiện giữ) **phải do người KHÁC người niêm phong** → `403 PACKING_SELF_REVIEW_FORBIDDEN`. FE ẩn 2 nút nếu `sealedBy === currentUserId` và hiện "Cần người khác xem lại kiện này". `reopen` người niêm phong vẫn tự làm được.
 - `reopen` mở kiện ra đóng lại, **không trừ thùng lần 2**.
 
 ### 3.7 Hoàn tất thủ công
@@ -821,7 +821,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `PACKING_SCAN_REQUIRED`               | 409  | Cài đặt bắt buộc quét — lối tắt `pack` bị chặn                           |
 | `PACKING_WEIGHT_REQUIRED`             | 400  | `reweigh` thiếu `weight_kg`                                              |
 | `PACKING_PACK_WEIGHTS_MISMATCH`       | 400  | Danh sách cân của `pack` không khớp đúng các kiện chưa niêm phong        |
-| `PACKING_SELF_REVIEW_FORBIDDEN`       | 403  | Tự chấp nhận kiện mình niêm phong                                        |
+| `PACKING_SELF_REVIEW_FORBIDDEN`       | 403  | Tự chấp nhận / cân lại kiện mình niêm phong                              |
 | `PACKING_UNSEAL_NOT_ALLOWED`          | 403  | Nhóm đã `packed`: chỉ Admin/Store Owner hoàn tác                         |
 | `PACKING_UNDO_APPROVE_NOT_ALLOWED`    | 409  | Không thể quay lại chờ chấp nhận: có kiện đã/từng niêm phong hoặc phải tháo |
 | `PACKING_NOT_COMPLETE`                | 409  | `finish` khi còn kiện chưa niêm phong/đang giữ                           |

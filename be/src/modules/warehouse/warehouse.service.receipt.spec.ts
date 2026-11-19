@@ -221,13 +221,57 @@ describe('WarehouseService — phiếu nhập theo lô', () => {
   it('khớp phiếu → "matched", không báo; không đọc phiếu → "not_checked"', async () => {
     await service.createReceipt(
       warehouseId.toString(),
-      { document_photo_urls, ocr_scan_id: scanId.toString(), lines: [{ assignment_id: String(rows[0]?._id), quantity: 30, ocr_line_index: 0 }] },
+      {
+        document_photo_urls,
+        ocr_scan_id: scanId.toString(),
+        lines: [
+          { assignment_id: String(rows[0]?._id), quantity: 30, ocr_line_index: 0 },
+          { assignment_id: String(rows[1]?._id), quantity: 10, ocr_line_index: 1 },
+        ],
+      },
       actor,
     );
     await service.createReceipt(warehouseId.toString(), { document_photo_urls, lines: [{ assignment_id: String(rows[0]?._id), quantity: 3 }] }, actor);
     const statuses = receiptModel.create.mock.calls.map((c: Record<string, unknown>[][]) => c[0]?.[0]?.ocr_status);
     expect(statuses).toEqual(['matched', 'not_checked']);
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  // AOFP-328 AC3 — phiếu NCC 2 dòng, phiếu nhập chỉ gắn 1 → "partial", bắt lý do.
+  it('khớp một phần → thiếu lý do 400 WH_RECEIPT_PARTIAL_REASON_REQUIRED (không cộng tồn); có lý do → "partial" + dòng thừa', async () => {
+    const dto = { document_photo_urls, ocr_scan_id: scanId.toString(), lines: [{ assignment_id: String(rows[0]?._id), quantity: 30, ocr_line_index: 0 }] };
+    await expect(service.createReceipt(warehouseId.toString(), dto, actor)).rejects.toMatchObject({
+      errorCode: RECEIPT_OCR_ERROR_CODES.PARTIAL_REASON_REQUIRED,
+    });
+    expect(rows[0]?.quantity_on_hand).toBe(0);
+    await service.createReceipt(warehouseId.toString(), { ...dto, partial_reason: 'Quần giao bù tuần sau' }, actor);
+    const [receipt] = (receiptModel.create.mock.calls[0] as Record<string, unknown>[][])[0] ?? [];
+    expect(receipt).toMatchObject({ ocr_status: 'partial', ocr_extra_line_indexes: [1], ocr_partial_reason: 'Quần giao bù tuần sau' });
+  });
+
+  // AOFP-328 AC2 — mất phản hồi rồi gửi lại cùng client_event_id → trả phiếu cũ, tồn không cộng lần 2.
+  it('gửi lại cùng client_event_id → trả phiếu cũ, không cộng tồn', async () => {
+    const saved: Record<string, unknown>[] = [];
+    receiptModel.create = jest.fn((docs: Record<string, unknown>[]) => {
+      saved.push(...docs);
+      return Promise.resolve(docs);
+    });
+    Object.assign(receiptModel, { findOne: jest.fn((f: { client_event_id: string }) => Promise.resolve(saved.find((r) => r.client_event_id === f.client_event_id) ?? null)) });
+    const dto = { document_photo_urls, client_event_id: 'evt-pn-1', lines: [{ assignment_id: String(rows[0]?._id), quantity: 3 }] };
+    const first = await service.createReceipt(warehouseId.toString(), dto, actor);
+    const again = await service.createReceipt(warehouseId.toString(), dto, actor);
+    expect(again).toBe(first);
+    expect(rows[0]?.quantity_on_hand).toBe(3);
+    expect(receiptModel.create).toHaveBeenCalledTimes(1);
+  });
+
+  // AOFP-328 AC4 — ô đã tắt không nhận hàng.
+  it('ô đã tắt → 409 WH_BIN_INACTIVE, không cộng tồn', async () => {
+    binModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([{ _id: binId, bin_code: 'KA-D1-P01-T01-1', capacity: null, is_active: false }]) });
+    await expect(
+      service.createReceipt(warehouseId.toString(), { document_photo_urls, lines: [{ assignment_id: String(rows[0]?._id), quantity: 3 }] }, actor),
+    ).rejects.toMatchObject({ errorCode: WAREHOUSE_ERROR_CODES.BIN_INACTIVE });
+    expect(rows[0]?.quantity_on_hand).toBe(0);
   });
 
   it('kết quả đọc của ảnh khác (không nằm trong ảnh phiếu) → WH_RECEIPT_OCR_SCAN_INVALID', async () => {

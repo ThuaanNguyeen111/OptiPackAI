@@ -78,7 +78,7 @@ Mức ưu tiên: **P0** sửa trước khi demo/bảo vệ · **P1** nên sửa 
 | ✅ P0 | Index `consolidated_group_id` (mục 2) | Đã sửa (AOFP-271, AOFP-313) |
 | P1 | Nhiều module ghi thẳng collection của module khác (VD `shipments` ghi `OrderGroup`, `InventoryMovement`) | Chỉ module sở hữu ghi; module khác gọi service |
 | P1 | Service rất lớn (`shipments.service.ts`, `order-groups.service.ts`, `warehouse.service.ts`, `packing-plan.service.ts` > 1.500 dòng) | Tách theo nhóm chức năng (VD `CarrierBookingService`) |
-| P1 | Toàn bộ test dùng model giả lập | Thêm e2e với Mongo replica set thật cho phân quyền, transaction, luồng lấy → đóng → giao → hoàn |
+| ✅ P1 | Toàn bộ test dùng model giả lập | Đã có e2e trên Mongo replica set thật, chạy trong CI (AOFP-312): `be/test/order-lifecycle.e2e-spec.ts` — đồng bộ → gom → lấy → kế hoạch 3D → niêm phong → GHN (mô phỏng) → giao → hoàn → nhập lại kho; rollback transaction niêm phong; khoá phiên bản 409. Còn thiếu: e2e phân quyền qua HTTP |
 | P2 | AURELLE nằm trong cùng BE/DB OptiPack (thiết kế ghi tách riêng) | Chấp nhận cho demo, ghi hạn chế |
 | P2 | Cron packing-plan chạy mỗi 10 giây | Ổn khi demo; production nên dùng hàng đợi (BullMQ) |
 | Tốt | Index ESR cho danh sách đơn, partial cho `consolidation_key`/`recipient_key`/`manual_link_id`, unique chống trùng, TTL cho log/state | Giữ |
@@ -95,5 +95,5 @@ Mức ưu tiên: **P0** sửa trước khi demo/bảo vệ · **P1** nên sửa 
 ## 7. Lộ trình đề xuất
 
 1. **Trước demo (P0):** sửa phân trang sync Lazada; sửa index `consolidated_group_id`; FE bỏ route đã gỡ và chuyển sang packing-plan (checklist mục 1); chạy thử kịch bản GHN đầy đủ (đặt → giả lập → hoàn → nhận → kiểm → thu hồi vật liệu).
-2. **Giai đoạn hiện tại (P1):** ghi trạng thái ngược AURELLE; giữ chỗ theo kho; chuyển khóa giữ chỗ khi nối SKU; phiếu hoàn lấy đúng SKU; guard đổi mật khẩu toàn cục; mã hóa `mfa_secret`; e2e với Mongo thật.
+2. **Giai đoạn hiện tại (P1):** ghi trạng thái ngược AURELLE; giữ chỗ theo kho; chuyển khóa giữ chỗ khi nối SKU; phiếu hoàn lấy đúng SKU; guard đổi mật khẩu toàn cục; mã hóa `mfa_secret`; ~~e2e với Mongo thật~~ (xong AOFP-312).
 3. **Cải tiến (P2):** dọn mã chết; tách service lớn; cron đồng bộ GHN; gom hằng số vào cấu hình.

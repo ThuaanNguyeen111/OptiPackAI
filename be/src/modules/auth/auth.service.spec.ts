@@ -9,6 +9,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/services/users.service';
 import { AuthService } from './auth.service';
+import { RedisCacheService } from '../../common/redis/redis-cache.service';
 import { LoginAuditLog } from './schemas/login-audit-log.schema';
 import { TrustedDevice } from './schemas/trusted-device.schema';
 import { MfaService } from './services/mfa.service';
@@ -32,7 +33,7 @@ describe('AuthService.login', () => {
   >;
   let tokenService: jest.Mocked<Pick<TokenService, 'generateTokenPair'>>;
   let mfaService: jest.Mocked<
-    Pick<MfaService, 'verifyToken' | 'verifyBackupCode'>
+    Pick<MfaService, 'verifyToken' | 'verifyBackupCode' | 'claimToken'>
   >;
   let mailService: jest.Mocked<Pick<MailService, 'sendAccountLocked'>>;
   let auditLogModel: { create: jest.Mock };
@@ -61,7 +62,7 @@ describe('AuthService.login', () => {
       incrementFailedLoginAttempts: jest.fn().mockResolvedValue(undefined),
       resetFailedLoginAttempts: jest.fn().mockResolvedValue(undefined),
       updateLastLogin: jest.fn().mockResolvedValue(undefined),
-      consumeBackupCode: jest.fn().mockResolvedValue(undefined),
+      consumeBackupCode: jest.fn().mockResolvedValue(true),
     };
     tokenService = {
       generateTokenPair: jest.fn().mockResolvedValue({
@@ -72,6 +73,7 @@ describe('AuthService.login', () => {
     mfaService = {
       verifyToken: jest.fn(),
       verifyBackupCode: jest.fn().mockResolvedValue(-1),
+      claimToken: jest.fn().mockResolvedValue(true),
     };
     mailService = { sendAccountLocked: jest.fn().mockResolvedValue(undefined) };
     auditLogModel = { create: jest.fn().mockResolvedValue(undefined) };
@@ -83,6 +85,7 @@ describe('AuthService.login', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        { provide: RedisCacheService, useValue: {} },
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
         {
@@ -331,8 +334,43 @@ describe('AuthService.login', () => {
       meta,
     });
 
-    expect(usersService.consumeBackupCode).toHaveBeenCalledWith(baseUser.id, 1);
+    expect(usersService.consumeBackupCode).toHaveBeenCalledWith(baseUser.id, 'hashed-2');
     expect(result).toHaveProperty('access_token', 'access-token');
+  });
+
+  it('AOFP-338 F-50: mã dự phòng đúng nhưng request khác vừa dùng mất (xoá không được) → 401', async () => {
+    usersService.findByEmail.mockResolvedValue({
+      ...baseUser,
+      mfa_enabled: true,
+      mfa_secret: 'SECRET123',
+      mfa_backup_codes: ['hashed-1'],
+    } as never);
+    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+    mfaService.verifyBackupCode.mockResolvedValue(0);
+    usersService.consumeBackupCode.mockResolvedValue(false);
+    await expect(
+      service.login({ email: baseUser.email, password: 'correct-password', backupCode: '48213096', meta }),
+    ).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('AOFP-338 F-50: đặt lại mật khẩu qua email → xoá khoá đăng nhập (locked_until) ngay', async () => {
+    const extra = usersService as unknown as Record<string, jest.Mock>;
+    extra.findByValidResetToken = jest.fn().mockResolvedValue({ id: baseUser.id });
+    extra.changePassword = jest.fn().mockResolvedValue(undefined);
+    extra.clearPasswordResetToken = jest.fn().mockResolvedValue(undefined);
+    (tokenService as unknown as Record<string, jest.Mock>).revokeAllForUser = jest.fn().mockResolvedValue(undefined);
+    await service.resetPassword('raw-token', 'NewPass#2026');
+    expect(usersService.resetFailedLoginAttempts).toHaveBeenCalledWith(baseUser.id);
+  });
+
+  it('AOFP-338 F-50: mã TOTP đúng nhưng đã dùng để đăng nhập rồi → 401', async () => {
+    usersService.findByEmail.mockResolvedValue({ ...baseUser, mfa_enabled: true, mfa_secret: 'SECRET123' } as never);
+    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+    mfaService.verifyToken.mockReturnValue(true);
+    mfaService.claimToken.mockResolvedValue(false);
+    await expect(
+      service.login({ email: baseUser.email, password: 'correct-password', mfaToken: '123456', meta }),
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it('mfa_enabled=true, mã dự phòng sai/đã dùng -> 401', async () => {
@@ -439,6 +477,7 @@ describe('AuthService.googleLogin', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        { provide: RedisCacheService, useValue: {} },
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
         { provide: JwtService, useValue: jwtService },

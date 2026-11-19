@@ -1,7 +1,9 @@
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { AppException } from '../../common/exceptions/app-exception';
+import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { StockReservation, StockReservationDocument, StockReservationTotal, StockReservationTotalDocument } from './schemas/stock-reservation.schema';
@@ -132,6 +134,45 @@ export class StockReservationService {
    */
   async setGroupWarehouse(groupId: Types.ObjectId, warehouseId: Types.ObjectId): Promise<void> {
     await this.groupModel.updateOne({ _id: groupId }, { $set: { warehouse_id: warehouseId } });
+  }
+
+  /**
+   * AOFP-327 (Q2: nhóm giữ trước được giữ trước) — gọi TRONG transaction pick-item, trước khi trừ tồn:
+   * số quét không được vượt "phần mình đang giữ + tồn chưa ai giữ" trong kho. Chạm document tổng
+   * giữ chỗ để 1 lần giữ chỗ đồng thời của nhóm khác xung đột ghi → transaction chạy lại, kiểm lại.
+   */
+  async assertNotReservedByOthers(
+    groupId: Types.ObjectId,
+    item: { master: string | undefined; platform: string; shopId: string; sku: string },
+    warehouseId: Types.ObjectId,
+    quantity: number,
+    session: ClientSession,
+  ): Promise<void> {
+    const key = stockKeyOf(item.master, item.platform, item.shopId, item.sku);
+    const total = await this.totalModel.findOneAndUpdate(
+      { _id: reservationTotalId(key, warehouseId) },
+      { $set: { touched_at: new Date() } },
+      { returnDocument: 'after', session },
+    );
+    if (!total || total.reserved <= 0) return;
+    const mine = await this.reservationModel
+      .findOne({ order_group_id: groupId, stock_key: key, status: 'active' })
+      .select('quantity_reserved warehouse_id')
+      .session(session)
+      .lean();
+    const mineReserved = mine && String(mine.warehouse_id) === String(warehouseId) ? mine.quantity_reserved : 0;
+    const othersReserved = Math.max(0, total.reserved - mineReserved);
+    if (othersReserved === 0) return;
+    const onHand = await this.onHand(item.master, item.platform, item.shopId, item.sku, warehouseId, session);
+    const allowed = Math.max(0, onHand - othersReserved);
+    if (quantity > allowed) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.STOCK_RESERVED_BY_OTHER,
+        `Hàng này đang giữ cho nhóm khác — SKU "${item.sku}" còn ${String(onHand)} trên kệ, ${String(othersReserved)} đang giữ cho nhóm khác, nhóm này lấy được tối đa ${String(allowed)}.`,
+        HttpStatus.CONFLICT,
+        { sku: item.sku, onHand, reservedByOthers: othersReserved, allowed, requestedQuantity: quantity },
+      );
+    }
   }
 
   /** Gọi TRONG transaction của pick-item: tiêu phần đã giữ tương ứng số vừa quét. */

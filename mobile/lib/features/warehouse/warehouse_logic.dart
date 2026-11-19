@@ -48,6 +48,19 @@ bool lineMatchesScan(PickLine line, String scanned) {
   return '${_norm(line.binCode)} ${_norm(line.sku)}' == needle;
 }
 
+/// AOFP-327 — mã quét là mã 1 ô phụ (không trùng SKU / ô chính) → ô phụ đó; còn lại null (lấy ở ô chính).
+OtherBin? otherBinForScan(PickLine line, String scanned) {
+  final needle = _norm(scanned);
+  if (needle.isEmpty || _norm(line.sku) == needle) return null;
+  final master = line.masterSku;
+  if (master != null && _norm(master) == needle) return null;
+  if (line.binCode.isNotEmpty && _norm(line.binCode) == needle) return null;
+  for (final b in line.otherBins) {
+    if (_norm(b.binCode) == needle && b.binLocationId != null) return b;
+  }
+  return null;
+}
+
 /// Dòng còn phải lấy khớp với mã quét. Ưu tiên dòng đã đủ hàng xếp sau cùng.
 PickLine? findLineForScan(List<PickLine> lines, String scanned) {
   PickLine? done;

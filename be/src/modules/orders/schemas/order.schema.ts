@@ -258,6 +258,11 @@ export class Order {
   @Prop({ type: String, required: true, default: 'VND' })
   currency!: string;
 
+  // AOFP-319 — cách khách trả tiền do sàn gửi (VD 'COD'); null = sàn không gửi. Quyết định
+  // tiền hãng thu hộ khi tạo vận đơn (shipping/utils/cod.util.ts).
+  @Prop({ type: String, default: null })
+  payment_method?: string | null;
+
   // true = đơn NÀY đã bị gộp vào 1 gói hàng chung với đơn khác cùng
   // consolidation_key — khi true, `consolidated_group_id` bắt buộc có giá trị.
   @Prop({ type: Boolean, required: true, default: false })
@@ -298,9 +303,20 @@ export class Order {
   // (nguồn gốc `any`) mỗi lần đọc created_at ở service/controller.
   created_at?: Date;
   updated_at?: Date;
+
+  /**
+   * AOFP-330 — đơn đã hủy nhưng nhóm đơn CHƯA xử lý xong (nhả giữ chỗ, tháo kiện, hủy nhóm).
+   * Ghi cùng transaction với việc hủy đơn; xoá khi xử lý nhóm xong. Cron 5 phút quét lại.
+   * Không có default → vắng mặt ở đơn bình thường.
+   */
+  @Prop({ type: Boolean })
+  group_resync_pending?: boolean;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
+
+// AOFP-330 — chỉ index đơn đang chờ xử lý nhóm (rất ít) cho cron quét lại.
+OrderSchema.index({ group_resync_pending: 1 }, { partialFilterExpression: { group_resync_pending: true } });
 
 /**
  * (a) UNIQUE compound index — 1 đơn trên 1 sàn chỉ tồn tại ĐÚNG 1 bản
@@ -322,6 +338,8 @@ OrderSchema.index(
  *     cần bước SORT_KEY_GENERATOR (in-memory sort) tốn thêm bộ nhớ.
  */
 OrderSchema.index({ shop_id: 1, status: 1, created_at: -1 });
+// AOFP-338 — Tổng quan gộp đơn nhận theo khoảng ngày (mọi shop): $match created_at.
+OrderSchema.index({ created_at: 1 });
 
 /**
  * (c) PARTIAL INDEX cho bước consolidation — CHỈ index đơn đang ở

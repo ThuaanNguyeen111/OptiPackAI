@@ -2,6 +2,9 @@ import { Types } from 'mongoose';
 import { WarehouseService } from './warehouse.service';
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 
+// AOFP-328 — nhập thêm không ảnh phiếu chỉ Admin + lý do; test sức chứa không quan tâm phần này.
+const ADMIN_NO_PHOTO = { isAdmin: true, noPhotoReason: 'tồn đầu kỳ' };
+
 describe('WarehouseService — bố cục kho mới K2', () => {
   const warehouseId = new Types.ObjectId();
   const zoneId = new Types.ObjectId();
@@ -86,7 +89,7 @@ describe('WarehouseService — bố cục kho mới K2', () => {
     });
 
     it('25 + 10 > 30 -> 409 WH_BIN_OVER_CAPACITY, không cộng', async () => {
-      await expect(service.restockSku(warehouseId.toString(), assignmentId, 10)).rejects.toMatchObject({
+      await expect(service.restockSku(warehouseId.toString(), assignmentId, 10, false, 'u1', ADMIN_NO_PHOTO)).rejects.toMatchObject({
         errorCode: WAREHOUSE_ERROR_CODES.BIN_OVER_CAPACITY,
       });
       expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
@@ -94,7 +97,7 @@ describe('WarehouseService — bố cục kho mới K2', () => {
 
     it('force=true -> cho cộng dù vượt', async () => {
       assignmentModel.findOneAndUpdate.mockResolvedValue({ _id: assignmentId });
-      await expect(service.restockSku(warehouseId.toString(), assignmentId, 10, true)).resolves.toBeDefined();
+      await expect(service.restockSku(warehouseId.toString(), assignmentId, 10, true, 'u1', ADMIN_NO_PHOTO)).resolves.toBeDefined();
     });
   });
 

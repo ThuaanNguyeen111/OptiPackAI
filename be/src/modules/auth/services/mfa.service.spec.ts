@@ -15,6 +15,15 @@ describe('MfaService', () => {
     service = new MfaService();
   });
 
+  it('AOFP-338 F-50: claimToken — mã TOTP chỉ dùng đăng nhập được 1 lần', async () => {
+    const taken = new Set<string>();
+    const redis = { claimOnce: jest.fn((key: string) => Promise.resolve(taken.has(key) ? false : (taken.add(key), true))) };
+    const withRedis = new MfaService(redis as never);
+    await expect(withRedis.claimToken('u1', '123456')).resolves.toBe(true);
+    await expect(withRedis.claimToken('u1', '123456')).resolves.toBe(false);
+    await expect(withRedis.claimToken('u2', '123456')).resolves.toBe(true);
+  });
+
   describe('generateSecret', () => {
     it('sinh ra secret + otpauthUrl đúng định dạng, chứa đúng email và tên app', () => {
       const result = service.generateSecret('staff@optipackai.com');

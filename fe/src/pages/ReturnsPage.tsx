@@ -116,8 +116,10 @@ export function ReturnsPage({
   const { locale } = usePortal()
   const { session } = useAuth()
   const vi = locale === 'vi'
-  const canCancelSlip =
+  // AOFP-336 — duyệt / từ chối / hủy phiếu: chỉ Admin + chủ shop (BE trả 403 cho vai trò khác).
+  const canDecide =
     session?.role === UserRole.ADMIN || session?.role === UserRole.STORE_OWNER
+  const canCancelSlip = canDecide
 
   const [items, setItems] = useState<ReturnRequest[]>([])
   const [loading, setLoading] = useState(true)
@@ -203,7 +205,7 @@ export function ReturnsPage({
         ? openPrintDocument(
             selected.rmaCode,
             `<h1>${escapeHtml(selected.rmaCode)}</h1>
-             <p>${escapeHtml(vi ? 'Phiếu hoàn hàng' : 'Return slip')}</p>
+             <p>${escapeHtml(vi ? 'Phiếu trả hàng' : 'Return slip')}</p>
              <p>${escapeHtml(vi ? 'Trạng thái' : 'Status')}: ${escapeHtml(statusText)}</p>
              <p>${escapeHtml(vi ? 'Loại' : 'Type')}: ${escapeHtml(typeText)}</p>
              <p>${escapeHtml(vi ? 'Nhóm đơn' : 'Group')}: ${escapeHtml(selected.orderGroupId)}</p>
@@ -212,7 +214,7 @@ export function ReturnsPage({
         : openPrintDocument(
             selected.rmaCode,
             `<h1>${escapeHtml(selected.rmaCode)}</h1>
-             <p>${escapeHtml(vi ? 'Nhãn hoàn hàng' : 'Return label')}</p>
+             <p>${escapeHtml(vi ? 'Nhãn trả hàng' : 'Return label')}</p>
              <p>${escapeHtml(statusText)} · ${escapeHtml(typeText)}</p>
              <table><thead><tr><th>SKU</th><th>${escapeHtml(vi ? 'Số lượng' : 'Qty')}</th></tr></thead><tbody>${selected.items
                .map(
@@ -334,12 +336,12 @@ export function ReturnsPage({
         <div className="mx-auto flex h-full w-full max-w-7xl flex-col">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h1 className="text-lg font-bold text-ink">
-              {vi ? 'Phiếu hoàn hàng' : 'Return requests'}
+              {vi ? 'Phiếu trả hàng' : 'Return requests'}
             </h1>
           </div>
           <p className="mb-4 rounded-xl border border-hairline bg-surface-2 px-4 py-3 text-sm text-ink-soft">
             {vi
-              ? 'Phiếu trả/đổi do khách gửi trên website AURELLE và tự hiện ở đây. Giao thất bại thì hệ thống tự tạo phiếu hoàn.'
+              ? 'Phiếu trả/đổi do khách gửi trên website AURELLE và tự hiện ở đây. Giao thất bại thì hệ thống tự tạo phiếu trả hàng.'
               : 'Return/exchange requests are submitted by customers on the AURELLE website and appear here automatically. Failed deliveries create a return slip automatically.'}
           </p>
 
@@ -682,7 +684,14 @@ export function ReturnsPage({
                   </div>
                 ) : null}
 
-                {selected.status === 'requested' ? (
+                {selected.status === 'requested' && !canDecide ? (
+                  <p className="flex items-start gap-1.5 border-t border-hairline pt-3 text-xs text-ink-muted">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    {vi
+                      ? 'Chờ chủ shop duyệt. Bạn sẽ nhận hàng khi phiếu chuyển sang Chờ nhận hàng.'
+                      : 'Waiting for the store owner to decide. You receive the goods once the slip moves to Awaiting receipt.'}
+                  </p>
+                ) : selected.status === 'requested' ? (
                   <div className="space-y-2 border-t border-hairline pt-3">
                     <label className="block text-xs font-medium text-ink">
                       {vi ? 'Ghi chú duyệt / lý do từ chối' : 'Approve note / reject reason'}
@@ -726,8 +735,8 @@ export function ReturnsPage({
                     <p className="flex items-start gap-1.5 text-[11px] text-ink-subtle">
                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                       {vi
-                        ? 'Người tạo phiếu không được tự duyệt (RMA_SELF_APPROVAL).'
-                        : 'Creator cannot self-approve (RMA_SELF_APPROVAL).'}
+                        ? 'Người tạo phiếu không tự duyệt được, cần chủ shop khác duyệt.'
+                        : 'The slip creator cannot approve it; another store owner must.'}
                     </p>
                   </div>
                 ) : selected.decisionNote ? (
@@ -755,7 +764,7 @@ export function ReturnsPage({
                   onClick={() => printCurrentSlip('label')}
                 >
                   <Printer className="h-3.5 w-3.5" />
-                  {vi ? 'In nhãn hoàn hàng' : 'Print return label'}
+                  {vi ? 'In nhãn trả hàng' : 'Print return label'}
                 </button>
               </div>
               </>

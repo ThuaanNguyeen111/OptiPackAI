@@ -17,6 +17,7 @@ export const NOTIFICATION_TYPES = [
   'packaging_plan_invalidated',
   'delivery_failed',
   'delivery_returning',
+  'carrier_incident',
   'delivery_overdue',
   'return_requested',
   'stock_shortage',
@@ -30,6 +31,7 @@ export const NOTIFICATION_TYPES = [
   'consolidation_name_mismatch',
   'marketplace_confirm_required',
   'stock_receipt_mismatch',
+  'carrier_booking_failed',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -91,6 +93,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<
   },
   delivery_failed: { vi: 'Giao thất bại', en: 'Delivery failed' },
   delivery_returning: { vi: 'Đang hoàn về kho', en: 'Returning to warehouse' },
+  carrier_incident: { vi: 'Sự cố vận chuyển', en: 'Carrier incident' },
   delivery_overdue: { vi: 'Giao quá hạn', en: 'Delivery overdue' },
   return_requested: { vi: 'Yêu cầu trả hàng', en: 'Return requested' },
   stock_shortage: { vi: 'Thiếu tồn để giữ chỗ', en: 'Stock shortage' },
@@ -110,6 +113,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<
     en: 'Stock confirmation due soon (Tiki)',
   },
   stock_receipt_mismatch: { vi: 'Nhập hàng lệch phiếu NCC', en: 'Receipt differs from supplier slip' },
+  carrier_booking_failed: { vi: 'Chưa tạo được vận đơn ở hãng', en: 'Carrier booking failed' },
 }
 
 export function mapNotificationRaw(raw: NotificationApiRaw): AppNotification | null {

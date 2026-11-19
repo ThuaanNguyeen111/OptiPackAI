@@ -71,7 +71,7 @@ Không có AI nào đánh giá ảnh.
 - **Test hành vi qua seam cao nhất:** service phiên đóng gói, ở thao tác niêm phong, dùng mock model như spec kế hoạch đóng gói hiện có. Không test chi tiết bên trong.
 - **Các ca cần có:**
   - tắt bắt buộc + không ảnh → niêm phong thành công, kiện không có trường ảnh;
-  - bật bắt buộc + không ảnh → `PKG_SEAL_PHOTO_REQUIRED`, kiện vẫn `pending`, không trừ tồn thùng;
+  - bật bắt buộc + không ảnh → `PACKING_SEAL_PHOTO_REQUIRED`, kiện vẫn `pending`, không trừ tồn thùng;
   - có ảnh → kiện lưu đúng URL;
   - hoàn tác → ảnh nằm trong nhật ký `unseal`, kiện không còn ảnh; niêm phong lại với ảnh mới → chỉ có ảnh mới;
   - bật cài đặt khi thiếu cấu hình Cloudinary → bị từ chối.

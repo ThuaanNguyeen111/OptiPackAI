@@ -118,6 +118,8 @@ export class GhnAdapter implements CarrierAdapter {
 
   private static readonly MAX_RETRIES = 2;
   private static readonly BASE_DELAY_MS = 300;
+  /** Chờ GHN xử lý xong lần gửi trước khi tra đơn theo client_order_code. */
+  private static readonly CREATE_SETTLE_MS = 1000;
 
   constructor(private readonly configService: ConfigService) {
     this.baseUrl = envOrDefault(
@@ -204,7 +206,33 @@ export class GhnAdapter implements CarrierAdapter {
   }
 
   async createShipment(input: CreateShipmentInput): Promise<CreateShipmentResult> {
-    return this.submitOrder('/v2/shipping-order/create', input);
+    try {
+      return await this.submitOrder('/v2/shipping-order/create', input);
+    } catch (error: unknown) {
+      // Lần gửi trước hết giờ nhưng GHN vẫn tạo được (lần thử lại nhận "This request is processing")
+      // → báo lỗi thì đặt lại sẽ thành đơn trùng ở hãng. Tra theo mã của mình rồi nhận đơn đã có.
+      const existing = await this.findCreatedOrder(input.client_order_code);
+      if (!existing) throw error;
+      this.logger.warn(
+        `GHN create ${input.client_order_code} báo lỗi nhưng đơn đã có ở hãng (${existing.carrier_order_code}) → dùng đơn đó.`,
+      );
+      const fee = await this.previewShipment(input)
+        .then((preview) => preview.fee)
+        .catch(() => this.toBreakdown({ total: 0, service: 0, insurance: 0, cod: 0, remote: 0 }));
+      return { carrier_order_code: existing.carrier_order_code, sort_code: null, fee, expected_delivery_at: null };
+    }
+  }
+
+  /** Đơn GHN còn hiệu lực theo client_order_code; không tra được thì null (giữ lỗi gốc). */
+  private async findCreatedOrder(clientOrderCode: string): Promise<CarrierOrderDetail | null> {
+    // GHN đang xử lý lần gửi trước → chờ chút cho đơn hiện ra rồi mới tra.
+    await new Promise((resolve) => setTimeout(resolve, GhnAdapter.CREATE_SETTLE_MS));
+    try {
+      const detail = await this.getShipmentDetailByClientCode(clientOrderCode);
+      return detail && detail.carrier_status !== 'cancel' ? detail : null;
+    } catch {
+      return null;
+    }
   }
 
   async cancelShipment(
@@ -277,6 +305,10 @@ export class GhnAdapter implements CarrierAdapter {
   ): Promise<CreateShipmentResult> {
     this.assertParcel(input.parcel);
     const { recipient, parcel } = input;
+    // Dịch vụ hàng nặng (service_type_id 5) bắt buộc cân từng món (thử GHN staging 20/11).
+    // shortcut: chia đều cân kiện theo số món, chưa có cân từng SKU; đổi khi master SKU lưu cân nặng.
+    const unitCount = input.items.reduce((sum, item) => sum + item.quantity, 0);
+    const itemWeightG = Math.max(1, Math.round(parcel.weight_g / Math.max(1, unitCount)));
     const data = await this.request<GhnCreateOrderData>(
       'post',
       path,
@@ -302,6 +334,7 @@ export class GhnAdapter implements CarrierAdapter {
           code: item.code,
           quantity: item.quantity,
           price: item.price,
+          weight: itemWeightG,
         })),
       },
       { retry: true }, // an toàn: GHN chống tạo trùng theo client_order_code

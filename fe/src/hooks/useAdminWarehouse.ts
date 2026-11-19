@@ -637,7 +637,7 @@ export function useAdminWarehouse() {
     assignmentId: string,
     quantity: number,
     force = false,
-    extra?: { received_at?: string; lot_code?: string },
+    extra?: { received_at?: string; lot_code?: string; no_photo_reason?: string },
   ): Promise<void> {
     if (!selectedWarehouseId) return
     setMutating(true)

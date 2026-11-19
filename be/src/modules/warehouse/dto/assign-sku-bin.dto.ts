@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsEnum, IsInt, IsMongoId, IsOptional, IsString, Min } from 'class-validator';
+import { IsReceiptPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 export class AssignSkuBinDto {
@@ -28,6 +29,12 @@ export class AssignSkuBinDto {
   @IsInt()
   @Min(0)
   initial_quantity?: number;
+
+  // AOFP-328 — initial_quantity > 0 là cộng tồn: bắt ảnh phiếu, thiếu → 400 WH_RECEIPT_PHOTO_REQUIRED.
+  @ApiPropertyOptional({ type: [String], description: 'Ảnh phiếu NCC, BẮT BUỘC khi initial_quantity > 0 (POST /proof-photos?purpose=receipt).' })
+  @IsOptional()
+  @IsReceiptPhotoUrls()
+  document_photo_urls?: string[];
 
   // K2 — vượt sức chứa ô thì bị chặn 409 WH_BIN_OVER_CAPACITY; gửi force=true
   // để xác nhận vẫn nhập (VD hàng về gấp, xếp tạm chồng lên).

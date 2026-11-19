@@ -9,9 +9,11 @@
 export const ORD_GROUP_ERROR_CODES = {
   INVALID_GROUP_ID: 'ORD_GROUP_INVALID_ID',
   GROUP_NOT_FOUND: 'ORD_GROUP_NOT_FOUND',
+  MISSING_REPORT_INVALID: 'ORD_GROUP_MISSING_REPORT_INVALID', // AOFP-329 — báo thiếu SKU ngoài nhóm / vượt số còn cần
   STATE_CONFLICT: 'ORD_GROUP_STATE_CONFLICT', // Rule #18 optimistic concurrency — version không khớp
   INVALID_TRANSITION: 'ORD_GROUP_INVALID_TRANSITION', // MỚI — chuyển trạng thái không hợp lệ theo allowed-status-transitions.ts
   // BỔ SUNG (2026-09-10) — pick-item
+  STOCK_RESERVED_BY_OTHER: 'ORD_GROUP_STOCK_RESERVED_BY_OTHER', // AOFP-327 — tồn còn trên kệ nhưng đang giữ cho nhóm khác
   INSUFFICIENT_STOCK: 'ORD_GROUP_INSUFFICIENT_STOCK', // quantity_on_hand không đủ — FE nên gợi ý report-missing
   // BỔ SUNG (2026-09-10) — item-detail
   ITEM_NOT_IN_GROUP: 'ORD_GROUP_ITEM_NOT_IN_GROUP', // SKU truyền vào không thuộc group này
