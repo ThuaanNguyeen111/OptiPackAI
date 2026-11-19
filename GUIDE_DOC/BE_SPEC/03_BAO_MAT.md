@@ -70,7 +70,7 @@ Chỉ đăng nhập cho email **đã được Admin tạo**. Có `state` và PKC
 
 ### 3.3. GHN (Giao Hàng Nhanh)
 - Token GHN và Shop ID chỉ nằm trong `.env` (`GHN_TOKEN`, `GHN_SHOP_ID`), không trả qua API.
-- Webhook `POST /carriers/ghn/webhook` công khai nhưng kiểm khóa `GHN_WEBHOOK_SECRET` (header `X-OptiPack-Secret` hoặc `?secret=`) và ShopID; mọi sự kiện (webhook, nút giả lập, đồng bộ) đi chung `processCarrierEvent` có chống trùng.
+- Webhook `POST /carriers/ghn/webhook` công khai nhưng kiểm khóa `GHN_WEBHOOK_SECRET` (chỉ header `X-OptiPack-Secret`, so thời gian hằng — AOFP-324 bỏ `?secret=`) và ShopID; mọi sự kiện (webhook, nút giả lập, đồng bộ) đi chung `processCarrierEvent` có chống trùng.
 - GHN **không cho shop đổi trạng thái đơn**; nút "giả lập" chỉ đổi trạng thái trong DB OptiPack (chế độ demo).
 
 ## 4. Bảo vệ toàn vẹn nghiệp vụ
@@ -292,7 +292,7 @@ Chỉ đăng nhập cho email **đã được Admin tạo**. Có `state` và PKC
 | GET | `/shipping/quote/:groupId` | ✔ | ✔ |  |  | ✔ |  |
 | GET | `/shipping/settings` | ✔ | ✔ |  |  | ✔ |  |
 | PUT | `/shipping/settings` | ✔ | ✔ |  |  |  |  |
-| POST | `/carriers/ghn/webhook` |  |  |  |  |  | Công khai — header `X-OptiPack-Secret` (hoặc `?secret=`) + kiểm ShopID |
+| POST | `/carriers/ghn/webhook` |  |  |  |  |  | Công khai — header `X-OptiPack-Secret` (AOFP-324: bỏ `?secret=`) + kiểm ShopID |
 | POST | `/order-groups/:id/fulfillment/deliver` | ✔ |  |  |  | ✔ |  |
 | POST | `/order-groups/:id/fulfillment/return` | ✔ |  | ✔ |  | ✔ |  |
 | POST | `/order-groups/:id/fulfillment/ship` | ✔ |  |  |  | ✔ |  |

@@ -9,7 +9,7 @@ import { OrderGroupDocument } from '../order-groups/schemas/order-group.schema';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { Shipment, ShipmentDocument } from './schemas/shipment.schema';
 import { ShipmentEvent, ShipmentEventDocument } from './schemas/shipment-event.schema';
-import { ShipmentStatus } from './enums/shipment-status.enum';
+import { ShipmentStatus, TERMINAL_SHIPMENT_STATUSES } from './enums/shipment-status.enum';
 import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxDocument,
@@ -25,12 +25,13 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { addBusinessHours } from '../order-groups/utils/add-business-hours.util';
 import { deliveryDueBusinessHours, minRetryGapMinutes } from './shipment-config';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { ShippingService } from '../shipping/shipping.service';
 import type { ServiceQuote } from '../shipping/utils/shipping-cost.util';
 import { codOrderIdsPerParcel } from '../shipping/utils/cod.util';
 import { LiveCarrierService, type ToLocationInput } from '../shipping/live-carrier.service';
 import { CarrierWebhookEvent, CarrierWebhookEventDocument } from './schemas/carrier-webhook-event.schema';
+import { RawPayload, RawPayloadDocument } from './schemas/raw-payload.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
 import { ActivityLog, ActivityLogDocument } from '../activity-log/schemas/activity-log.schema';
@@ -102,6 +103,19 @@ export interface CarrierEventPayload {
   Reason?: string;
   ReasonCode?: string;
   [key: string]: unknown;
+}
+
+/** AOFP-324 — bản ghi chống trùng kẹt `processing` lâu hơn mức này được xử lý lại. */
+const STUCK_PROCESSING_MS = 5 * 60 * 1000;
+/** AOFP-324 — vận đơn hãng không cập nhật lâu hơn mức này thì cron hỏi lại hãng. */
+const CARRIER_SYNC_STALE_MS = 6 * 60 * 60 * 1000;
+
+/** So khoá bí mật thời gian hằng (không lộ độ dài khớp qua thời gian phản hồi). */
+export function secretMatches(given: string | undefined, expected: string): boolean {
+  if (typeof given !== 'string') return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export type CarrierEventSource = 'carrier_webhook' | 'carrier_sync' | 'carrier_simulated' | 'manual';
@@ -225,6 +239,8 @@ export class ShipmentsService {
     @Optional() @InjectModel(User.name) private readonly userModel?: Model<UserDocument>,
     // AOFP-315 — ghi lý do bỏ quét nhãn kiện. Optional: test cũ dựng service bằng tay.
     @Optional() @InjectModel(ActivityLog.name) private readonly activityLogModel?: Model<ActivityLogDocument>,
+    // AOFP-324 — payload gốc webhook hãng (tách khỏi sổ chống trùng). Optional: test cũ dựng service bằng tay.
+    @Optional() @InjectModel(RawPayload.name) private readonly rawPayloadModel?: Model<RawPayloadDocument>,
   ) {}
 
   /** 29/10/2026 — người đi giao được: Shipping Coordinator đang hoạt động, không nghỉ phép. */
@@ -1499,19 +1515,58 @@ export class ShipmentsService {
   }
 
   /**
+   * AOFP-324 — dự phòng mất webhook: đồng bộ vận đơn hãng chưa kết thúc, không cập nhật ≥ 6 giờ.
+   * Mỗi lượt tối đa `limit` vận đơn, cũ nhất trước; lỗi 1 vận đơn không chặn vận đơn khác.
+   */
+  async syncStaleCarrierShipments(now = new Date(), limit = 50): Promise<{ synced: number; failed: number }> {
+    if (!this.liveCarrier) return { synced: 0, failed: 0 };
+    const stale = await this.shipmentModel
+      .find({
+        carrier_kind: 'live',
+        status: { $nin: [...TERMINAL_SHIPMENT_STATUSES] },
+        updated_at: { $lt: new Date(now.getTime() - CARRIER_SYNC_STALE_MS) },
+        'carrier_parcels.carrier_order_code': { $type: 'string' },
+      })
+      .select('_id shipment_code')
+      .sort({ updated_at: 1 })
+      .limit(limit)
+      .lean();
+    let synced = 0;
+    let failed = 0;
+    for (const s of stale) {
+      try {
+        await this.syncCarrier(s._id.toString(), { userId: 'system:carrier-sync', role: null });
+        synced += 1;
+      } catch (error: unknown) {
+        failed += 1;
+        this.logger.warn(`Đồng bộ hãng ${s.shipment_code} lỗi: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return { synced, failed };
+  }
+
+  /**
    * C5 — webhook GHN (Order Status Callback). GHN KHÔNG ký request → kiểm khoá bí mật
-   * (header `x-optipack-secret` hoặc query `secret`, khai khi đăng ký webhook) + ShopID.
+   * (header `x-optipack-secret`, khai khi đăng ký webhook) + ShopID.
+   * AOFP-324: so khoá thời gian hằng; xung đột phiên bản → 503 để GHN gửi lại (4xx bị GHN bỏ hẳn).
    */
   async handleGhnWebhook(payload: CarrierEventPayload, secret: string | undefined): Promise<{ ok: true; result: string }> {
     const expected = this.configService?.get<string>('carrier.ghn.webhookSecret')?.trim();
-    if (!expected || secret !== expected) {
+    if (!expected || !secretMatches(secret, expected)) {
       throw new AppException(SHIPMENT_ERROR_CODES.WEBHOOK_UNAUTHORIZED, 'Sai khoá bí mật webhook.', HttpStatus.UNAUTHORIZED);
     }
     const shopId = this.configService?.get<string>('carrier.ghn.shopId')?.trim();
     if (shopId && payload.ShopID !== undefined && String(payload.ShopID) !== shopId) {
       throw new AppException(SHIPMENT_ERROR_CODES.WEBHOOK_UNAUTHORIZED, `ShopID ${String(payload.ShopID)} không phải shop của OptiPack.`, HttpStatus.UNAUTHORIZED);
     }
-    return { ok: true, result: await this.processCarrierEvent(payload, 'carrier_webhook', { userId: 'carrier:ghn', role: null }) };
+    try {
+      return { ok: true, result: await this.processCarrierEvent(payload, 'carrier_webhook', { userId: 'carrier:ghn', role: null }) };
+    } catch (error: unknown) {
+      if (error instanceof AppException && error.errorCode === SHIPMENT_ERROR_CODES.STATE_CONFLICT) {
+        throw new AppException(SHIPMENT_ERROR_CODES.STATE_CONFLICT, error.message, HttpStatus.SERVICE_UNAVAILABLE);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -1532,13 +1587,27 @@ export class ShipmentsService {
           order_code: orderCode,
           type: evt.Type ?? null,
           status: evt.Status ?? null,
-          payload: JSON.stringify(evt).slice(0, 5000),
         }]);
         recordId = rec?._id ?? null;
       } catch (error: unknown) {
-        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) return 'duplicate';
-        throw error;
+        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 11000)) throw error;
+        // AOFP-324 — bản ghi kẹt `processing` quá 5 phút (tiến trình chết giữa chừng) thì nhận xử lý lại.
+        const stuck = await this.webhookEventModel.findOneAndUpdate(
+          { dedupe_key: dedupeKey, result: 'processing', updated_at: { $lt: new Date(Date.now() - STUCK_PROCESSING_MS) } },
+          { $set: { source, updated_at: new Date() } },
+          { returnDocument: 'after', timestamps: false },
+        );
+        if (!stuck) return 'duplicate';
+        recordId = stuck._id;
       }
+    }
+    if (this.rawPayloadModel && source === 'carrier_webhook') {
+      // Payload gốc chỉ để đối soát — lỗi ghi không được chặn xử lý sự kiện.
+      await this.rawPayloadModel
+        .create([{ source: 'ghn_webhook', ref_key: dedupeKey, payload: JSON.stringify(evt).slice(0, 20000) }])
+        .catch((error: unknown) => {
+          this.logger.warn(`Không lưu được raw payload ${dedupeKey}: ${error instanceof Error ? error.message : String(error)}`);
+        });
     }
     try {
       const { result, shipmentId } = await this.applyCarrierEvent(orderCode, evt, source, actor);
@@ -1573,6 +1642,9 @@ export class ShipmentsService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const shipment = await this.shipmentModel.findOne({ 'carrier_parcels.carrier_order_code': orderCode });
       if (!shipment) return { result: 'ignored:shipment_not_found', shipmentId: null };
+      // AOFP-324 — sự kiện cũ hơn trạng thái kiện đang lưu (đến muộn) chỉ ghi sổ, không ghi lùi kiện/vận đơn.
+      const lastAt = (shipment.carrier_parcels ?? []).find((p) => p.carrier_order_code === orderCode)?.carrier_status_at;
+      if (lastAt && at.getTime() < new Date(lastAt).getTime()) return { result: 'ignored:stale', shipmentId: shipment._id };
 
       const parcelSet = {
         'carrier_parcels.$[p].carrier_status': status,

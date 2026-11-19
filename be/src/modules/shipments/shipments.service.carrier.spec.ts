@@ -26,7 +26,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
   let shippingService: Record<'countParcelsToUnpack' | 'quoteChosenService' | 'persistCosts' | 'resolveLiveService' | 'parcelsOfGroup', jest.Mock>;
   let adapter: Record<'cancelShipment' | 'createLabel' | 'getShipmentDetail', jest.Mock>;
   let liveCarrier: { adapterCode: string; adapterInstance: typeof adapter; bookParcel: jest.Mock };
-  let webhookEventModel: Record<'create' | 'updateOne' | 'deleteOne', jest.Mock>;
+  let webhookEventModel: Record<'create' | 'updateOne' | 'deleteOne' | 'findOneAndUpdate', jest.Mock>;
   let config: Record<string, unknown>;
   let service: ShipmentsService;
   let outboxModel: { updateOne: jest.Mock };
@@ -91,6 +91,7 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       create: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]),
       updateOne: jest.fn().mockResolvedValue({}),
       deleteOne: jest.fn().mockResolvedValue({}),
+      findOneAndUpdate: jest.fn().mockResolvedValue(null),
     };
     config = { 'carrier.manualStatusEnabled': true, 'carrier.ghn.webhookSecret': 's3cret', 'carrier.ghn.shopId': '227609' };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
@@ -273,6 +274,51 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       webhookEventModel.create.mockRejectedValue({ code: 11000 });
       expect(await service.processCarrierEvent(evt('picked'), 'carrier_webhook', actor)).toBe('duplicate');
       expect(shipmentModel.findOne).not.toHaveBeenCalled();
+    });
+
+    it('AOFP-324 AC1: delivered lúc 10:00, nhận delivering Time 09:30 → giữ nguyên, sổ ghi ignored:stale', async () => {
+      shipmentModel.findOne.mockResolvedValue(liveShipment({
+        status: ShipmentStatus.DELIVERED,
+        carrier_parcels: [{ parcel_no: 1, order_id: orderId, client_order_code: 'SHP-X-1', carrier_order_code: 'GHN1', carrier_status: 'delivered', carrier_status_at: new Date('2026-10-14T10:00:00.000Z') }],
+      }));
+      const result = await service.processCarrierEvent(evt('delivering', { Time: '2026-10-14T09:30:00.000Z' }), 'carrier_webhook', actor);
+      expect(result).toBe('ignored:stale');
+      expect(shipmentModel.updateOne).not.toHaveBeenCalled();
+      expect(shipmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(webhookEventModel.updateOne).toHaveBeenCalledWith(expect.anything(), { $set: { result: 'ignored:stale', shipment_id: shipmentId } });
+    });
+
+    it('AOFP-324: sự kiện mới hơn trạng thái kiện vẫn được áp dụng', async () => {
+      shipmentModel.findOne.mockResolvedValue(liveShipment({
+        carrier_parcels: [{ parcel_no: 1, order_id: orderId, client_order_code: 'SHP-X-1', carrier_order_code: 'GHN1', carrier_status: 'ready_to_pick', carrier_status_at: new Date('2026-10-14T02:00:00.000Z') }],
+      }));
+      shipmentModel.findOneAndUpdate.mockImplementation((_f: unknown, u: { $set: Record<string, unknown> }) => Promise.resolve(liveShipment(u.$set)));
+      expect(await service.processCarrierEvent(evt('picked'), 'carrier_webhook', actor)).toContain('applied:');
+    });
+
+    it('AOFP-324 AC2: xung đột phiên bản liên tục → webhook trả 503 (GHN gửi lại), bản ghi chống trùng bị xoá', async () => {
+      shipmentModel.findOne.mockResolvedValue(liveShipment());
+      shipmentModel.findOneAndUpdate.mockResolvedValue(null); // __v luôn lệch
+      const err: unknown = await service.handleGhnWebhook({ ...evt('picked'), ShopID: 227609 }, 's3cret').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AppException);
+      expect((err as AppException).getStatus()).toBe(503);
+      expect(webhookEventModel.deleteOne).toHaveBeenCalled();
+    });
+
+    it('AOFP-324: bản ghi kẹt processing quá 5 phút → xử lý lại; còn mới → trùng', async () => {
+      webhookEventModel.create.mockRejectedValue({ code: 11000 });
+      const stuckId = new Types.ObjectId();
+      webhookEventModel.findOneAndUpdate.mockResolvedValueOnce({ _id: stuckId });
+      shipmentModel.findOne.mockResolvedValue(liveShipment());
+      shipmentModel.findOneAndUpdate.mockImplementation((_f: unknown, u: { $set: Record<string, unknown> }) => Promise.resolve(liveShipment(u.$set)));
+      expect(await service.processCarrierEvent(evt('picked'), 'carrier_webhook', actor)).toContain('applied:');
+      const filter = (webhookEventModel.findOneAndUpdate.mock.calls[0] as [{ result: string; updated_at: { $lt: Date } }])[0];
+      expect(filter.result).toBe('processing');
+      expect(Date.now() - filter.updated_at.$lt.getTime()).toBeGreaterThanOrEqual(5 * 60 * 1000 - 50);
+      expect(webhookEventModel.updateOne).toHaveBeenCalledWith({ _id: stuckId }, expect.anything());
+
+      webhookEventModel.findOneAndUpdate.mockResolvedValueOnce(null);
+      expect(await service.processCarrierEvent(evt('picked'), 'carrier_webhook', actor)).toBe('duplicate');
     });
 
     it('xử lý lỗi tạm thời → xoá bản ghi chống trùng để GHN gửi lại được', async () => {
