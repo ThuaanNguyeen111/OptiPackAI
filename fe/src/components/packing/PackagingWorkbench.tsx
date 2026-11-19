@@ -1915,6 +1915,12 @@ export function PackagingWorkbench() {
                           onPlan={(next) => {
                             setPlan((current) => retainProfileStale(current, next))
                             setParcelWeights(weightPrefill(next))
+                            // Niêm phong kiện cuối → BE tự chuyển nhóm sang packed; làm mới hàng đợi như nút xác nhận đóng gói.
+                            if (next.status === 'packed') {
+                              showToast(vi ? 'Đã đóng gói xong — nhóm chuyển sang packed.' : 'Packing done — group is now packed.')
+                              setGuide3dActive(false)
+                              void refreshAfterAction().then(() => loadBoxStock())
+                            }
                           }}
                           onError={(err) => reloadPlanAfterConflict(err)}
                         />
