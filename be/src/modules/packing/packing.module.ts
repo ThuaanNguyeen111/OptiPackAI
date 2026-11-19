@@ -1,3 +1,4 @@
+import { Warehouse, WarehouseSchema } from '../warehouse/schemas/warehouse.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrderGroup, OrderGroupSchema } from '../order-groups/schemas/order-group.schema';
@@ -60,6 +61,8 @@ import {
       // (05/11/2026) nhật ký dữ liệu gửi AI (TTL 30 ngày) + ví dụ mẫu đã chấm tốt.
       { name: PackingGuideLog.name, schema: PackingGuideLogSchema },
       { name: PackingGuideExample.name, schema: PackingGuideExampleSchema },
+      // AOFP-332 — chỉ đọc danh sách kho cho ô "lấy món thay" khi báo sự cố.
+      { name: Warehouse.name, schema: WarehouseSchema },
     ]),
     OrderGroupsModule,
     PackagingModule,

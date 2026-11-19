@@ -1618,6 +1618,24 @@ describe('PackingPlanService', () => {
       expect(result.box).toBe('reused');
     });
 
+    it('AOFP-332 AC3: thùng đã cắt hạ → không vào ngăn tái sử dụng dù người dùng chọn reusable', async () => {
+      const plan = await approvedPlan();
+      const doc = planModel.docs[0];
+      const target = (doc?.parcels as Record<string, unknown>[] | undefined)?.[0];
+      if (!doc || !target) throw new Error('thiếu kiện');
+      Object.assign(target, {
+        status: 'to_unpack',
+        box_consumed: true,
+        box: { ...(target.box as Record<string, unknown>), cut_from_inner_height_mm: 300 },
+        unpack: { reason: 'Đơn hủy', requested_at: new Date(), box_condition: null, units_restocked: 0, note: null, by: null, done_at: null },
+      });
+      doc.status = 'packing';
+      const result = await session.unpack(groupId, target.parcel_no as number, { box_condition: 'reusable', expected_version: plan.version }, userId);
+      const [lines] = materialsService.recoverFromUnpack.mock.calls[0] as unknown as [{ condition: string }[]];
+      expect(lines[0]?.condition).toBe('damaged');
+      expect(result.plan.parcels.find((p) => p.parcel_no === target.parcel_no)?.unpack?.box_condition).toBe('damaged');
+    });
+
     describe('thu hồi vật tư chèn khi tháo kiện', () => {
       async function parcelToUnpack(): Promise<{ plan: PackingPlanDocument; no: number }> {
         const plan = await approvedPlan();
@@ -1627,6 +1645,8 @@ describe('PackingPlanService', () => {
         Object.assign(target, {
           status: 'to_unpack',
           box_consumed: true,
+          // Thùng nguyên cỡ (kế hoạch mẫu có thể cắt hạ) — thùng cắt hạ có test riêng AOFP-332.
+          box: { ...(target.box as Record<string, unknown>), cut_from_inner_height_mm: null },
           materials: [{ type: 'foam_corner', code: 'FOAM', name: 'Góc xốp', unit: 'cái', quantity: 4, weight_g: 20, cost_vnd: 800 }],
           unpack: { reason: 'Đơn hủy', requested_at: new Date(), box_condition: null, units_restocked: 0, recovered_materials: [], note: null, by: null, done_at: null },
         });
