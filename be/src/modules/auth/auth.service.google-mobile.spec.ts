@@ -8,6 +8,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { MailService } from '../mail/mail.service';
 import { UsersService } from '../users/services/users.service';
 import { AuthService } from './auth.service';
+import { RedisCacheService } from '../../common/redis/redis-cache.service';
 import { LoginAuditLog } from './schemas/login-audit-log.schema';
 import { TrustedDevice } from './schemas/trusted-device.schema';
 import { DeviceToken } from '../notifications/schemas/device-token.schema';
@@ -58,6 +59,7 @@ describe('AuthService — đăng nhập Google app mobile (id_token)', () => {
     const module = await Test.createTestingModule({
       providers: [
         AuthService,
+        { provide: RedisCacheService, useValue: {} },
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
         { provide: JwtService, useValue: { sign: jest.fn(), verify: jest.fn() } },

@@ -52,10 +52,6 @@ function isLikelyImageUrl(value: string): boolean {
   }
 }
 
-function mfaQrImageUrl(otpauthUrl: string): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauthUrl)}`
-}
-
 function Toast({
   message,
   onClose,
@@ -117,7 +113,10 @@ export function ProfilePage() {
   const [joinedAt, setJoinedAt] = useState<string | undefined>()
   const [loadingProfile, setLoadingProfile] = useState(true)
 
+  // AOFP-333 — ảnh QR (data-URL do BE vẽ); không gọi dịch vụ QR bên ngoài.
   const [mfaSetupUrl, setMfaSetupUrl] = useState<string | null>(null)
+  // null = ẩn ô; chuỗi = đang nhập mã hiện tại / mật khẩu để cài lại MFA.
+  const [mfaReauth, setMfaReauth] = useState<string | null>(null)
   const [mfaVerifyToken, setMfaVerifyToken] = useState('')
   const [mfaBackupCodes, setMfaBackupCodes] = useState<string[]>([])
   const [settingUpMfa, setSettingUpMfa] = useState(false)
@@ -219,9 +218,13 @@ export function ProfilePage() {
     setSettingUpMfa(true)
     setMfaBackupCodes([])
     try {
-      const res = await setupMfa()
-      setMfaSetupUrl(res.otpauthUrl)
+      const secret = mfaReauth?.trim() ?? ''
+      const res = await setupMfa(
+        !mfaEnabled ? {} : /^\d{6}$/.test(secret) ? { current_token: secret } : { password: secret },
+      )
+      setMfaSetupUrl(res.qrDataUrl)
       setMfaVerifyToken('')
+      setMfaReauth(null)
     } catch (err: unknown) {
       showToast(formatApiError(err))
     } finally {
@@ -588,20 +591,7 @@ export function ProfilePage() {
                   {vi ? 'Xác thực 2 lớp (MFA)' : 'Two-Factor Authentication (MFA)'}
                 </div>
 
-                {mfaEnabled ? (
-                  <div className="rounded-lg border border-success/20 bg-success-bg/40 px-3 py-2.5">
-                    <p className="text-sm text-ink">
-                      {vi
-                        ? 'MFA đang bật cho tài khoản này.'
-                        : 'MFA is enabled on this account.'}
-                    </p>
-                    <p className="mt-1 text-[11px] text-ink-subtle">
-                      {vi
-                        ? 'Dùng mã từ ứng dụng Authenticator hoặc mã dự phòng khi đăng nhập. Liên hệ Admin nếu cần tắt MFA.'
-                        : 'Use your authenticator app or backup codes at login. Contact an Admin to disable MFA.'}
-                    </p>
-                  </div>
-                ) : mfaBackupCodes.length > 0 ? (
+                {mfaBackupCodes.length > 0 ? (
                   <div className="space-y-3">
                     <div className="rounded-lg border border-success/20 bg-success-bg/40 px-3 py-2.5">
                       <p className="text-sm font-medium text-ink">
@@ -638,10 +628,15 @@ export function ProfilePage() {
                       {vi
                         ? 'Quét QR bằng Google Authenticator (hoặc app tương tự), rồi nhập mã 6 số.'
                         : 'Scan the QR with Google Authenticator (or similar), then enter the 6-digit code.'}
+                      {mfaEnabled
+                        ? vi
+                          ? ' MFA vẫn bật cho tới khi bạn xác nhận mã mới.'
+                          : ' MFA stays on until you confirm the new code.'
+                        : ''}
                     </p>
                     <div className="flex flex-col items-center gap-3 rounded-lg border border-hairline bg-surface-2 p-4 sm:flex-row sm:items-start">
                       <img
-                        src={mfaQrImageUrl(mfaSetupUrl)}
+                        src={mfaSetupUrl}
                         alt={vi ? 'Mã QR MFA' : 'MFA QR code'}
                         className="h-[180px] w-[180px] rounded-md border border-hairline bg-white p-1"
                       />
@@ -665,7 +660,68 @@ export function ProfilePage() {
                           >
                             {verifyingMfa ? (
                               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                            ) : (
+                            ) : mfaEnabled ? (
+                  <div className="rounded-lg border border-success/20 bg-success-bg/40 px-3 py-2.5">
+                    <p className="text-sm text-ink">
+                      {vi
+                        ? 'MFA đang bật cho tài khoản này.'
+                        : 'MFA is enabled on this account.'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-ink-subtle">
+                      {vi
+                        ? 'Dùng mã từ ứng dụng Authenticator hoặc mã dự phòng khi đăng nhập. Liên hệ Admin nếu cần tắt MFA.'
+                        : 'Use your authenticator app or backup codes at login. Contact an Admin to disable MFA.'}
+                    </p>
+                    {mfaReauth === null ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="mt-2 h-8 min-h-8 text-xs"
+                        onClick={() => setMfaReauth('')}
+                      >
+                        {vi ? 'Cài lại MFA' : 'Reset MFA'}
+                      </Button>
+                    ) : (
+                      <form
+                        className="mt-2 flex flex-wrap items-end gap-2"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          void handleStartMfaSetup()
+                        }}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <FieldLabel>
+                            {vi ? 'Mã 6 số hiện tại hoặc mật khẩu' : 'Current 6-digit code or password'}
+                          </FieldLabel>
+                          <input
+                            className={inputClass}
+                            type="password"
+                            autoComplete="current-password"
+                            value={mfaReauth}
+                            onChange={(e) => setMfaReauth(e.target.value)}
+                          />
+                        </div>
+                        <Button
+                          type="submit"
+                          variant="primary"
+                          className="h-9 min-h-9"
+                          disabled={settingUpMfa || mfaReauth.trim() === ''}
+                        >
+                          {settingUpMfa ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                          {vi ? 'Tiếp tục' : 'Continue'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-9 min-h-9"
+                          onClick={() => setMfaReauth(null)}
+                        >
+                          {vi ? 'Hủy' : 'Cancel'}
+                        </Button>
+                      </form>
+                    )}
+                  </div>
+                ) : (
                               <ShieldCheck className="mr-1.5 h-4 w-4" />
                             )}
                             {vi ? 'Kích hoạt MFA' : 'Enable MFA'}
