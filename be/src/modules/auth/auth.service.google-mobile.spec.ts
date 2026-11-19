@@ -22,7 +22,7 @@ describe('AuthService — đăng nhập Google app mobile (id_token)', () => {
   const meta = { ip_address: '1.1.1.1', user_agent: 'app' };
   let service: AuthService;
   let usersService: { findByEmail: jest.Mock; isPastPasswordDeadline: jest.Mock; syncGoogleAvatar: jest.Mock; updateLastLogin: jest.Mock };
-  let tokenService: { generateTokenPair: jest.Mock; revokeToken: jest.Mock };
+  let tokenService: { generateTokenPair: jest.Mock; revokeToken: jest.Mock; revokeAccessTokens: jest.Mock };
   let deviceTokenModel: { deleteOne: jest.Mock };
   let fetchMock: jest.SpyInstance;
 
@@ -53,6 +53,7 @@ describe('AuthService — đăng nhập Google app mobile (id_token)', () => {
     tokenService = {
       generateTokenPair: jest.fn().mockResolvedValue({ access_token: 'a', refresh_token: 'r' }),
       revokeToken: jest.fn().mockResolvedValue(undefined),
+      revokeAccessTokens: jest.fn().mockResolvedValue(undefined),
     };
     deviceTokenModel = { deleteOne: jest.fn().mockResolvedValue({ deletedCount: 1 }) };
     const config = { get: jest.fn((key: string) => (key === 'google.clientId' ? WEB_CLIENT : key === 'google.extraAudiences' ? 'android-extra' : undefined)) };
@@ -127,6 +128,8 @@ describe('AuthService — đăng nhập Google app mobile (id_token)', () => {
   it('đăng xuất kèm push_token → thu hồi refresh token + gỡ đúng máy của người gọi; không có push_token → không gỡ', async () => {
     await service.logout('refresh', userId, 'fcm-token');
     expect(tokenService.revokeToken).toHaveBeenCalledWith('refresh');
+    // AOFP-334 — access token vừa dùng cũng hết hiệu lực ngay.
+    expect(tokenService.revokeAccessTokens).toHaveBeenCalledWith(userId);
     const [filter] = deviceTokenModel.deleteOne.mock.calls[0] as [{ token: string; user_id: Types.ObjectId }];
     expect(filter.token).toBe('fcm-token');
     expect(String(filter.user_id)).toBe(userId);

@@ -167,4 +167,13 @@ export class TokenService {
     // Có session: người gọi xoá cache SAU khi commit (users.service). Không có: xoá ngay.
     if (!session) await this.redisCache.invalidateUserAuthState(userId);
   }
+
+  /**
+   * AOFP-334 — đăng xuất: access token vừa dùng hết hiệu lực ngay. Máy khác của cùng người
+   * bị 401 một lần rồi tự làm mới bằng refresh token của nó (refresh token không bị đụng).
+   */
+  async revokeAccessTokens(userId: string): Promise<void> {
+    await this.userModel.updateOne({ _id: new Types.ObjectId(userId) }, { $inc: { token_version: 1 } });
+    await this.redisCache.invalidateUserAuthState(userId);
+  }
 }

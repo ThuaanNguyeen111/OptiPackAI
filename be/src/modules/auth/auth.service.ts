@@ -813,6 +813,7 @@ export class AuthService {
 
   async logout(refreshToken: string, userId?: string, pushToken?: string): Promise<{ message: string }> {
     await this.tokenService.revokeToken(refreshToken);
+    if (userId && Types.ObjectId.isValid(userId)) await this.tokenService.revokeAccessTokens(userId);
     // 10/11/2026 — app mobile gửi kèm token push: gỡ máy để không nhận push của người vừa đăng xuất.
     if (pushToken && userId && this.deviceTokenModel && Types.ObjectId.isValid(userId)) {
       try {

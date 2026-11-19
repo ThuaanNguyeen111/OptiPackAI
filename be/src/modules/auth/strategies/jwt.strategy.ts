@@ -52,9 +52,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, 'Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin'));
     }
 
-    // AOFP-334 — đã đổi/đặt lại mật khẩu sau lúc cấp token này (cache 60 s, bị xoá ngay khi đổi).
+    // AOFP-334 — đã đăng xuất / đổi / đặt lại mật khẩu sau lúc cấp token này (cache 60 s, bị xoá ngay khi đổi).
     if ((payload.tv ?? 0) !== (state.token_version ?? 0)) {
-      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.SESSION_REVOKED, 'Phiên đăng nhập đã bị thu hồi (mật khẩu vừa đổi). Vui lòng đăng nhập lại.'));
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.SESSION_REVOKED, 'Phiên đăng nhập đã bị thu hồi (đã đăng xuất hoặc đổi mật khẩu). Vui lòng đăng nhập lại.'));
     }
 
     if (!isUserRole(state.role)) {

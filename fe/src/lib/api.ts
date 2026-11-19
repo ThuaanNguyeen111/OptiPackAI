@@ -145,7 +145,8 @@ async function rotateRefreshToken(sentAccess: string | null): Promise<RefreshOut
     const current = getAccessToken()
     if (current && current !== sentAccess) return 'ok'
     const refreshToken = getRefreshToken()
-    if (!refreshToken) return 'failed'
+    // Tab khác đã đăng xuất (localStorage dùng chung bị xoá) → phiên hết thật: hiện hộp đăng nhập lại.
+    if (!refreshToken) return 'expired'
 
     let res: Response
     try {

@@ -72,6 +72,19 @@ describe('AOFP-334 — làm mới phiên', () => {
     window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
   })
 
+  it('tab khác đã đăng xuất (không còn refresh token) → hiện hộp đăng nhập lại, không gọi refresh', async () => {
+    const onExpired = vi.fn()
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
+    const fetch = stubFetch(() => json(401, {}))
+    localStorage.clear() // tab kia bấm Đăng xuất
+    const request = apiRequest('/data', { auth: true })
+    await waitFor(() => expect(onExpired).toHaveBeenCalledTimes(1))
+    expect(refreshCalls(fetch)).toBe(0)
+    finishReLogin(false) // người dùng chọn đăng xuất trên hộp thoại
+    await expect(request).rejects.toMatchObject({ status: 401 })
+    window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
+  })
+
   it('AC3: refresh trả 401 → hộp đăng nhập lại; đăng nhập xong thì thao tác dở được gửi lại', async () => {
     const body = { name: 'đang nhập dở' }
     const fetch = stubFetch((url, auth) => {
