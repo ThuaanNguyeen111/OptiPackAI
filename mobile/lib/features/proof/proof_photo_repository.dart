@@ -27,7 +27,8 @@ class ProofPhotoRepository {
   final ApiClient api;
 
   /// Trả về link ảnh theo đúng thứ tự gửi. Danh sách rỗng thì không gọi BE.
-  Future<List<String>> upload(List<XFile> files) async {
+  /// [purpose] `receipt` = ảnh phiếu NCC khi nhập kho (BE chỉ nhận link từ thư mục này).
+  Future<List<String>> upload(List<XFile> files, {String? purpose}) async {
     if (files.isEmpty) return const [];
     if (files.length > maxProofPhotos) {
       throw const ApiException(message: 'Tối đa $maxProofPhotos ảnh mỗi lần.');
@@ -36,7 +37,8 @@ class ProofPhotoRepository {
     for (final f in files) {
       form.files.add(MapEntry('files', await MultipartFile.fromFile(f.path, filename: f.name)));
     }
-    final urls = parseProofPhotoUrls(await api.upload('/proof-photos', form));
+    final path = purpose == null ? '/proof-photos' : '/proof-photos?purpose=${Uri.encodeQueryComponent(purpose)}';
+    final urls = parseProofPhotoUrls(await api.upload(path, form));
     if (urls.length != files.length) {
       throw const ApiException(message: 'Máy chủ không trả đủ link ảnh. Thử lại.');
     }

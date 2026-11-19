@@ -50,15 +50,33 @@ export type OcrCheckProblem =
   | { kind: 'no_scan'; lineIndex: number }
   | { kind: 'out_of_range'; lineIndex: number; ocrLineIndex: number }
   | { kind: 'duplicate'; lineIndex: number; ocrLineIndex: number }
-  | { kind: 'reason_required'; lineIndex: number; label: string; ocrQuantity: number; quantity: number };
+  | { kind: 'reason_required'; lineIndex: number; label: string; ocrQuantity: number; quantity: number }
+  | { kind: 'partial_reason_required'; extraOcrLines: number[]; unlinkedLines: number[] };
 
-export type OcrCheckResult = { ok: true; checks: ReceiptOcrCheck[]; status: OcrStatus } | { ok: false; problem: OcrCheckProblem };
+export type OcrCheckResult =
+  | { ok: true; checks: ReceiptOcrCheck[]; status: OcrStatus; extraOcrLines: number[]; unlinkedLines: number[] }
+  | { ok: false; problem: OcrCheckProblem };
+
+/** So mã trên phiếu với SKU đã nhập, bỏ qua hoa/thường và ký tự ngăn cách. */
+function sameCode(a: string, b: string): boolean {
+  const norm = (v: string): string => v.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return norm(a) === norm(b);
+}
+
+/**
+ * AOFP-328 — `fullCoverage` (phiếu nhập kho): phiếu có dòng chưa gắn dòng nhập, hoặc dòng nhập
+ * không gắn dòng phiếu → `partial`, bắt `partialReason`. Nhập vật tư (1 mã / lần) không bật.
+ */
+export interface OcrCheckOptions {
+  fullCoverage?: boolean;
+  partialReason?: string;
+}
 
 /**
  * Đối chiếu số đã nhập với số AI đọc trên phiếu. Lệch không chặn nhưng bắt lý do (Q2).
  * Không dòng nào gắn với phiếu → `not_checked` (chưa đối chiếu).
  */
-export function checkAgainstScan(scanLines: ReceiptOcrLine[] | null, inputs: OcrCheckInput[]): OcrCheckResult {
+export function checkAgainstScan(scanLines: ReceiptOcrLine[] | null, inputs: OcrCheckInput[], options: OcrCheckOptions = {}): OcrCheckResult {
   const checks: ReceiptOcrCheck[] = [];
   const used = new Set<number>();
   for (const input of inputs) {
@@ -82,10 +100,23 @@ export function checkAgainstScan(scanLines: ReceiptOcrLine[] | null, inputs: Ocr
       ocr_quantity: ocr.quantity,
       quantity: input.quantity,
       mismatch_reason: differs ? reason : null,
+      code_mismatch: ocr.code !== null && !sameCode(ocr.code, input.label),
     });
   }
-  const status: OcrStatus = checks.length === 0 ? 'not_checked' : checks.some((c) => c.ocr_quantity !== c.quantity) ? 'mismatch' : 'matched';
-  return { ok: true, checks, status };
+  const extraOcrLines = options.fullCoverage && scanLines ? scanLines.map((_, i) => i).filter((i) => !used.has(i)) : [];
+  const unlinkedLines = options.fullCoverage && scanLines ? inputs.filter((i) => i.ocrLineIndex === undefined).map((i) => i.lineIndex) : [];
+  const partial = extraOcrLines.length + unlinkedLines.length > 0;
+  if (partial && (options.partialReason?.trim() ?? '') === '') {
+    return { ok: false, problem: { kind: 'partial_reason_required', extraOcrLines, unlinkedLines } };
+  }
+  const status: OcrStatus = checks.some((c) => c.ocr_quantity !== c.quantity)
+    ? 'mismatch'
+    : partial
+      ? 'partial'
+      : checks.length === 0
+        ? 'not_checked'
+        : 'matched';
+  return { ok: true, checks, status, extraOcrLines, unlinkedLines };
 }
 
 /** Kết quả đối chiếu dùng chung cho phiếu nhập kho và nhập vật tư. */
@@ -94,6 +125,8 @@ export interface ResolvedOcrChecks {
   snapshot: ReceiptOcrSnapshot | null;
   checks: ReceiptOcrCheck[];
   status: OcrStatus;
+  extraOcrLines?: number[]; // AOFP-328 — dòng phiếu (OCR) không gắn dòng nhập nào
+  partialReason?: string | null;
 }
 
 export const NOT_CHECKED: ResolvedOcrChecks = { scanId: null, snapshot: null, checks: [], status: 'not_checked' };

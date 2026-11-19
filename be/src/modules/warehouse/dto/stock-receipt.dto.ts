@@ -110,6 +110,18 @@ export class CreateStockReceiptDto {
   @IsMongoId({ message: 'ocr_scan_id phải là ObjectId hợp lệ' })
   ocr_scan_id?: string;
 
+  @ApiPropertyOptional({ description: 'AOFP-328 — BẮT BUỘC khi phiếu chỉ khớp một phần: phiếu NCC có dòng chưa gắn, hoặc dòng nhập không gắn dòng phiếu. Thiếu → 400 WH_RECEIPT_PARTIAL_REASON_REQUIRED.', example: 'NCC giao thiếu 1 mã, giao bù tuần sau' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  partial_reason?: string;
+
+  @ApiPropertyOptional({ description: 'AOFP-328 — mã thao tác do app sinh (UUID). Gửi lại cùng mã → trả phiếu cũ, tồn không cộng lần 2.', example: '0b6f7c1e-3a5d-4c1e-9a52-7d1f0c2b9e11' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  client_event_id?: string;
+
   @ApiProperty({ type: [StockReceiptLineDto] })
   @IsArray()
   @ArrayMinSize(1, { message: 'Phiếu nhập phải có ít nhất 1 dòng' })
