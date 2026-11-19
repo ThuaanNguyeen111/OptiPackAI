@@ -64,9 +64,8 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     updateMany: jest.Mock;
   };
   let connection: { startSession: jest.Mock };
-  let stockReservation: { reconcile: jest.Mock; consume: jest.Mock; unconsume: jest.Mock; releaseGroup: jest.Mock; setGroupWarehouse: jest.Mock };
   let inventoryMovementModel: { create: jest.Mock };
-  let stockReservation: Record<'reconcile' | 'consume' | 'assertNotReservedByOthers' | 'releaseGroup' | 'setGroupWarehouse', jest.Mock>;
+  let stockReservation: Record<'reconcile' | 'consume' | 'unconsume' | 'assertNotReservedByOthers' | 'releaseGroup' | 'setGroupWarehouse', jest.Mock>;
 
   function mockGroup(overrides: Record<string, unknown> = {}): void {
     orderGroupModel.findById.mockResolvedValue({
@@ -116,13 +115,6 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
   }
 
   beforeEach(() => {
-    stockReservation = {
-      reconcile: jest.fn().mockResolvedValue([]),
-      consume: jest.fn().mockResolvedValue(undefined),
-      assertNotReservedByOthers: jest.fn().mockResolvedValue(undefined),
-      releaseGroup: jest.fn().mockResolvedValue(0),
-      setGroupWarehouse: jest.fn().mockResolvedValue(undefined),
-    };
     orderGroupModel = {
       findById: jest.fn(),
       updateOne: jest.fn().mockResolvedValue({ matchedCount: 1 }),
@@ -150,6 +142,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       reconcile: jest.fn().mockResolvedValue([]),
       consume: jest.fn().mockResolvedValue(undefined),
       unconsume: jest.fn().mockResolvedValue(undefined),
+      assertNotReservedByOthers: jest.fn().mockResolvedValue(undefined),
       releaseGroup: jest.fn().mockResolvedValue(0),
       setGroupWarehouse: jest.fn().mockResolvedValue(undefined),
     };

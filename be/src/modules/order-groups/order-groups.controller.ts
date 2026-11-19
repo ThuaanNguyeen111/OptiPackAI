@@ -65,6 +65,18 @@ export interface OrderGroupResponse {
     reserved: number;
     shortage: number;
   }[]; // K5
+  /** AOFP-329 — báo thiếu hàng gần nhất (null = chưa báo). */
+  missingReport: {
+    sku: string;
+    quantity: number;
+    stillNeeded: number;
+    ordered: number;
+    note: string | null;
+    reporterId: string | null;
+    reporterName: string | null;
+    pickRound: number;
+    at: Date;
+  } | null;
   id: string;
   platform: string;
   shopId: string;
@@ -147,6 +159,19 @@ export function toResponse(
     origin: group.origin ?? 'marketplace',
     sourceReturnId: group.source_return_id?.toString() ?? null,
     stockShortageItems: group.stock_shortage_items ?? [], // K5
+    missingReport: group.missing_report
+      ? {
+          sku: group.missing_report.sku,
+          quantity: group.missing_report.quantity,
+          stillNeeded: group.missing_report.still_needed,
+          ordered: group.missing_report.ordered,
+          note: group.missing_report.note,
+          reporterId: group.missing_report.reporter_id?.toString() ?? null,
+          reporterName: group.missing_report.reporter_name,
+          pickRound: group.missing_report.pick_round,
+          at: group.missing_report.at,
+        }
+      : null,
     id: group._id.toString(),
     platform: group.platform,
     shopId: group.shop_id,
@@ -473,6 +498,7 @@ export class OrderGroupsController {
       body.missing_quantity,
       body.expected_version,
       body.note,
+      body.warehouse_id,
     );
     return buildOrderGroupResponse(this.orderGroupsService, group);
   }

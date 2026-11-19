@@ -9,6 +9,7 @@
 export const ORD_GROUP_ERROR_CODES = {
   INVALID_GROUP_ID: 'ORD_GROUP_INVALID_ID',
   GROUP_NOT_FOUND: 'ORD_GROUP_NOT_FOUND',
+  MISSING_REPORT_INVALID: 'ORD_GROUP_MISSING_REPORT_INVALID', // AOFP-329 — báo thiếu SKU ngoài nhóm / vượt số còn cần
   STATE_CONFLICT: 'ORD_GROUP_STATE_CONFLICT', // Rule #18 optimistic concurrency — version không khớp
   INVALID_TRANSITION: 'ORD_GROUP_INVALID_TRANSITION', // MỚI — chuyển trạng thái không hợp lệ theo allowed-status-transitions.ts
   // BỔ SUNG (2026-09-10) — pick-item
