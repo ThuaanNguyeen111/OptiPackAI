@@ -88,7 +88,10 @@ export interface ShipmentResponse {
     carrierStatus: string | null;
     carrierStatusLabel: string | null;
     bookingError: string | null;
+    codAmountVnd: number;
   }[];
+  /** AOFP-319 — tổng tiền hãng thu hộ của các kiện (vận đơn hãng). */
+  codAmountVnd: number;
   pickedUpAt: Date | null;
   carrierReturnedAt: Date | null;
   cancelledAt: Date | null;
@@ -157,7 +160,9 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
       carrierStatus: p.carrier_status ?? null,
       carrierStatusLabel: p.carrier_status ? (GHN_STATUS_LABELS[p.carrier_status] ?? p.carrier_status) : null,
       bookingError: p.booking_error ?? null,
+      codAmountVnd: p.cod_amount ?? 0,
     })),
+    codAmountVnd: (doc.carrier_parcels ?? []).reduce((sum, p) => sum + (p.cod_amount ?? 0), 0),
     pickedUpAt: doc.picked_up_at ?? null,
     carrierReturnedAt: doc.carrier_returned_at ?? null,
     cancelledAt: doc.cancelled_at ?? null,

@@ -147,6 +147,35 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
       expect(eventTypes()).toEqual([ShipmentEventType.START_DELIVERY, ShipmentEventType.CARRIER_BOOKED]);
     });
 
+    it('AOFP-319 — kiện 1 (đơn A) đã có mã, đặt tiếp kiện 2 gộp A+B → chỉ thu B, lưu cod_amount (AC1/AC3)', async () => {
+      const otherId = new Types.ObjectId();
+      shipmentModel.findById.mockResolvedValue(liveShipment({
+        carrier_parcels: [
+          { parcel_no: 1, order_id: orderId, client_order_code: 'SHP-X-1', carrier_order_code: 'GHN1', carrier_status: 'ready_to_pick', cod_amount: 200000 },
+          { parcel_no: 2, order_id: orderId, order_ids: [orderId, otherId], client_order_code: 'SHP-X-2', carrier_order_code: null },
+        ],
+      }));
+      const outer = { length_mm: 300, width_mm: 250, height_mm: 40 };
+      shippingService.parcelsOfGroup.mockResolvedValue([
+        { orderId: orderId.toString(), cartonIndex: 0, parcelNo: 1, actualG: 300, outer },
+        { orderId: orderId.toString(), orderIds: [orderId.toString(), otherId.toString()], cartonIndex: 1, parcelNo: 2, actualG: 300, outer },
+      ]);
+      liveCarrier.bookParcel.mockResolvedValue({
+        carrierParcel: { weight_g: 300, length_cm: 30, width_cm: 25, height_cm: 4 },
+        result: { carrier_order_code: 'GHN2', sort_code: null, fee: { total: 20000 }, expected_delivery_at: null },
+        assumptions: [],
+        codAmount: 150000,
+      });
+      shipmentModel.findOneAndUpdate.mockImplementation((_f: unknown, u: { $set: Record<string, unknown> }) => Promise.resolve(liveShipment(u.$set)));
+
+      await service.bookCarrierParcels(shipmentId.toString());
+
+      expect(liveCarrier.bookParcel).toHaveBeenCalledTimes(1);
+      expect((liveCarrier.bookParcel.mock.calls[0] as [{ codOrderIds: string[] }])[0].codOrderIds).toEqual([otherId.toString()]);
+      const set = (shipmentModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { carrier_parcels: { cod_amount: number }[] } }])[1].$set;
+      expect(set.carrier_parcels.map((p) => p.cod_amount)).toEqual([200000, 150000]);
+    });
+
     it('hãng báo sai địa chỉ → vận đơn vẫn còn, lỗi ghi vào carrier_booking_error, chưa có sự kiện CARRIER_BOOKED', async () => {
       shipmentModel.findById.mockResolvedValue(liveShipment({ carrier_parcels: [{ parcel_no: 1, order_id: orderId, client_order_code: 'SHP-X-1', carrier_order_code: null }] }));
       liveCarrier.bookParcel.mockRejectedValue(new AppException('CARRIER_ADDRESS_CONFLICT', 'Số nhà/đường không thuộc phường', 422));

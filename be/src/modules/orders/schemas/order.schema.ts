@@ -258,6 +258,11 @@ export class Order {
   @Prop({ type: String, required: true, default: 'VND' })
   currency!: string;
 
+  // AOFP-319 — cách khách trả tiền do sàn gửi (VD 'COD'); null = sàn không gửi. Quyết định
+  // tiền hãng thu hộ khi tạo vận đơn (shipping/utils/cod.util.ts).
+  @Prop({ type: String, default: null })
+  payment_method?: string | null;
+
   // true = đơn NÀY đã bị gộp vào 1 gói hàng chung với đơn khác cùng
   // consolidation_key — khi true, `consolidated_group_id` bắt buộc có giá trị.
   @Prop({ type: Boolean, required: true, default: false })

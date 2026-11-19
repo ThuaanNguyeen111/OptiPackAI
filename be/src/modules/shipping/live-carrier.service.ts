@@ -20,6 +20,7 @@ import { notPackableStatuses } from '../orders/order-sync-policy';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import type { ParcelInput, ParcelQuote, ServiceQuote } from './utils/shipping-cost.util';
 import { volumetricWeightG } from './utils/shipping-cost.util';
+import { codAmountOf, codOrderIdsPerParcel } from './utils/cod.util';
 
 /** Số kiện hỏi hãng cùng lúc (tránh chạm giới hạn tần suất GHN). */
 export const QUOTE_CONCURRENCY = 4;
@@ -86,12 +87,16 @@ export interface ParcelBookingInput {
   service: LiveServiceRef;
   toLocation?: ToLocationInput | null;
   note?: string | null;
+  /** AOFP-319 — các đơn thu COD ở kiện này (xem codOrderIdsPerParcel); bỏ trống = không thu. */
+  codOrderIds?: string[];
 }
 
 export interface ParcelBookingResult {
   carrierParcel: CarrierParcel;
   result: CreateShipmentResult;
   assumptions: string[];
+  /** AOFP-319 — tiền hãng thu hộ ở kiện này (đã gửi `cod_amount`). */
+  codAmount: number;
 }
 
 const VN_PHONE = /^0\d{9,10}$/;
@@ -372,7 +377,9 @@ export class LiveCarrierService {
     const recipients = new Map<string, ResolvedRecipient>();
     for (const [id, order] of orders) recipients.set(id, await this.prepareRecipient(order, toLocation));
     const assumptions = new Set<string>();
-    const results = await mapWithConcurrency(parcels, QUOTE_CONCURRENCY, async (p) => {
+    const codIds = codOrderIdsPerParcel(parcels.map((p) => ({ parcelNo: p.parcelNo, orderIds: p.orderIds?.length ? p.orderIds : [p.orderId ?? ''] })));
+    const codAmounts = await Promise.all(codIds.map((ids) => this.codAmountFor(ids, orders)));
+    const results = await mapWithConcurrency(parcels, QUOTE_CONCURRENCY, async (p, idx) => {
       const order = orders.get(p.orderId ?? '') ?? (await this.loadOrder(p.orderId ?? ''));
       const resolved = recipients.get(p.orderId ?? '') ?? (await this.prepareRecipient(order, toLocation));
       const carrierParcel = this.toCarrierParcel(p);
@@ -383,7 +390,7 @@ export class LiveCarrierService {
           parcel: carrierParcel,
           items: this.itemsOf(order),
           content: `Đơn ${order.platform_order_id}`.slice(0, 200),
-          cod_amount: 0,
+          cod_amount: codAmounts[idx] ?? 0,
           ...(service.serviceTypeId !== null ? { service_type_id: service.serviceTypeId } : {}),
         }),
       );
@@ -426,6 +433,7 @@ export class LiveCarrierService {
     const order = await this.loadOrder(input.parcel.orderId ?? '');
     const resolved = await this.prepareRecipient(order, input.toLocation);
     const carrierParcel = this.toCarrierParcel(input.parcel);
+    const codAmount = await this.codAmountFor(input.codOrderIds ?? [], new Map([[order._id.toString(), order]]));
     const { value: result, assumptions } = await this.withDemoStreetFallback(resolved, (recipient) =>
       this.adapter.createShipment({
         client_order_code: input.clientOrderCode,
@@ -433,12 +441,19 @@ export class LiveCarrierService {
         parcel: carrierParcel,
         items: this.itemsOf(order),
         content: `Đơn ${order.platform_order_id}`.slice(0, 200),
-        cod_amount: 0,
+        cod_amount: codAmount,
         ...(input.note ? { note: input.note.slice(0, 500) } : {}),
         ...(input.service.serviceTypeId !== null ? { service_type_id: input.service.serviceTypeId } : {}),
       }),
     );
     this.logger.log(`Đã tạo vận đơn hãng ${this.adapter.code} ${result.carrier_order_code} cho ${input.clientOrderCode}.`);
-    return { carrierParcel, result, assumptions };
+    return { carrierParcel, result, assumptions, codAmount };
+  }
+
+  /** AOFP-319 — tổng COD của các đơn (đọc đơn chưa có trong `known`). */
+  private async codAmountFor(orderIds: string[], known: Map<string, OrderDocument>): Promise<number> {
+    let sum = 0;
+    for (const id of orderIds) sum += codAmountOf(known.get(id) ?? (await this.loadOrder(id)));
+    return sum;
   }
 }
