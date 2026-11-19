@@ -109,6 +109,7 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     stockShortageItems: mapShortageItems(
       row.stockShortageItems ?? row.stock_shortage_items,
     ),
+    missingReport: mapMissingReport(row.missingReport ?? row.missing_report),
     manualLink: mapManualLink(row.manualLink ?? row.manual_link),
     linkedGroupCount: pickNumber(
       row.linkedGroupCount,
@@ -217,6 +218,22 @@ function mapGroupOrderLines(raw: unknown): GroupOrderLine[] {
       },
     ]
   })
+}
+
+function mapMissingReport(raw: unknown): OrderGroup['missingReport'] {
+  const row = asRecord(raw)
+  const sku = pickString(row?.sku)
+  if (!row || !sku) return null
+  return {
+    sku,
+    quantity: pickNumber(row.quantity),
+    stillNeeded: pickNumber(row.stillNeeded ?? row.still_needed),
+    ordered: pickNumber(row.ordered),
+    note: pickString(row.note) || null,
+    reporterName: pickString(row.reporterName ?? row.reporter_name) || null,
+    pickRound: pickNumber(row.pickRound ?? row.pick_round),
+    at: toIso(row.at),
+  }
 }
 
 function mapShortageItems(raw: unknown): OrderGroup['stockShortageItems'] {

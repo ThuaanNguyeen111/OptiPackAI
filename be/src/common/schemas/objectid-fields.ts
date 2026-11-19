@@ -118,6 +118,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'split_from_group_id',
       'merged_into_group_id',
     ],
+    nested: ['missing_report.reporter_id', 'missing_report.warehouse_id'], // 19/11/2026 — AOFP-329
   }, // manual_link_id: 13/10/2026, warehouse_id: 21/10/2026, split/merged: 23/10/2026
   // 10/10/2026 — các collection của thi_dev (đóng gói 3D, cài đặt, storefront) khai `Types.ObjectId`
   // (bị hiểu là Mixed) cho tới lúc gộp main; nay đã đổi sang SchemaTypes.ObjectId.

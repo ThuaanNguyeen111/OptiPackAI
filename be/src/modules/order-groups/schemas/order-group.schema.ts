@@ -31,6 +31,23 @@ import { reverseHexId } from '../utils/group-id-search.util';
  *               (đặc thù sàn dừng lại ở tầng Adapter/Mapper).
  * ===================================================================
  */
+/** AOFP-329 — báo thiếu hàng gần nhất của nhóm (ai báo, thiếu bao nhiêu) cho người quyết định. */
+@Schema({ _id: false })
+export class MissingReport {
+  @Prop({ type: String, required: true }) sku!: string;
+  @Prop({ type: Number, required: true }) quantity!: number;
+  /** Số còn cần lấy của SKU lúc báo (đặt − đã lấy lượt này). */
+  @Prop({ type: Number, required: true }) still_needed!: number;
+  @Prop({ type: Number, required: true }) ordered!: number;
+  @Prop({ type: String, default: null }) note!: string | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) reporter_id!: Types.ObjectId | null;
+  @Prop({ type: String, default: null }) reporter_name!: string | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) warehouse_id!: Types.ObjectId | null;
+  @Prop({ type: Number, required: true }) pick_round!: number;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const MissingReportSchema = SchemaFactory.createForClass(MissingReport);
+
 @Schema({
   collection: 'order_groups',
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
@@ -205,6 +222,10 @@ export class OrderGroup {
     reserved: number;
     shortage: number;
   }[];
+
+  /** AOFP-329 — báo thiếu hàng gần nhất; ghi đè mỗi lần báo. null/vắng = chưa từng báo. */
+  @Prop({ type: MissingReportSchema, default: null })
+  missing_report?: MissingReport | null;
 
   /**
    * 22/10/2026 — Nhóm đã lấy xong nhưng KHÔNG tính được kế hoạch đóng gói vì có SKU
