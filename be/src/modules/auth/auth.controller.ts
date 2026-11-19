@@ -9,6 +9,7 @@ import {
   Query,
   Redirect,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -19,7 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService, LoginResult, MfaRequiredResult } from './auth.service';
 import { GoogleOAuthErrorCode } from '../../common/constants/messages.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -43,6 +44,17 @@ import {
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/authenticated-request.interface';
 import type { RequestMeta, TokenPair } from './services/token.service';
+
+const OAUTH_STATE_COOKIE = 'op_oauth_state';
+
+/** Đọc 1 cookie từ header `Cookie` (BE không dùng cookie-parser). */
+export function readCookie(header: string | undefined, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return undefined;
+}
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -234,8 +246,19 @@ export class AuthController {
   })
   @Get('google')
   @Redirect()
-  googleAuth(@Query('code_challenge') codeChallenge?: string): { url: string } {
+  googleAuth(
+    @Res({ passthrough: true }) res: Response,
+    @Query('code_challenge') codeChallenge?: string,
+  ): { url: string } {
     const state = this.authService.generateOAuthState();
+    // AOFP-338 F-50 — state chỉ hợp lệ trên đúng trình duyệt đã bấm "Đăng nhập Google" (chống login CSRF).
+    res.cookie(OAUTH_STATE_COOKIE, state, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.configService.get<string>('NODE_ENV') === 'production',
+      maxAge: 5 * 60 * 1000,
+      path: '/',
+    });
     return {
       url: this.authService.getGoogleAuthorizationUrl(state, codeChallenge),
     };
@@ -249,11 +272,17 @@ export class AuthController {
     @Query('state') state: string,
     @Query('code_verifier') codeVerifier: string | undefined,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<{ url: string }> {
     const frontendUrl = this.configService.get<string>(
       'CLIENT_REDIRECT_CALLBACK',
       'http://localhost:5173/oauth-success',
     );
+    const stateFromBrowser = readCookie(req.headers.cookie, OAUTH_STATE_COOKIE);
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    if (!state || stateFromBrowser !== state) {
+      return { url: `${frontendUrl}?error=${GoogleOAuthErrorCode.INVALID_STATE}` };
+    }
 
     if (!code) {
       return {

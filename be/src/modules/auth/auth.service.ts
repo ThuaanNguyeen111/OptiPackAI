@@ -226,16 +226,18 @@ export class AuthService {
             );
             throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_BACKUP_CODE_INVALID, AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID));
           }
-          await this.usersService.consumeBackupCode(user.id, usedIndex);
+          const consumed = await this.usersService.consumeBackupCode(user.id, user.mfa_backup_codes[usedIndex] ?? '');
+          if (!consumed) {
+            throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_BACKUP_CODE_INVALID, AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID));
+          }
           newTrustedDeviceToken = await this.issueTrustedDeviceToken(
             user.id,
             meta,
           );
         } else if (mfaToken) {
-          const isMfaValid = this.mfaService.verifyToken(
-            mfaToken,
-            user.mfa_secret,
-          );
+          const isMfaValid =
+            this.mfaService.verifyToken(mfaToken, user.mfa_secret) &&
+            (await this.mfaService.claimToken(user.id, mfaToken));
           if (!isMfaValid) {
             await this.writeAuditLog(
               email,
@@ -618,6 +620,8 @@ export class AuthService {
 
     await this.usersService.changePassword(user.id, newPassword);
     await this.usersService.clearPasswordResetToken(user.id);
+    // AOFP-338 F-50 — đặt lại mật khẩu xong phải đăng nhập được ngay, không còn bị khoá 15 phút vì lần sai cũ.
+    await this.usersService.resetFailedLoginAttempts(user.id);
     // Đổi mật khẩu qua đường quên mật khẩu cũng phải thu hồi mọi session cũ,
     // giống hệt đổi mật khẩu thông thường (FIX #3 gốc) — phòng trường hợp
     // chính kẻ chiếm được máy cũ mới là người kích hoạt luồng quên mật khẩu.

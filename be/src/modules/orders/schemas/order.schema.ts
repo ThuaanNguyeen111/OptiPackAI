@@ -322,6 +322,8 @@ OrderSchema.index(
  *     cần bước SORT_KEY_GENERATOR (in-memory sort) tốn thêm bộ nhớ.
  */
 OrderSchema.index({ shop_id: 1, status: 1, created_at: -1 });
+// AOFP-338 — Tổng quan gộp đơn nhận theo khoảng ngày (mọi shop): $match created_at.
+OrderSchema.index({ created_at: 1 });
 
 /**
  * (c) PARTIAL INDEX cho bước consolidation — CHỈ index đơn đang ở

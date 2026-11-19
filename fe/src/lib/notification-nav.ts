@@ -54,6 +54,7 @@ export function resolveNotificationPath(
   if (
     type === 'delivery_failed' ||
     type === 'delivery_returning' ||
+    type === 'carrier_incident' ||
     type === 'delivery_overdue'
   ) {
     return '/app/shipping'

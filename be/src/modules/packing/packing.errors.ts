@@ -25,6 +25,7 @@ export const PACKING_ERROR_CODES = {
   SEAL_PHOTO_STORAGE_MISSING: 'PACKING_SEAL_PHOTO_STORAGE_MISSING', // bật bắt buộc ảnh khi server chưa có Cloudinary
   WEIGHT_REQUIRED: 'PACKING_WEIGHT_REQUIRED', // cân lại mà không gửi cân
   SELF_REVIEW_FORBIDDEN: 'PACKING_SELF_REVIEW_FORBIDDEN', // tự chấp nhận kiện mình niêm phong
+  PLAN_STALE: 'PACKING_PLAN_STALE', // AOFP-338 — hồ sơ hàng / danh mục bao bì đổi sau lúc tính: tính lại rồi mới chấp nhận
   SELF_APPROVE_FORBIDDEN: 'PACKING_SELF_APPROVE_FORBIDDEN', // (09/10/2026) tự duyệt kế hoạch thủ công do mình lập
   NOT_COMPLETE: 'PACKING_NOT_COMPLETE', // hoàn tất khi còn kiện chưa niêm phong/đang giữ
   PARCEL_LIMIT_EXCEEDED: 'PACKING_PARCEL_LIMIT_EXCEEDED', // vượt số kiện tối đa, duyệt thiếu lý do

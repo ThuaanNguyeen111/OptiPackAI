@@ -13,7 +13,8 @@ interface Rule { when: (f: Filter) => boolean; rows: unknown[] }
 interface Chain { select: jest.Mock<Chain>; lean: jest.Mock<Promise<unknown[]>> }
 
 /** Model giả: find(filter) trả hàng của rule khớp đầu tiên; countDocuments trả số cố định theo rule. */
-interface ModelMock { find: jest.Mock; countDocuments: jest.Mock; distinct: jest.Mock }
+interface ModelMock { find: jest.Mock; countDocuments: jest.Mock; distinct: jest.Mock; aggregate: jest.Mock }
+interface RawOrder { platform: string; status: string; total_amount: number; created_at: Date }
 function model(rules: Rule[] = [], counts: { when: (f: Filter) => boolean; n: number }[] = []): ModelMock {
   const rowsFor = (f: Filter): unknown[] => rules.find((r) => r.when(f))?.rows ?? [];
   return {
@@ -23,6 +24,19 @@ function model(rules: Rule[] = [], counts: { when: (f: Filter) => boolean; n: nu
     }),
     countDocuments: jest.fn((f: Filter) => ({ exec: () => Promise.resolve(counts.find((c) => c.when(f))?.n ?? 0) })),
     distinct: jest.fn(() => Promise.resolve([])),
+    // Gộp như $group của ordersReceived: sàn × ngày giờ VN × trạng thái.
+    aggregate: jest.fn((pipeline: [{ $match: Filter }]) => {
+      const buckets = new Map<string, { _id: { platform: string; day: string; status: string }; orders: number; amount: number }>();
+      for (const o of rowsFor(pipeline[0].$match) as RawOrder[]) {
+        const day = new Date(o.created_at.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+        const key = `${o.platform}|${day}|${o.status}`;
+        const b = buckets.get(key) ?? { _id: { platform: o.platform, day, status: o.status }, orders: 0, amount: 0 };
+        b.orders += 1;
+        b.amount += o.total_amount;
+        buckets.set(key, b);
+      }
+      return Promise.resolve([...buckets.values()]);
+    }),
   };
 }
 
@@ -93,6 +107,23 @@ describe('DashboardService.summary', () => {
     expect(summary.sales.daily).toHaveLength(7);
     expect(summary.sales.daily.find((d) => d.date === '2026-10-28')).toMatchObject({ ordersReceived: 1, revenuePlacedVnd: 100_000 }); // 18h UTC 27 = 28 ở VN
     expect(summary.sales.daily.find((d) => d.date === '2026-10-24')).toMatchObject({ ordersDelivered: 1, revenueDeliveredVnd: 300_000 });
+  });
+
+  it('AOFP-338 F-49: đơn chưa thanh toán / thất bại / đã hoàn không tính vào doanh thu đặt hàng', async () => {
+    const at = new Date('2026-10-23T03:00:00Z');
+    const order = model([
+      { when: (f) => inRange(f, 'created_at'), rows: [
+        { platform: 'aurelle', status: OrderStatus.PENDING, total_amount: 200_000, created_at: at },
+        { platform: 'aurelle', status: OrderStatus.UNPAID, total_amount: 500_000, created_at: at },
+        { platform: 'lazada', status: OrderStatus.FAILED, total_amount: 700_000, created_at: at },
+        { platform: 'lazada', status: OrderStatus.RETURNED, total_amount: 900_000, created_at: at },
+      ] },
+    ]);
+    const summary = await build({ order }).service.summary(from, to, undefined, now);
+    expect(summary.sales.current).toMatchObject({ ordersReceived: 4, ordersCanceled: 0, revenuePlacedVnd: 200_000, avgOrderValueVnd: 200_000 });
+    expect(summary.sales.byPlatform.map((p) => [p.platform, p.revenuePlacedVnd])).toEqual([['aurelle', 200_000], ['lazada', 0]]);
+    expect(summary.sales.daily.find((d) => d.date === '2026-10-23')).toMatchObject({ ordersReceived: 4, revenuePlacedVnd: 200_000 });
+    expect(order.find.mock.calls.some(([f]) => inRange(f as Filter, 'created_at'))).toBe(false); // không nạp từng đơn
   });
 
   it('chi phí: phí GHN thật + báo giá; bao bì lấy từ báo cáo đóng gói; tỷ lệ trên doanh thu', async () => {
