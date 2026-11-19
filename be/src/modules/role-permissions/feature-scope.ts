@@ -1,4 +1,4 @@
-import { CustomDecorator, SetMetadata } from '@nestjs/common';
+import { applyDecorators, CustomDecorator, SetMetadata } from '@nestjs/common';
 import {
   CONFIGURABLE_ROLES,
   type ConfigurableRole,
@@ -15,6 +15,14 @@ export const FEATURES_KEY = 'feature_scope';
  */
 export const Features = (...features: Feature[]): CustomDecorator =>
   SetMetadata(FEATURES_KEY, features);
+
+/**
+ * AOFP-335 — controller cố ý KHÔNG theo trang (route công khai, webhook, chỉ Admin, mọi người
+ * đăng nhập đều dùng…). Ghi lý do để test quét controller biết đây là miễn trừ có chủ ý.
+ */
+export const FEATURE_EXEMPT_KEY = 'feature_exempt_reason';
+export const NoFeatureGate = (reason: string): ClassDecorator =>
+  applyDecorators(SetMetadata(FEATURES_KEY, []), SetMetadata(FEATURE_EXEMPT_KEY, reason));
 
 function rolesWithFeatureByDefault(feature: Feature): ConfigurableRole[] {
   return CONFIGURABLE_ROLES.filter((r) => DEFAULT_ROLE_FEATURES[r].includes(feature));

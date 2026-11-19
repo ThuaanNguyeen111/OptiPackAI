@@ -4,6 +4,7 @@ import { SaveAdminCategoryDto } from './dto/storefront-admin.dto';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
 import { StorefrontAdminService } from './storefront-admin.service';
 import type { AdminCategory } from './storefront-admin.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 /**
  * 22/10/2026 — CRUD danh mục hiển thị của website AURELLE. Mỗi danh mục có thể nối 1 danh mục
@@ -11,6 +12,7 @@ import type { AdminCategory } from './storefront-admin.service';
  * đầu SKU, nên cây danh mục website và mã kho OptiPack không lệch nhau. Xoá = ẩn (soft).
  */
 @ApiTags('Storefront Admin')
+@NoFeatureGate('Admin website AURELLE, đăng nhập riêng')
 @Controller('storefront/admin/categories')
 @UseGuards(StorefrontAdminOriginGuard, StorefrontAdminGuard)
 export class StorefrontAdminCategoriesController {

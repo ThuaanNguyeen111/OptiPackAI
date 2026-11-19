@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
@@ -16,6 +16,9 @@ import { UpdateProfileDto } from '../dto/update-profile.dto';
 import { SetLeaveDto } from '../dto/set-leave.dto';
 import { User, UserDocument } from '../schemas/user.schema';
 import { USER_ERROR_CODES } from '../users.errors';
+import { recordActivity } from '../../activity-log/activity-log.util';
+import { ActivityLog, type ActivityLogDocument } from '../../activity-log/schemas/activity-log.schema';
+import { ROLE_LABELS } from '../../history/history.labels';
 
 function isDuplicateKeyError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
@@ -56,7 +59,55 @@ export class UsersService {
     private readonly redisCache: RedisCacheService,
     private readonly mailService: MailService,
     private readonly notificationsService: NotificationsService,
+    // AOFP-335 — sổ hoạt động cho thao tác Admin trên tài khoản. Optional: test cũ không truyền.
+    @Optional() @InjectModel(ActivityLog.name)
+    private readonly activityModel?: Model<ActivityLogDocument>,
   ) {}
+
+  /**
+   * AOFP-335 — luật bảo vệ khi Admin thao tác tài khoản:
+   * - Admin cuối cùng còn hoạt động không bị hạ quyền / khoá (409 USR_LAST_ADMIN);
+   * - không tự khoá, tự đổi vai trò, tự reset mật khẩu (403 USR_SELF_ACTION_FORBIDDEN).
+   * shortcut: đếm rồi ghi không nằm trong transaction — 2 Admin khoá nhau cùng lúc vẫn lọt; thêm khoá khi có nhiều Admin.
+   */
+  private async assertAdminActionAllowed(
+    actorId: string | undefined,
+    targetId: string,
+    removesAdmin: boolean,
+  ): Promise<void> {
+    if (removesAdmin) {
+      const target = await this.userModel.findById(targetId);
+      if (target?.role === UserRole.ADMIN && target.is_active) {
+        const activeAdmins = await this.userModel.countDocuments({ role: UserRole.ADMIN, is_active: true });
+        if (activeAdmins <= 1) {
+          throw new AppException(
+            USER_ERROR_CODES.LAST_ADMIN,
+            'Đây là Admin cuối cùng còn hoạt động — không thể hạ quyền hoặc vô hiệu hóa.',
+            HttpStatus.CONFLICT,
+          );
+        }
+      }
+    }
+    if (actorId !== undefined && actorId === targetId) {
+      throw new AppException(
+        USER_ERROR_CODES.SELF_ACTION_FORBIDDEN,
+        'Không thể thao tác trên tài khoản của chính bạn',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+  }
+
+  private async logUserActivity(action: string, summary: string, actorId: string | undefined, user: UserDocument): Promise<void> {
+    await recordActivity(this.activityModel, {
+      category: 'auth',
+      action,
+      summary,
+      actorId: actorId ?? null,
+      entityType: 'user',
+      entityId: user.id,
+      entityCode: user.email,
+    });
+  }
 
   //!=============================================
   // 1. ADMIN TẠO TÀI KHOẢN NHÂN VIÊN
@@ -105,6 +156,12 @@ export class UsersService {
         name: user.name,
         temporaryPassword,
       });
+      await this.logUserActivity(
+        'user.created',
+        `Tạo tài khoản ${user.email} (${ROLE_LABELS[user.role] ?? String(user.role)})`,
+        adminId,
+        user,
+      );
 
       return { user, temporaryPassword };
     } catch (error: unknown) {
@@ -177,7 +234,9 @@ export class UsersService {
   //!=============================================
   async adminResetPassword(
     userId: string,
+    actorId?: string,
   ): Promise<{ temporaryPassword: string }> {
+    await this.assertAdminActionAllowed(actorId, userId, false);
     const temporaryPassword = this.generateTemporaryPassword();
     const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
@@ -236,6 +295,7 @@ export class UsersService {
       name: user.name,
       temporaryPassword,
     });
+    await this.logUserActivity('user.password_reset', `Reset mật khẩu tài khoản ${user.email}`, actorId, user);
 
     return { temporaryPassword };
   }
@@ -387,13 +447,25 @@ export class UsersService {
   async adminUpdateUser(
     userId: string,
     dto: AdminUpdateUserDto,
+    actorId?: string,
   ): Promise<UserDocument> {
+    if (dto.role !== undefined) {
+      await this.assertAdminActionAllowed(actorId, userId, dto.role !== UserRole.ADMIN);
+    }
     const user = await this.userModel.findByIdAndUpdate(userId, dto, {
       new: true,
     });
     if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
 
     await this.redisCache.invalidateUserAuthState(userId);
+    if (dto.role !== undefined) {
+      await this.logUserActivity(
+        'user.role_changed',
+        `Đặt vai trò tài khoản ${user.email}: ${ROLE_LABELS[dto.role] ?? String(dto.role)}`,
+        actorId,
+        user,
+      );
+    }
     return user;
   }
 
@@ -427,9 +499,11 @@ export class UsersService {
   //!=============================================
   // 4. XÓA MỀM / KÍCH HOẠT LẠI
   //!=============================================
-  async deactivate(userId: string): Promise<void> {
+  async deactivate(userId: string, actorId?: string): Promise<void> {
+    await this.assertAdminActionAllowed(actorId, userId, true);
     // FIX #33: cùng nguyên tắc transaction như adminResetPassword() ở trên
     const session = await this.connection.startSession();
+    let email = '';
     try {
       await session.withTransaction(async () => {
         const user = await this.userModel.findByIdAndUpdate(
@@ -438,6 +512,7 @@ export class UsersService {
           { session },
         );
         if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
+        email = user.email;
 
         await this.tokenService.revokeAllForUser(userId, session);
       });
@@ -446,6 +521,15 @@ export class UsersService {
     }
 
     await this.redisCache.invalidateUserAuthState(userId);
+    await recordActivity(this.activityModel, {
+      category: 'auth',
+      action: 'user.deactivated',
+      summary: `Vô hiệu hóa tài khoản ${email}`,
+      actorId: actorId ?? null,
+      entityType: 'user',
+      entityId: userId,
+      entityCode: email,
+    });
   }
 
   //!=============================================
