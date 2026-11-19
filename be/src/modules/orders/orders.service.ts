@@ -34,6 +34,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // last_polled_at vẫn tiến lên). Chặn trên 50 trang/lượt; phần còn lại lượt sau lấy tiếp.
 const SYNC_PAGE_SIZE = 100;
 const SYNC_MAX_PAGES = 50;
+/** AOFP-320 — đơn lỗi liên tục ở bấy nhiêu lượt đồng bộ thì báo ADMIN và thôi giữ mốc chờ đơn đó. */
+export const SYNC_FAILURE_ALERT_AFTER = 5;
 
 export interface SyncResult {
   fetched: number;
@@ -172,6 +174,10 @@ export class OrdersService {
 
     let upserted = 0;
     let newlyConsolidated = 0;
+    // AOFP-320 — đơn lỗi lượt này + mốc sớm nhất phải giữ lại để lượt sau kéo lại đơn đó.
+    const previousFailures = new Map((shopDoc.sync_failures ?? []).map((f) => [f.order_id, f.count]));
+    const syncFailures: { order_id: string; count: number; last_error: string }[] = [];
+    let holdBefore: Date | null = null;
 
     // Tuần tự (KHÔNG Promise.all) — mỗi đơn cần thêm 1 lần gọi
     // GetOrderItems riêng, chạy tuần tự để không dồn dập request lên
@@ -195,19 +201,49 @@ export class OrdersService {
           `Xử lý đơn ${platform} order_id=${String(rawOrder.order_id)} thất bại, bỏ qua đơn này, tiếp tục các đơn còn lại: ${describeError(error)}`,
           error instanceof Error && !isAxiosError(error) ? error.stack : undefined,
         );
+        const id = String(rawOrder.order_id);
+        const reason = describeError(error).slice(0, 500);
+        const count = (previousFailures.get(id) ?? 0) + 1;
+        syncFailures.push({ order_id: id, count, last_error: reason });
+        if (count < SYNC_FAILURE_ALERT_AFTER) {
+          // Không đọc được giờ sửa của đơn → giữ nguyên mốc cũ (an toàn: lượt sau kéo lại cả lô).
+          const at = new Date(rawOrder.updated_at);
+          const hold = Number.isNaN(at.getTime()) ? updatedAfter : at;
+          if (!holdBefore || hold < holdBefore) holdBefore = hold;
+        } else if (count === SYNC_FAILURE_ALERT_AFTER) {
+          await this.alertSyncFailure(platform, shopId, id, reason);
+        }
       }
     }
 
-    await this.marketplaceIntegrationService.markShopPolled(
-      shopDoc._id,
-      syncStartedAt,
-    );
+    // AOFP-320 — có đơn lỗi tạm thời → mốc chỉ tiến tới ngay trước đơn lỗi sớm nhất (lượt sau
+    // lấy `updated_at > mốc` nên kéo lại được đơn đó); không có → tiến như cũ.
+    const polledAt = holdBefore
+      ? new Date(Math.max(updatedAfter.getTime(), Math.min(syncStartedAt.getTime(), holdBefore.getTime() - 1000)))
+      : syncStartedAt;
+    await this.marketplaceIntegrationService.markShopPolled(shopDoc._id, polledAt, syncFailures);
 
     this.logger.log(
       `Sync ${platform} shop ${shopId}: lấy ${String(rawOrders.length)} đơn, upsert ${String(upserted)}, gộp mới ${String(newlyConsolidated)}.`,
     );
 
     return { fetched: rawOrders.length, upserted, newlyConsolidated };
+  }
+
+  /** AOFP-320 — báo ADMIN 1 đơn đồng bộ lỗi liên tục; lỗi gửi thông báo không làm hỏng lượt sync. */
+  private async alertSyncFailure(platform: MarketplacePlatform, shopId: string, platformOrderId: string, reason: string): Promise<void> {
+    try {
+      await this.notificationsService.notify({
+        recipientRole: UserRole.ADMIN,
+        type: NotificationType.SYNC_FAILED,
+        severity: 'warning',
+        title: `Đơn ${platform} không đồng bộ được`,
+        // Không gắn relatedEntity: đơn chưa từng vào DB nên không có id để mở.
+        message: `Đơn ${platformOrderId} không đồng bộ được: ${reason} (shop ${shopId}, lỗi ${String(SYNC_FAILURE_ALERT_AFTER)} lượt liên tiếp).`,
+      });
+    } catch (error) {
+      this.logger.error(`Không gửi được thông báo đơn ${platformOrderId} đồng bộ lỗi: ${describeError(error)}`);
+    }
   }
 
   /**
