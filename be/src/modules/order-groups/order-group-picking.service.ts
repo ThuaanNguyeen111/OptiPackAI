@@ -491,6 +491,8 @@ export class OrderGroupPickingService {
     expectedVersion: number,
   ): Promise<OrderGroupDocument> {
     const group = await this.core.loadGroupOrThrow(groupId);
+    // AOFP-312 — bấm trùng "lấy xong": bên đến sau thấy nhóm đã picked → phải là 409 version.
+    if (group.__v !== expectedVersion) throw this.core.versionConflict(groupId, expectedVersion);
     if (group.fulfillment_status === GroupFulfillmentStatus.PICKING) {
       const ordered = await this.core.getOrderedSkuQuantities(group);
       const picked = await this.core.getPickedSkuQuantities(group);

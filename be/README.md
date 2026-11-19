@@ -50,7 +50,8 @@ $ npm run start:prod
 # unit tests
 $ npm run test
 
-# e2e tests
+# e2e tests — cần MongoDB replica set: docker compose --profile local-db up -d mongodb
+# (mặc định DB optipackai_e2e ở localhost:27017, đổi bằng E2E_MONGODB_URI; test XOÁ sạch DB này)
 $ npm run test:e2e
 
 # test coverage
