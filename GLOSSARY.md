@@ -9,12 +9,34 @@ Một đơn khách đặt trên một sàn (Lazada, AURELLE), giữ nguyên mã 
 _Tránh_: order con, đơn lẻ
 
 **Nhóm đơn**:
-Các đơn cùng người nhận được lấy hàng chung một lượt; mỗi đơn trong nhóm vẫn có kiện và vận đơn riêng.
+Các đơn cùng người nhận được lấy hàng chung một lượt và giao chung một vận đơn; mỗi đơn vẫn có kiện riêng, trừ kiện gộp nhiều đơn của AURELLE.
 _Tránh_: đơn gộp, order group (trong UI), lô đơn
 
 **Gộp đơn**:
 Đưa một đơn mới vào nhóm đơn đang mở của cùng người nhận.
 _Tránh_: ghép đơn, consolidate (trong UI)
+
+## Kho
+
+**Ô**:
+Một vị trí cố định trên kệ, có mã như `A-03-02` (khu A, kệ 3, tầng 2); tồn kho được ghi theo SKU × ô.
+_Tránh_: bin (trong UI), ngăn, vị trí
+
+**Kệ**:
+Khung giá trong một khu, gồm nhiều tầng; mỗi tầng chia thành các ô.
+_Tránh_: rack (trong UI), giá
+
+**Lô**:
+Phần tồn của một SKU trong một ô có cùng ngày nhập; lấy hàng luôn trừ lô nhập trước (FIFO), nhân viên không quét mã lô.
+_Tránh_: batch, lot (trong UI)
+
+**Phiếu nhập**:
+Lần nhập hàng vào kho theo phiếu của nhà cung cấp, bắt buộc kèm ảnh phiếu; mỗi dòng phiếu sinh ra một lô.
+_Tránh_: phiếu nhập kho NCC, receipt (trong UI)
+
+**Giữ chỗ**:
+Số hàng đã hứa cho nhóm đơn đang chờ lấy, tính theo SKU × kho (không theo ô); hàng giữ chỗ không bán hay hứa cho đơn khác.
+_Tránh_: allocated, khoá tồn
 
 ## Lấy hàng
 
@@ -49,7 +71,7 @@ Cạnh mỏng nhất của gói quần áo sau khi gấp và cho vào túi zip; 
 _Tránh_: chiều cao áo, độ cao gói
 
 **Kiện**:
-Một thùng hoặc túi đã niêm phong, đi một vận đơn.
+Một thùng hoặc túi đã niêm phong; với GHN mỗi kiện có một mã đơn hãng riêng.
 _Tránh_: parcel (trong UI), gói, hộp
 
 **Niêm phong**:
@@ -63,7 +85,7 @@ _Tránh_: ảnh xác minh, AI soi ảnh
 ## Vận chuyển và hoàn
 
 **Vận đơn**:
-Mã giao hàng của hãng (GHN) hoặc của đội tự giao, gắn với một kiện.
+Một lần giao của một nhóm đơn (hãng GHN hoặc đội tự giao), gồm một hoặc nhiều kiện; tạo tay sau khi đóng gói, không tự tạo.
 _Tránh_: AWB (trong UI), mã ship
 
 **Phiếu trả hàng**:

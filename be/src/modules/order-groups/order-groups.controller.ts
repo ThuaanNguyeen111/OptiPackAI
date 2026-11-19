@@ -481,7 +481,7 @@ export class OrderGroupsController {
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Quyết định group đang "partial_needs_review" — approve=true: tiếp tục với phần có sẵn (picked); approve=false: hủy, quay lại awaiting_packaging.',
+      'Quyết định group đang "partial_needs_review" — approve=true: tiếp tục với phần có sẵn (picked), đơn AURELLE thiếu được báo giao thiếu; approve=false: hủy lượt lấy, mở lượt mới (pick_round + 1) và vào thẳng picking, hàng đã quét của lượt hủy nhập lại đúng ô.',
   })
   async decidePartial(
     @Param('id') id: string,
