@@ -4923,6 +4923,18 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **5. Còn lại / lưu ý gì?** Chưa thử Google với điện thoại thật: cần OAuth client **Android** (package `vn.optipack.optipack_mobile` + SHA-1, cùng project với client Web) và app nối nút Google — `GUIDE_DOC/MOBILE_UPDATE_CHECKLIST.md` mục 9d. [stated] Phần app do nhóm FE/mobile tự làm (Claude không sửa `mobile/` cho việc này) — giao ở `FE_UPDATE_CHECKLIST.md` dòng 19 / mục 16. Khởi động BE lần đầu sau khi merge sẽ log số dòng được backfill. Thêm đường ghi `seller_sku` mới bằng `bulkWrite`/`collection.*` (bỏ qua hook) thì phải tự ghi `seller_sku_normalized`. 🔄 13/11/2026 (AOFP-286): sau khi `main` bật tiền tố `/api`, mặc định `AURELLE_WEBHOOK_URL` trong `config/storefront.config.ts` vẫn trỏ `/marketplace/webhooks/aurelle` (thiếu `/api`) → website gửi webhook đơn mới / trả hàng / SKU vào 404, chỉ còn cron 10 phút; đã thêm `/api`.
 
+## 🔐 Nhật ký 16/11/2026 — Refresh token trùng `token_hash` khi 2 tab cùng làm mới (AOFP-299, docs AOFP-300)
+
+**1. Vấn đề là gì?** `POST /auth/refresh` trả 500 `E11000 duplicate key … refresh_tokens index: token_hash_1`, web đẩy người dùng ra trang đăng nhập. `TokenService.generateTokenPair()` ký refresh token chỉ từ `{ sub, email, role }` + `iat`/`exp` tính theo giây → 2 lần cấp cho cùng người trong cùng 1 giây (2 tab cùng refresh; web chỉ gộp refresh trong 1 tab, `refreshInFlight` ở `fe/src/lib/api.ts`) cho ra JWT giống hệt → cùng `token_hash`.
+
+**2. Đã làm gì?** `be/src/modules/auth/services/token.service.ts`: thêm `jwtid: randomUUID()` (`node:crypto`) khi ký refresh token → mỗi token khác nhau. Không đổi schema, không đổi access token, không đổi API.
+
+**3. Vì sao chọn cách này?** Sửa đúng gốc (token trùng) bằng chuẩn JWT (`jti`), 1 dòng, không ảnh hưởng token cũ đang lưu (vẫn đổi được bình thường).
+
+**4. Kiểm chứng?** `npx jest src/modules/auth` (7 bộ, 59 test) đạt, `npx tsc --noEmit` đạt (chạy trong `be/`).
+
+**5. Còn lại / lưu ý gì?** Vẫn còn tranh chấp: 2 yêu cầu cùng đọc 1 refresh token chưa thu hồi trước khi bên kia lưu `is_revoked` → cả 2 cùng đổi được (không còn lỗi 500). Chặn hẳn cần đổi `findOne` + `save` thành 1 lệnh `findOneAndUpdate({ token_hash, is_revoked: false })`; bên thua thì hoặc coi là dùng lại (thu hồi mọi phiên → 2 tab cùng bị đăng xuất) hoặc cho khoảng ân hạn vài giây — **chưa chốt**, cần người dùng quyết. Chạy jest phải đứng trong `be/` (`jest.config.js` gốc trỏ `be/jest.config.js` không tồn tại; `npm test` ở gốc vẫn chạy qua `test:be`).
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
