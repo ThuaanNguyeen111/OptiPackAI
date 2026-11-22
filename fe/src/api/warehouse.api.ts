@@ -824,6 +824,7 @@ function mapStockReceipt(raw: unknown): StockReceiptRecord | null {
     documentPhotoUrls: Array.isArray(row.documentPhotoUrls)
       ? row.documentPhotoUrls.filter((u): u is string => typeof u === 'string')
       : [],
+    photoSuspect: row.photoSuspect === true,
     ocrStatus: toOcrStatus(row.ocrStatus) ?? 'not_checked',
     ocrChecks: (Array.isArray(row.ocrChecks) ? row.ocrChecks : []).flatMap((item) => {
       const c = asRecord(item)

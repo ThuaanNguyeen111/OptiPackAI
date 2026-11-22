@@ -35,6 +35,8 @@ export type ReceiptEvidencePayload = {
 /** Phần "phiếu NCC" BE trả trong lịch sử nhập vật tư. */
 export type IntakeEvidence = {
   documentPhotoUrls: string[]
+  /** AOFP-311: ảnh phiếu rất giống ảnh đã dùng cho lần nhập trước (BE không chặn, chỉ gắn cờ). */
+  photoSuspect: boolean
   supplier: string | null
   ocrStatus: OcrStatus | null
   ocrText: string | null
@@ -64,6 +66,7 @@ export function mapIntakeEvidence(raw: Record<string, unknown>): IntakeEvidence 
   const urls = raw.documentPhotoUrls ?? raw.document_photo_urls
   return {
     documentPhotoUrls: Array.isArray(urls) ? urls.filter((u): u is string => typeof u === 'string') : [],
+    photoSuspect: raw.photoSuspect === true || raw.photo_suspect === true,
     supplier: str(raw.supplier),
     ocrStatus: toOcrStatus(raw.ocrStatus ?? raw.ocr_status),
     ocrText: str(raw.ocrText ?? raw.ocr_text),

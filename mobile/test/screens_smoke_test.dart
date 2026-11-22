@@ -145,8 +145,17 @@ void main() {
     await tester.tap(find.text('Đã giao').first);
     await tester.pumpAndSettle();
     expect(find.textContaining('Ảnh giao hàng (0/3) — bắt buộc'), findsOneWidget);
-    final confirm = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Chụp ít nhất 1 ảnh'));
+    // AOFP-315: shop tự giao còn phải quét QR nhãn kiện (hoặc báo nhãn hỏng kèm lý do) mới xác nhận được.
+    expect(find.widgetWithText(OutlinedButton, 'Quét QR nhãn kiện'), findsOneWidget);
+    final confirm = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Quét QR nhãn kiện trước'));
     expect(confirm.onPressed, isNull);
+
+    // Nhãn hỏng: đổi sang nhập lý do bỏ quét (≥ 5 ký tự), nút vẫn khoá cho tới khi có ảnh và lý do.
+    await tester.tap(find.text('Nhãn hỏng, không quét được'));
+    await tester.pumpAndSettle();
+    expect(find.text('Lý do bỏ quét (bắt buộc)'), findsOneWidget);
+    final needReason = tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Nhập lý do bỏ quét'));
+    expect(needReason.onPressed, isNull);
   });
 
   testWidgets('Tổng quan: thẻ số, hỏa tốc, tra cứu đơn', (tester) async {
