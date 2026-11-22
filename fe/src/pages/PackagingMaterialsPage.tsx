@@ -8,7 +8,7 @@ import {
   receiptEvidenceProblem,
   type ReceiptEvidenceState,
 } from '../components/warehouse/receipt-evidence'
-import { OcrStatusBadge } from '../components/warehouse/OcrStatusBadge'
+import { OcrStatusBadge, PhotoSuspectBadge } from '../components/warehouse/OcrStatusBadge'
 import type { ReceiptEvidencePayload } from '../api/receipt-evidence.api'
 import {
   createPackagingMaterial,
@@ -1002,6 +1002,7 @@ function MovementTable({
               <td className="py-1">{row.note ?? '—'}</td>
               <td className="space-y-0.5 py-1">
                 <OcrStatusBadge status={row.ocrStatus} vi={vi} />
+                <PhotoSuspectBadge suspect={row.photoSuspect} vi={vi} />
                 {row.ocrQuantity !== null ? (
                   <span className="block text-ink-muted">
                     {tx(vi, 'Phiếu ghi', 'Slip')} {row.ocrQuantity}

@@ -28,7 +28,7 @@ import {
   receiptEvidenceProblem,
   type ReceiptEvidenceState,
 } from '../components/warehouse/receipt-evidence'
-import { OcrStatusBadge } from '../components/warehouse/OcrStatusBadge'
+import { OcrStatusBadge, PhotoSuspectBadge } from '../components/warehouse/OcrStatusBadge'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/input'
@@ -1216,6 +1216,7 @@ function ReceiptCatalog({
                     <TableCell className="text-xs">{receipt.supplier || '—'}</TableCell>
                     <TableCell>
                       <OcrStatusBadge status={receipt.ocrStatus} vi={vi} />
+                      <PhotoSuspectBadge suspect={receipt.photoSuspect} vi={vi} />
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {receipt.totalQuantity}
@@ -1244,6 +1245,7 @@ function ReceiptCatalog({
               {detail.note ? <p className="mt-1 text-xs text-ink">{detail.note}</p> : null}
               <div className="mt-1">
                 <OcrStatusBadge status={detail.ocrStatus} vi={vi} />
+                <PhotoSuspectBadge suspect={detail.photoSuspect} vi={vi} />
               </div>
             </div>
             {detail.documentPhotoUrls.length > 0 ? (

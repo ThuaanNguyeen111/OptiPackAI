@@ -262,6 +262,8 @@ export type StockReceiptRecord = {
   lines: StockReceiptLine[]
   // 11/11/2026 — ảnh phiếu NCC + đối chiếu số AI đọc trên phiếu
   documentPhotoUrls: string[]
+  /** AOFP-311: ảnh phiếu rất giống ảnh đã dùng cho lần nhập trước. */
+  photoSuspect: boolean
   ocrStatus: OcrStatus
   ocrChecks: {
     lineIndex: number
