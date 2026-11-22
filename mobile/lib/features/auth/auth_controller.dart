@@ -107,6 +107,29 @@ class AuthController extends Notifier<AuthState> {
     return outcome;
   }
 
+  /// Bước nhập mã sau đăng nhập Google khi tài khoản bật MFA (AOFP-333).
+  Future<LoginOutcome> loginWithGoogleMfa(
+    String challenge, {
+    String? mfaToken,
+    String? backupCode,
+  }) async {
+    final repo = ref.read(authRepositoryProvider);
+    final outcome = await repo.loginWithGoogleMfa(
+      challenge: challenge,
+      mfaToken: mfaToken,
+      backupCode: backupCode,
+    );
+    if (outcome is LoginSuccess) {
+      final user = await repo.fetchMe();
+      state = AuthState(
+        status: AuthStatus.signedOut,
+        pendingUser: user,
+        pendingMustChange: outcome.mustChangePassword,
+      );
+    }
+    return outcome;
+  }
+
   /// Bấm "Vào trang làm việc" ở màn chào mừng.
   void enterWorkspace() {
     final user = state.pendingUser;

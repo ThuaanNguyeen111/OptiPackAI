@@ -118,7 +118,7 @@ class WarehouseRepository {
         'scanned_quantity': quantity,
         'scan_method': method.name,
         'warehouse_id': warehouseId,
-        if (bin != null) 'bin_location_id': bin,
+        'bin_location_id': ?bin,
         'client_event_id': id,
       },
       createdAt: DateTime.now(),
