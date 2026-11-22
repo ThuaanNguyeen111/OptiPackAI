@@ -119,8 +119,11 @@ final readyToShipProvider = FutureProvider.autoDispose<List<ShipGroup>>(
   (ref) => ref.watch(shippingRepositoryProvider).readyToShip(),
 );
 
+/// AOFP-336 — tab Đang giao mặc định chỉ hiện vận đơn giao cho mình (`shipper_id=me`).
+final shipmentsMineOnlyProvider = StateProvider<bool>((ref) => true);
+
 final shipmentsProvider = FutureProvider.autoDispose<List<ShipmentView>>(
-  (ref) => ref.watch(shippingRepositoryProvider).shipments(),
+  (ref) => ref.watch(shippingRepositoryProvider).shipments(mine: ref.watch(shipmentsMineOnlyProvider)),
 );
 
 /// Khoảng ngày + sàn đang chọn trên tab Tổng quan.

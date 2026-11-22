@@ -82,9 +82,9 @@ describe('allowed-status-transitions', () => {
     expect(getAllowedNextStatuses(GroupFulfillmentStatus.RETURNING)).toEqual([
       GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.DELIVERED,
     ]);
-    expect(getAllowedNextStatuses(GroupFulfillmentStatus.RETURNED)).toEqual([
-      GroupFulfillmentStatus.CANCELED, GroupFulfillmentStatus.DELIVERED,
-    ]);
+    // AOFP-326 (Q7) — returned là trạng thái cuối của hoàn: không sang canceled nữa.
+    expect(getAllowedNextStatuses(GroupFulfillmentStatus.RETURNED)).toEqual([GroupFulfillmentStatus.DELIVERED]);
+    expect(isValidStatusTransition(GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.CANCELED)).toBe(false);
     expect(isValidStatusTransition(GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.CANCELED)).toBe(false);
   });
 

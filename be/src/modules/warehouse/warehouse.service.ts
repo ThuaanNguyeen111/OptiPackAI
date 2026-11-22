@@ -613,21 +613,28 @@ export class WarehouseService {
     await this.assertNotInOtherBin(filter.warehouse_id, bin._id, master, dto.platform, dto.shop_id, dto.seller_sku, dto.confirm_other_bin === true);
 
     const initial = dto.initial_quantity ?? 0;
+    // AOFP-328 — tồn ban đầu là cộng tồn: phải kèm ảnh phiếu như phiếu nhập.
+    const photoUrls = dto.document_photo_urls ?? [];
+    if (initial > 0) this.requireReceiptPhotos(photoUrls);
+    const photoCheck = initial > 0 && this.receiptOcr ? await this.receiptOcr.checkPhotos(photoUrls) : { suspect: false };
     // K2 — sức chứa ô tính trên TỔNG hàng của mọi SKU đang nằm trong ô.
     if (typeof bin.capacity === 'number' && dto.force !== true && initial > 0) {
       const binTotal = await this.countStockUnits({ bin_location_id: bin._id });
       if (binTotal + initial > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, initial);
     }
     try {
-      return await this.runTx(async (session) => {
+      const result = await this.runTx(async (session) => {
         const [created] = await this.assignmentModel.create([{ ...filter, master_sku: master ?? null, quantity_on_hand: initial }], { session });
         if (!created) throw new Error('Tạo assignment không trả về document');
         if (initial > 0) {
           const lotAllocations = await this.lots.add(created, { quantity: initial, receivedAt: new Date(), source: 'initial' }, 0, session);
           await this.recordMovement(created, 'assign_initial', initial, 0, actorId, session, { note: 'Tồn ban đầu khi gán SKU vào ô', lotAllocations });
+          await this.receiptOcr?.markPhotosUsed(photoUrls, { kind: 'stock_receipt', ref: `assign:${created._id.toString()}` }, session);
         }
         return created;
       });
+      if (photoCheck.suspect && this.receiptOcr) await this.receiptOcr.notifyPhotoSuspect('gán SKU vào ô kèm tồn ban đầu', 'sku_bin_assignment', result._id.toString());
+      return result;
     } catch (error: unknown) {
       if (this.isDuplicateKeyError(error)) {
         const raced = await this.assignmentModel.findOne(lookup);
@@ -648,12 +655,22 @@ export class WarehouseService {
     quantity: number,
     force = false,
     actorId = 'system',
-    lot: { receivedAt?: string; lotCode?: string; clientEventId?: string } = {},
+    lot: { receivedAt?: string; lotCode?: string; clientEventId?: string; photoUrls?: string[]; noPhotoReason?: string; isAdmin?: boolean } = {},
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
     // 08/11/2026 — app gửi lại cùng mã thao tác → trả dòng tồn hiện tại, không cộng lần 2.
     const replay = await this.findReplayedMovement(lot.clientEventId, 'receive', assignmentId);
     if (replay) return this.replayAssignment(replay);
+    // AOFP-328 (Q3) — nhập thêm phải kèm ảnh phiếu; chỉ ADMIN được nhập không ảnh và phải ghi lý do.
+    const photoUrls = lot.photoUrls ?? [];
+    const noPhotoReason = photoUrls.length > 0 ? null : trimOrNull(lot.noPhotoReason);
+    if (photoUrls.length === 0) {
+      if (lot.isAdmin !== true) this.requireReceiptPhotos(photoUrls);
+      if (!noPhotoReason) {
+        throw new AppException(WAREHOUSE_ERROR_CODES.NO_PHOTO_REASON_REQUIRED, 'Nhập không có ảnh phiếu NCC — ghi lý do.', HttpStatus.BAD_REQUEST);
+      }
+    }
+    const photoCheck = photoUrls.length > 0 && this.receiptOcr ? await this.receiptOcr.checkPhotos(photoUrls) : { suspect: false };
     const receivedAt = this.parseReceivedAt(lot.receivedAt);
     // 🔄 07/10/2026 — SỬA LỖI: trước đây truy vấn `warehouse_id: warehouseId` (chuỗi) trong khi
     // DB lưu ObjectId và schema bị Mongoose hiểu là Mixed (không tự ép kiểu) -> không bao giờ tìm
@@ -662,11 +679,15 @@ export class WarehouseService {
     const warehouseObjectId = new Types.ObjectId(warehouseId);
     // K2 — kiểm tra sức chứa ô trước khi cộng (không atomic tuyệt đối: 2 lần
     // nhập cùng lúc có thể cùng lọt — ghi nhận ở điểm yếu, xử lý ở K3 bằng sổ cái).
-    if (Types.ObjectId.isValid(assignmentId) && !force) {
+    if (Types.ObjectId.isValid(assignmentId)) {
       const current = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: warehouseObjectId }).lean();
       if (current) {
         const bin = await this.binModel.findById(current.bin_location_id).lean();
-        if (bin && typeof bin.capacity === 'number') {
+        // AOFP-328 — không nhập vào ô đã tắt (chuyển ô / hàng hoàn đã chặn từ trước).
+        if (bin?.is_active === false) {
+          throw new AppException(WAREHOUSE_ERROR_CODES.BIN_INACTIVE, `Ô "${bin.bin_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { binId: bin._id.toString() });
+        }
+        if (!force && bin && typeof bin.capacity === 'number') {
           const binTotal = await this.countStockUnits({ bin_location_id: bin._id });
           if (binTotal + quantity > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, quantity);
         }
@@ -695,7 +716,11 @@ export class WarehouseService {
         );
         if (doc) {
           const line = await this.receiveIntoLot(doc, quantity, { receivedAt, lotCode, receiptId, clientEventId: lot.clientEventId }, actorId, session);
-          await this.saveReceipt({ _id: receiptId, receiptCode, warehouseId: doc.warehouse_id, lotCode, receivedAt, supplier: null, note: null, lines: [line], actorId }, session);
+          await this.receiptOcr?.markPhotosUsed(photoUrls, { kind: 'stock_receipt', ref: receiptId.toString() }, session);
+          await this.saveReceipt(
+            { _id: receiptId, receiptCode, warehouseId: doc.warehouse_id, lotCode, receivedAt, supplier: null, note: null, lines: [line], actorId, documentPhotoUrls: photoUrls, photoSuspect: photoCheck.suspect, noPhotoReason },
+            session,
+          );
         }
         return doc;
       });
@@ -713,6 +738,7 @@ export class WarehouseService {
         { assignmentId, warehouseId },
       );
     }
+    if (photoCheck.suspect && this.receiptOcr) await this.receiptOcr.notifyPhotoSuspect(`phiếu nhập ${receiptCode}`, 'stock_receipt', receiptId.toString());
     return updated;
   }
 
@@ -1864,6 +1890,8 @@ export class WarehouseService {
       documentPhotoUrls?: string[];
       ocr?: ResolvedOcrChecks;
       photoSuspect?: boolean;
+      clientEventId?: string | null;
+      noPhotoReason?: string | null;
     },
     session: ClientSession,
   ): Promise<StockReceiptDocument | null> {
@@ -1887,6 +1915,10 @@ export class WarehouseService {
           ocr: r.ocr?.snapshot ?? null,
           ocr_checks: r.ocr?.checks ?? [],
           photo_suspect: r.photoSuspect ?? false,
+          client_event_id: r.clientEventId ?? null,
+          ocr_extra_line_indexes: r.ocr?.extraOcrLines ?? [],
+          ocr_partial_reason: r.ocr?.partialReason ?? null,
+          no_photo_reason: r.noPhotoReason ?? null,
         },
       ],
       { session },
@@ -1906,11 +1938,12 @@ export class WarehouseService {
    */
   async createReceipt(warehouseId: string, dto: CreateStockReceiptDto, actorId: string): Promise<StockReceiptDocument> {
     if (!this.receiptModel) throw new Error('StockReceipt model chưa được đăng ký');
+    // AOFP-328 — gửi lại cùng mã (mất phản hồi) → trả phiếu cũ, không cộng tồn lần 2.
+    const replayed = await this.findReceiptByClientEventId(dto.client_event_id);
+    if (replayed) return replayed;
     // 11/11/2026 — phiếu nhập từ NCC phải kèm ảnh phiếu làm minh chứng.
     const photoUrls = dto.document_photo_urls ?? [];
-    if (photoUrls.length === 0) {
-      throw new AppException(RECEIPT_OCR_ERROR_CODES.PHOTO_REQUIRED, 'Tải ảnh phiếu nhập / phiếu giao hàng của nhà cung cấp trước khi lưu.', HttpStatus.BAD_REQUEST);
-    }
+    this.requireReceiptPhotos(photoUrls);
     const warehouse = await this.assertWarehouseActive(warehouseId);
     const receivedAt = this.parseReceivedAt(dto.received_at);
     // AOFP-311 — ảnh đã dùng cho lần nhập khác → 409; ảnh nghi chụp lại → gắn cờ.
@@ -1928,14 +1961,18 @@ export class WarehouseService {
       perAssignment.set(key, cur);
     }
 
-    // 2. Sức chứa theo ô (cộng mọi dòng cùng ô).
+    // 2. Ô đã tắt → chặn (AOFP-328); sức chứa theo ô (cộng mọi dòng cùng ô).
+    const perBin = new Map<string, number>();
+    for (const { doc, quantity } of perAssignment.values()) {
+      const key = doc.bin_location_id.toString();
+      perBin.set(key, (perBin.get(key) ?? 0) + quantity);
+    }
+    const bins = await this.binModel.find({ _id: { $in: [...perBin.keys()].map((id) => new Types.ObjectId(id)) } }).lean();
+    const inactive = bins.find((b) => b.is_active === false);
+    if (inactive) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_INACTIVE, `Ô "${inactive.bin_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { binId: inactive._id.toString() });
+    }
     if (dto.force !== true) {
-      const perBin = new Map<string, number>();
-      for (const { doc, quantity } of perAssignment.values()) {
-        const key = doc.bin_location_id.toString();
-        perBin.set(key, (perBin.get(key) ?? 0) + quantity);
-      }
-      const bins = await this.binModel.find({ _id: { $in: [...perBin.keys()].map((id) => new Types.ObjectId(id)) } }).lean();
       for (const bin of bins) {
         if (typeof bin.capacity !== 'number') continue;
         const adding = perBin.get(bin._id.toString()) ?? 0;
@@ -1950,6 +1987,7 @@ export class WarehouseService {
           dto.ocr_scan_id,
           photoUrls,
           dto.lines.map((l, i) => ({ lineIndex: i, label: labels[i] ?? '', quantity: l.quantity, ocrLineIndex: l.ocr_line_index, mismatchReason: l.mismatch_reason })),
+          { fullCoverage: true, partialReason: dto.partial_reason },
         )
       : { scanId: null, snapshot: null, checks: [], status: 'not_checked' };
 
@@ -1957,29 +1995,37 @@ export class WarehouseService {
     const receiptId = new Types.ObjectId();
     const receiptCode = generateLotCode('PN');
     const lotCode = trimOrNull(dto.lot_code)?.toUpperCase() ?? receiptCode;
-    const receipt = await this.runTx(async (session) => {
-      const lines: StockReceiptLine[] = [];
-      for (const { doc, quantity } of perAssignment.values()) {
-        const updated = await this.assignmentModel.findOneAndUpdate(
-          { _id: doc._id },
-          { $inc: { quantity_on_hand: quantity } },
-          { returnDocument: 'after', session },
-        );
-        if (!updated) {
-          throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, `Dòng tồn ${doc._id.toString()} vừa bị bỏ gán.`, HttpStatus.CONFLICT);
+    let receipt: StockReceiptDocument | null;
+    try {
+      receipt = await this.runTx(async (session) => {
+        const lines: StockReceiptLine[] = [];
+        for (const { doc, quantity } of perAssignment.values()) {
+          const updated = await this.assignmentModel.findOneAndUpdate(
+            { _id: doc._id },
+            { $inc: { quantity_on_hand: quantity } },
+            { returnDocument: 'after', session },
+          );
+          if (!updated) {
+            throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, `Dòng tồn ${doc._id.toString()} vừa bị bỏ gán.`, HttpStatus.CONFLICT);
+          }
+          lines.push(await this.receiveIntoLot(updated, quantity, { receivedAt, lotCode, receiptId }, actorId, session));
         }
-        lines.push(await this.receiveIntoLot(updated, quantity, { receivedAt, lotCode, receiptId }, actorId, session));
-      }
-      await this.receiptOcr?.markPhotosUsed(photoUrls, { kind: 'stock_receipt', ref: receiptId.toString() }, session);
-      return this.saveReceipt(
-        {
-          _id: receiptId, receiptCode, warehouseId: warehouse._id, lotCode, receivedAt,
-          supplier: trimOrNull(dto.supplier) ?? ocr.snapshot?.supplier ?? null, note: trimOrNull(dto.note), lines, actorId,
-          documentPhotoUrls: photoUrls, ocr, photoSuspect: photoCheck.suspect,
-        },
-        session,
-      );
-    });
+        await this.receiptOcr?.markPhotosUsed(photoUrls, { kind: 'stock_receipt', ref: receiptId.toString() }, session);
+        return this.saveReceipt(
+          {
+            _id: receiptId, receiptCode, warehouseId: warehouse._id, lotCode, receivedAt,
+            supplier: trimOrNull(dto.supplier) ?? ocr.snapshot?.supplier ?? null, note: trimOrNull(dto.note), lines, actorId,
+            documentPhotoUrls: photoUrls, ocr, photoSuspect: photoCheck.suspect, clientEventId: trimOrNull(dto.client_event_id),
+          },
+          session,
+        );
+      });
+    } catch (error: unknown) {
+      // 2 lần gửi cùng mã chạy song song: lần thua đụng unique index → trả phiếu lần thắng.
+      const raced = this.isDuplicateKeyError(error) ? await this.findReceiptByClientEventId(dto.client_event_id) : null;
+      if (raced) return raced;
+      throw error;
+    }
     if (!receipt) throw new Error('Tạo phiếu nhập không trả về document');
     if (ocr.status === 'mismatch' && this.receiptOcr) {
       const diffs = ocr.checks.filter((c) => c.ocr_quantity !== c.quantity);
@@ -1992,6 +2038,18 @@ export class WarehouseService {
     }
     if (photoCheck.suspect && this.receiptOcr) await this.receiptOcr.notifyPhotoSuspect(`phiếu nhập ${receiptCode}`, 'stock_receipt', receiptId.toString());
     return receipt;
+  }
+
+  private requireReceiptPhotos(photoUrls: string[]): void {
+    if (photoUrls.length === 0) {
+      throw new AppException(RECEIPT_OCR_ERROR_CODES.PHOTO_REQUIRED, 'Tải ảnh phiếu nhập / phiếu giao hàng của nhà cung cấp trước khi lưu.', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  private async findReceiptByClientEventId(clientEventId?: string): Promise<StockReceiptDocument | null> {
+    const id = trimOrNull(clientEventId);
+    if (!id || !this.receiptModel) return null;
+    return this.receiptModel.findOne({ client_event_id: id });
   }
 
   private async resolveReceiptLine(

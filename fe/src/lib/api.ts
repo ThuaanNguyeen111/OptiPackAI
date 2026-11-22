@@ -1,5 +1,6 @@
 import { embedApiBase, isEmbedMode } from './embed-session'
-import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
+import { getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
+import { isWaitingForReLogin, waitForReLogin } from './session-expiry'
 import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
 import { RETURNS_ERROR_MESSAGES } from '../types/returns'
@@ -125,46 +126,68 @@ async function parseJson(res: Response): Promise<unknown> {
   }
 }
 
-let refreshInFlight: Promise<boolean> | null = null
+/** ok = có token mới; expired = refresh trả 401 (phiên chết thật); failed = lỗi khác (mạng, 500) — giữ phiên. */
+type RefreshOutcome = 'ok' | 'expired' | 'failed'
 
-async function rotateRefreshToken(): Promise<boolean> {
-  // Trang nhúng không tự làm mới token (xem embed-session.ts) — để app cấp token mới.
-  if (isEmbedMode()) return false
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return false
+let refreshInFlight: Promise<RefreshOutcome> | null = null
 
-  const res = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  })
-
-  if (!res.ok) {
-    clearSession()
-    return false
-  }
-
-  const data = (await parseJson(res)) as {
-    access_token?: string
-    refresh_token?: string
-  } | null
-
-  if (!data?.access_token || !data?.refresh_token) {
-    clearSession()
-    return false
-  }
-
-  updateTokens(data.access_token, data.refresh_token)
-  return true
+/** AOFP-334 — các tab dùng chung refresh token trong localStorage: chỉ 1 tab xoay một lúc. */
+async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  return locks ? locks.request('optipack-refresh', fn) : fn()
 }
 
-async function ensureRefreshed(): Promise<boolean> {
+async function rotateRefreshToken(sentAccess: string | null): Promise<RefreshOutcome> {
+  // Trang nhúng không tự làm mới token (xem embed-session.ts) — để app cấp token mới.
+  if (isEmbedMode()) return 'failed'
+  return withRefreshLock(async () => {
+    // Tab khác vừa xoay xong trong lúc chờ khoá → dùng luôn token mới, không gửi token cũ (sẽ bị REUSED).
+    const current = getAccessToken()
+    if (current && current !== sentAccess) return 'ok'
+    const refreshToken = getRefreshToken()
+    // Tab khác đã đăng xuất (localStorage dùng chung bị xoá) → phiên hết thật: hiện hộp đăng nhập lại.
+    if (!refreshToken) return 'expired'
+
+    let res: Response
+    try {
+      res = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+    } catch {
+      return 'failed'
+    }
+    // Chỉ 401 mới là phiên hết; 500 / 429 thì giữ phiên, lần sau thử lại.
+    if (res.status === 401) return 'expired'
+    if (!res.ok) return 'failed'
+
+    const data = (await parseJson(res)) as {
+      access_token?: string
+      refresh_token?: string
+    } | null
+    if (!data?.access_token || !data?.refresh_token) return 'failed'
+
+    updateTokens(data.access_token, data.refresh_token)
+    return 'ok'
+  })
+}
+
+function ensureRefreshed(sentAccess: string | null): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
-    refreshInFlight = rotateRefreshToken().finally(() => {
+    refreshInFlight = rotateRefreshToken(sentAccess).finally(() => {
       refreshInFlight = null
     })
   }
   return refreshInFlight
+}
+
+/** Sau 401: làm mới token, hoặc chờ người dùng đăng nhập lại trên hộp thoại. true = gửi lại request. */
+async function recoverFrom401(sentAccess: string | null): Promise<boolean> {
+  if (isWaitingForReLogin()) return waitForReLogin()
+  const outcome = await ensureRefreshed(sentAccess)
+  if (outcome === 'ok') return true
+  return outcome === 'expired' ? waitForReLogin() : false
 }
 
 type RequestOptions = {
@@ -188,10 +211,8 @@ export async function apiRequest<T>(
   const isForm = body instanceof FormData
   const headers: Record<string, string> = isForm ? {} : { 'Content-Type': 'application/json' }
 
-  if (auth) {
-    const token = getAccessToken()
-    if (token) headers.Authorization = `Bearer ${token}`
-  }
+  const sentAccess = auth ? getAccessToken() : null
+  if (sentAccess) headers.Authorization = `Bearer ${sentAccess}`
 
   const res = await fetchWithTimeout(
     `${API_BASE_URL}${path}`,
@@ -205,8 +226,7 @@ export async function apiRequest<T>(
   )
 
   if (res.status === 401 && auth && !skipRefresh) {
-    const ok = await ensureRefreshed()
-    if (ok) {
+    if (await recoverFrom401(sentAccess)) {
       return apiRequest<T>(path, { ...options, skipRefresh: true })
     }
   }
@@ -239,18 +259,15 @@ export async function apiRequestBlob(
 ): Promise<Blob> {
   const { auth = true, skipRefresh = false, timeoutMs } = options
   const headers: Record<string, string> = {}
-  if (auth) {
-    const token = getAccessToken()
-    if (token) headers.Authorization = `Bearer ${token}`
-  }
+  const sentAccess = auth ? getAccessToken() : null
+  if (sentAccess) headers.Authorization = `Bearer ${sentAccess}`
   const res = await fetchWithTimeout(
     `${API_BASE_URL}${path}`,
     { method: 'GET', headers },
     timeoutMs ?? 30_000,
   )
   if (res.status === 401 && auth && !skipRefresh) {
-    const ok = await ensureRefreshed()
-    if (ok) return apiRequestBlob(path, { ...options, skipRefresh: true })
+    if (await recoverFrom401(sentAccess)) return apiRequestBlob(path, { ...options, skipRefresh: true })
   }
   if (!res.ok) {
     const payload = await parseJson(res)
@@ -269,6 +286,16 @@ export async function apiRequestBlob(
  * (báo giá GHN, đặt GHN, so phương án đóng gói) — truyền vào `timeoutMs`.
  */
 export const CARRIER_REQUEST_TIMEOUT_MS = 60_000
+
+/**
+ * AOFP-323 — lệnh ghi có thể ĐÃ tới máy chủ nhưng không nhận được trả lời (mất mạng, hết giờ,
+ * gateway lỗi) → không biết đã lưu hay chưa, phải tải lại dữ liệu. Huỷ chủ động thì không tính.
+ */
+export function isUncertainWrite(err: unknown): boolean {
+  if (err instanceof RequestCanceledError) return false
+  if (err instanceof ApiError) return err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504
+  return err instanceof TypeError
+}
 
 export function getApiErrorCode(err: unknown): string | null {
   return err instanceof ApiError ? err.errorCode : null

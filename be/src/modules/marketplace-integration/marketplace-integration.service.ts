@@ -383,10 +383,11 @@ export class MarketplaceIntegrationService {
   async markShopPolled(
     shopMongoId: Types.ObjectId,
     polledAt: Date,
+    syncFailures?: { order_id: string; count: number; last_error: string }[],
   ): Promise<void> {
     await this.marketplaceShopModel.updateOne(
       { _id: shopMongoId },
-      { $set: { last_polled_at: polledAt } },
+      { $set: { last_polled_at: polledAt, ...(syncFailures ? { sync_failures: syncFailures } : {}) } },
     );
   }
 

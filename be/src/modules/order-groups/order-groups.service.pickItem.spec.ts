@@ -3,6 +3,8 @@ import { OrderGroupsService } from './order-groups.service';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { OrderGroupPickingService } from './order-group-picking.service';
+import { HttpStatus } from '@nestjs/common';
+import { AppException } from '../../common/exceptions/app-exception';
 
 /** 13/11/2026 — lấy hàng đã dời sang OrderGroupPickingService; dựng nó từ đúng các mock của core. */
 /* eslint-disable @typescript-eslint/dot-notation -- đọc field private của core (TS chỉ cho qua ngoặc vuông) */
@@ -63,6 +65,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
   };
   let connection: { startSession: jest.Mock };
   let inventoryMovementModel: { create: jest.Mock };
+  let stockReservation: Record<'reconcile' | 'consume' | 'unconsume' | 'assertNotReservedByOthers' | 'releaseGroup' | 'setGroupWarehouse', jest.Mock>;
 
   function mockGroup(overrides: Record<string, unknown> = {}): void {
     orderGroupModel.findById.mockResolvedValue({
@@ -135,6 +138,14 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     };
     connection = { startSession: jest.fn().mockResolvedValue(session) };
     inventoryMovementModel = { create: jest.fn().mockResolvedValue([{}]) };
+    stockReservation = {
+      reconcile: jest.fn().mockResolvedValue([]),
+      consume: jest.fn().mockResolvedValue(undefined),
+      unconsume: jest.fn().mockResolvedValue(undefined),
+      assertNotReservedByOthers: jest.fn().mockResolvedValue(undefined),
+      releaseGroup: jest.fn().mockResolvedValue(0),
+      setGroupWarehouse: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new OrderGroupsService(
       orderGroupModel as never,
@@ -149,7 +160,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       connection as never,
       inventoryMovementModel as never, // K3
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
-      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0), setGroupWarehouse: jest.fn().mockResolvedValue(undefined) } as never, // K5 (+ 21/10/2026 gắn kho cho nhóm đơn)
+      stockReservation as never, // K5 (+ 21/10/2026 gắn kho cho nhóm đơn)
       {} as never, // binLocationModel
     );
   });
@@ -164,6 +175,26 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       errorCode: ORD_GROUP_ERROR_CODES.ITEM_NOT_IN_GROUP,
     });
     expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('AOFP-327 AC4 — hàng đang giữ cho nhóm khác → 409, KHÔNG trừ tồn, không ghi event', async () => {
+    mockGroup();
+    mockOrderedItems([{ sku: 'SKU-DUNG', quantity: 2 }]);
+    mockPickedEvents([]);
+    stockReservation.assertNotReservedByOthers.mockRejectedValue(
+      new AppException('ORD_GROUP_STOCK_RESERVED_BY_OTHER', 'Hàng này đang giữ cho nhóm khác', HttpStatus.CONFLICT),
+    );
+
+    await expect(pickingFor(service).pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode')).rejects.toMatchObject({
+      errorCode: 'ORD_GROUP_STOCK_RESERVED_BY_OTHER',
+    });
+    const [gid, item, wh, qty] = stockReservation.assertNotReservedByOthers.mock.calls[0] as [Types.ObjectId, { sku: string }, Types.ObjectId, number];
+    expect(gid).toBeInstanceOf(Types.ObjectId);
+    expect(item.sku).toBe('SKU-DUNG');
+    expect(wh).toBeInstanceOf(Types.ObjectId);
+    expect(qty).toBe(1);
+    expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(pickEventModel.create).not.toHaveBeenCalled();
   });
 
   it('quét ĐÚNG SKU -> trừ tồn + ghi event cùng transaction, gắn pick_round; KHÔNG cần hồ sơ đóng gói', async () => {
@@ -278,7 +309,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       connection as never,
       inventoryMovementModel as never,
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never,
-      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0), setGroupWarehouse: jest.fn().mockResolvedValue(undefined) } as never,
+      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), assertNotReservedByOthers: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0), setGroupWarehouse: jest.fn().mockResolvedValue(undefined) } as never,
       {} as never,
       lotModel as never,
     );
@@ -490,6 +521,43 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       Record<string, unknown>,
     ];
     expect(findFilter.restocked_at).toBeNull();
+  });
+
+  // AOFP-321 — lượt bị hủy phải trả bộ đếm "đã lấy" của giữ chỗ, không thì lượt mới giữ thiếu (bán lố).
+  it('decidePartial(false) -> trả bộ đếm đã lấy của giữ chỗ theo SKU (ròng), cùng transaction', async () => {
+    mockGroup({ fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW });
+    orderGroupModel.findOneAndUpdate.mockResolvedValue({ pick_round: 1 });
+    const wh = new Types.ObjectId();
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({
+      _id: new Types.ObjectId(), warehouse_id: wh, bin_location_id: new Types.ObjectId(),
+      platform: 'lazada', shop_id: 'shop-1', seller_sku: 'AO', quantity_on_hand: 10,
+    });
+    mockOldRoundEvents([
+      { _id: new Types.ObjectId(), seller_sku: 'AO', scanned_quantity: 2, warehouse_id: wh },
+      { _id: new Types.ObjectId(), seller_sku: 'AO', scanned_quantity: 1, warehouse_id: wh },
+      // Event cũ không lưu kho: không nhập lại tồn được, nhưng lượt vẫn bị hủy → vẫn trả bộ đếm.
+      { _id: new Types.ObjectId(), seller_sku: 'QUAN', scanned_quantity: 2, warehouse_id: null },
+    ]);
+
+    await pickingFor(service).decidePartial(groupId, false, 3);
+
+    expect(stockReservation.unconsume).toHaveBeenCalledTimes(2);
+    expect(stockReservation.unconsume).toHaveBeenCalledWith(groupId, 'S:lazada|shop-1|AO', 3, expect.anything());
+    expect(stockReservation.unconsume).toHaveBeenCalledWith(groupId, 'S:lazada|shop-1|QUAN', 2, expect.anything());
+    // Trả bộ đếm TRƯỚC khi tính lại giữ chỗ cho lượt mới.
+    expect(stockReservation.unconsume.mock.invocationCallOrder[0]).toBeLessThan(stockReservation.reconcile.mock.invocationCallOrder[0] ?? Infinity);
+  });
+
+  it('decidePartial(false) -> lượt chỉ có event điều chỉnh làm ròng về 0 → không trả bộ đếm', async () => {
+    mockGroup({ fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW });
+    orderGroupModel.findOneAndUpdate.mockResolvedValue({ pick_round: 1 });
+    const wh = new Types.ObjectId();
+    mockOldRoundEvents([
+      { _id: new Types.ObjectId(), seller_sku: 'AO', scanned_quantity: 1, warehouse_id: wh },
+      { _id: new Types.ObjectId(), seller_sku: 'AO', scanned_quantity: -1, warehouse_id: wh },
+    ]);
+    await pickingFor(service).decidePartial(groupId, false, 3);
+    expect(stockReservation.unconsume).not.toHaveBeenCalled();
   });
 
   it('decidePartial(false) -> event cũ chưa lưu kho KHÔNG nhập lại được (bỏ qua, không lỗi)', async () => {

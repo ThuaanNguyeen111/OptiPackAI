@@ -30,6 +30,10 @@ export class RefreshToken {
   @Prop({ default: false })
   is_revoked!: boolean;
 
+  /** AOFP-334 — lúc xoay; dùng lại trong REFRESH_GRACE_MS (2 tab refresh gần nhau) không bị coi là tấn công. */
+  @Prop({ type: Date })
+  revoked_at?: Date;
+
   //!=============================================
   // Metadata thiết bị — phục vụ phát hiện truy cập bất thường,
   // sau này có thể hiển thị "các phiên đăng nhập đang hoạt động" cho user.

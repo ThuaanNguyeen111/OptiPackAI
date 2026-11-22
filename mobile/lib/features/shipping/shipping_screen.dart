@@ -232,6 +232,33 @@ class _ShipmentList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(shipmentsProvider);
+    final mine = ref.watch(shipmentsMineOnlyProvider);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: Row(
+            children: [
+              ChoiceChip(
+                label: const Text('Của tôi'),
+                selected: mine,
+                onSelected: (_) => ref.read(shipmentsMineOnlyProvider.notifier).state = true,
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('Tất cả'),
+                selected: !mine,
+                onSelected: (_) => ref.read(shipmentsMineOnlyProvider.notifier).state = false,
+              ),
+            ],
+          ),
+        ),
+        Expanded(child: _list(async)),
+      ],
+    );
+  }
+
+  Widget _list(AsyncValue<List<ShipmentView>> async) {
     return async.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => ErrorState(error: e, onRetry: onChanged),
@@ -315,7 +342,8 @@ class _ShipmentCard extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 6),
-            Text('${s.recipientName} · ${s.carrierName} · ${s.trackingCode}', style: TextStyle(color: AppColors.inkSubtle)),
+            Text(recipientLine(s), style: const TextStyle(fontWeight: FontWeight.w600)),
+            Text('${s.carrierName} · ${s.trackingCode}', style: TextStyle(color: AppColors.inkSubtle)),
             Text('Lần giao ${s.attempt}/$maxDeliveryAttempts', style: TextStyle(color: AppColors.inkSubtle, fontSize: 12)),
             if (s.failureReason != null)
               Text('Lý do thất bại: ${s.failureReason!.label}', style: TextStyle(color: AppColors.warningText, fontSize: 13)),
@@ -354,7 +382,7 @@ class _ShipmentCard extends ConsumerWidget {
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(minimumSize: const Size(0, 46)),
                       onPressed: () async {
-                        final fail = await showModalBottomSheet<({FailureReason reason, String note, List<XFile> photos})>(
+                        final fail = await showModalBottomSheet<({FailureReason reason, String note, List<XFile> photos, DateTime? rescheduleAt})>(
                           context: context,
                           isScrollControlled: true,
                           showDragHandle: true,
@@ -369,6 +397,7 @@ class _ShipmentCard extends ConsumerWidget {
                             fail.reason,
                             note: fail.note,
                             photoUrls: await photos.upload(fail.photos),
+                            rescheduleAt: fail.rescheduleAt,
                           ),
                           'Đã ghi nhận giao thất bại.',
                         );
@@ -410,8 +439,18 @@ class _ShipmentCard extends ConsumerWidget {
               const SizedBox(height: 12),
               FilledButton(
                 style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                onPressed: () => _run(context, () => repo.retry(s.id), 'Đã chuyển sang giao lại.'),
-                child: const Text('Giao lại'),
+                onPressed: () async {
+                  // AOFP-336 — chưa tới giờ giao lại: hỏi lý do rồi gửi override_reason (BE bắt ≥ 3 ký tự).
+                  String? reason;
+                  if (s.retryTooEarly(DateTime.now())) {
+                    reason = await _askEarlyReason(context);
+                    if (reason == null || !context.mounted) return;
+                  }
+                  await _run(context, () => repo.retry(s.id, overrideReason: reason), 'Đã chuyển sang giao lại.');
+                },
+                child: Text(s.retryTooEarly(DateTime.now())
+                    ? 'Giao lại từ ${formatClock(s.nextAttemptAt!)}'
+                    : 'Giao lại'),
               ),
             ],
           ],
@@ -432,6 +471,22 @@ class _FailSheetState extends State<_FailSheet> {
   FailureReason _reason = FailureReason.customerUnreachable;
   final _note = TextEditingController();
   List<XFile> _photos = const [];
+  DateTime? _rescheduleAt;
+
+  /// AOFP-336 — "Khách hẹn giờ": chọn ngày + giờ khách hẹn giao lại (gửi `reschedule_at`).
+  Future<void> _pickReschedule() async {
+    final now = DateTime.now();
+    final day = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 14)),
+    );
+    if (day == null || !mounted) return;
+    final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 2))));
+    if (time == null || !mounted) return;
+    setState(() => _rescheduleAt = DateTime(day.year, day.month, day.day, time.hour, time.minute));
+  }
 
   @override
   void dispose() {
@@ -472,6 +527,16 @@ class _FailSheetState extends State<_FailSheet> {
                 maxLines: 2,
                 decoration: const InputDecoration(labelText: 'Ghi chú (bắt buộc)'),
               ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.schedule),
+              title: const Text('Khách hẹn giờ'),
+              subtitle: Text(_rescheduleAt == null ? 'Không hẹn' : formatDateTime(_rescheduleAt!)),
+              trailing: _rescheduleAt == null
+                  ? null
+                  : IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => _rescheduleAt = null)),
+              onTap: _pickReschedule,
+            ),
             const SizedBox(height: 12),
             ProofPhotoField(
               label: 'Ảnh hiện trường',
@@ -482,7 +547,10 @@ class _FailSheetState extends State<_FailSheet> {
             FilledButton(
               onPressed: needNote && _note.text.trim().isEmpty
                   ? null
-                  : () => Navigator.pop(context, (reason: _reason, note: _note.text.trim(), photos: _photos)),
+                  : () => Navigator.pop(
+                        context,
+                        (reason: _reason, note: _note.text.trim(), photos: _photos, rescheduleAt: _rescheduleAt),
+                      ),
               child: const Text('Ghi nhận thất bại'),
             ),
           ],
@@ -608,4 +676,46 @@ class _DeliverSheetState extends State<_DeliverSheet> {
       ),
     );
   }
+}
+
+/// AOFP-336 — "Nguyễn A · 0909… · 12 Lê Lợi, Q1 · Thu 350.000 đ" (bỏ phần trống).
+String recipientLine(ShipmentView s) => [
+      s.recipientName,
+      if (s.recipientPhone != null) s.recipientPhone!,
+      if (s.recipientAddress != null) s.recipientAddress!,
+      s.codVnd > 0 ? 'Thu ${formatVnd(s.codVnd)}' : 'Đã trả trước',
+    ].join(' · ');
+
+/// `HH:mm` theo giờ máy.
+String formatClock(DateTime t) {
+  final local = t.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${two(local.hour)}:${two(local.minute)}';
+}
+
+/// Hỏi "Lý do giao sớm (bắt buộc)". Trả null khi huỷ.
+Future<String?> _askEarlyReason(BuildContext context) {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: const Text('Giao lại sớm'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 2,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(labelText: 'Lý do giao sớm (bắt buộc)', helperText: 'Tối thiểu 3 ký tự'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+          FilledButton(
+            onPressed: ctrl.text.trim().length < 3 ? null : () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Giao lại'),
+          ),
+        ],
+      ),
+    ),
+  ).whenComplete(ctrl.dispose);
 }

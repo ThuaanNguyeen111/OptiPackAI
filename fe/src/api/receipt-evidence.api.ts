@@ -6,7 +6,7 @@ import { uploadProofPhotos } from './proof-photos.api'
  * khi nhập kho (phiếu nhập) và nhập vật tư (thùng / túi / vật tư chèn / mua vật liệu).
  */
 
-export type OcrStatus = 'matched' | 'mismatch' | 'not_checked'
+export type OcrStatus = 'matched' | 'mismatch' | 'partial' | 'not_checked'
 
 export type ReceiptScanLine = {
   index: number
@@ -57,7 +57,7 @@ function num(value: unknown): number | null {
 }
 
 export function toOcrStatus(value: unknown): OcrStatus | null {
-  return value === 'matched' || value === 'mismatch' || value === 'not_checked' ? value : null
+  return value === 'matched' || value === 'mismatch' || value === 'partial' || value === 'not_checked' ? value : null
 }
 
 export function mapIntakeEvidence(raw: Record<string, unknown>): IntakeEvidence {

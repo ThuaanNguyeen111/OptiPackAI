@@ -321,6 +321,7 @@ Bảng map trạng thái GHN → OptiPack:
 | `delivery_fail` | `delivery_failed` (lưu `ReasonCode` GHN-DFC…/DCD…) | `shipped` |
 | `waiting_to_return`, `return`, `return_transporting`, `return_sorting`, `returning`, `return_fail` | `returning_to_warehouse` | `shipped` |
 | `returned` | `returned_to_warehouse` → tạo RMA `failed_delivery` (G3) | `returned` |
+| `cancel` (1 kiện, kiện khác còn chạy) | không đổi; vận đơn không thể thành `delivered`, `carrier_incident` = "Kiện N đã hủy" → bấm "Đặt lại" để tạo kiện mới (`client_order_code` `…-C2`) — AOFP-326 | — |
 | `cancel` | `cancelled` | quay về `packed` (tạo lại vận đơn được) |
 | `exception`, `lost`, `damage`, `scrap` | Giữ trạng thái cũ + cờ `incident` + thông báo Store Owner | — |
 
@@ -389,8 +390,8 @@ be/src/modules/carriers/
 | POST | 🆕 `/shipments/:id/carrier/cancel` | Coordinator, Admin | Huỷ ở hãng (chỉ khi chờ lấy hàng) → nhóm đơn về `packed` |
 | POST | 🆕 `/shipments/:id/carrier/sync` | Coordinator, Admin | Đồng bộ trạng thái từ GHN (Order Info) |
 | POST | 🆕 `/shipments/:id/carrier/simulate` | Coordinator, Admin | **[DEMO]** mô phỏng sự kiện GHN, đi chung hàm với webhook |
-| GET | 🆕 `/shipments/carrier/statuses` | Coordinator, Store Owner, Warehouse, Admin | Danh sách trạng thái mô phỏng được + nhãn tiếng Việt |
-| POST | 🆕 `/carriers/ghn/webhook` | **Public** + header `X-OptiPack-Secret` (hoặc `?secret=`) | Nhận Order Status Callback của GHN |
+| GET | 🆕 `/shipments/carrier/statuses` | Coordinator, Store Owner, Warehouse, Admin | Danh sách trạng thái mô phỏng được + nhãn tiếng Việt. 🔄 AOFP-325: `[]` khi cờ `CARRIER_MANUAL_STATUS_ENABLED` tắt |
+| POST | 🆕 `/carriers/ghn/webhook` | **Public** + header `X-OptiPack-Secret` (AOFP-324: bỏ `?secret=`) | Nhận Order Status Callback của GHN |
 | GET | `/documents/shipping-label/:groupId` (🔄) | như cũ | Nhãn PDF của OptiPack in **mã GHN của từng kiện** khi có |
 
 Màn hình danh sách vận chuyển thêm cột **Đơn vị vận chuyển**, **Mã vận đơn GHN**, **Phí ship**, **Ngày giao dự kiến**.
@@ -597,7 +598,7 @@ Số AOFP gán lúc commit (tăng dần). Mỗi đợt kiểm tra đủ `npx tsc
 | Đơn Lazada bị che SĐT/tỉnh | Demo: `CARRIER_DEFAULT_PROVINCE`, `CARRIER_DEMO_RECIPIENT_PHONE`, hoặc Coordinator nhập `to_location`; mỗi giá trị tự bổ sung trả về trong `assumptions` của báo giá |
 | Sửa địa chỉ sau khi đã có mã GHN | Chưa dùng Update Order — phải huỷ ở hãng rồi tạo lại (đặt lại dùng `client_order_code` mới `...-R2-n`) |
 | Nhóm đơn bị huỷ (khách huỷ) khi vận đơn GHN đang chờ lấy | Chưa tự huỷ đơn GHN — Coordinator bấm huỷ ở hãng |
-| Phí COD / bảo hiểm | Demo gửi `cod_amount = 0`, `insurance_value = 0` |
+| Phí COD / bảo hiểm | 🔄 19/11 (AOFP-319): `cod_amount` = tiền đơn COD, thu ở kiện có số nhỏ nhất chứa đơn đó (đơn trả trước = 0, mỗi đơn thu 1 lần; đặt lại sau hủy chia lại theo lượt mới); `insurance_value = 0` |
 | Calculate Fee chỉ nhận mã quận + mã phường kiểu cũ | Bắt buộc đổi địa chỉ sang mã GHN; địa chỉ 2 cấp mới khớp không được thì chọn tay |
 | Định dạng `address3/4/5` của Lazada sau sáp nhập 07/2025 chưa được kiểm chứng bằng response thật | Ghi log response thật của 1 đơn trước khi chốt mapper (C1) |
 | Webhook GHN không có chữ ký | Secret trên URL / header tuỳ chỉnh; chỉ nhận đơn có `ShopID` khớp `GHN_SHOP_ID` và `OrderCode` có trong DB |
@@ -768,7 +769,7 @@ POST /shipments
 ```
 Hoặc chung chuyến: `POST /shipments/batch { order_group_ids, carrier_code: "GHN", service_code, to_location? }` → mỗi dòng có thêm `carrierOrderCodes`, `bookingError`, `status`.
 
-Response vận đơn có thêm: `carrierManaged: true`, `status: "awaiting_pickup"`, `carrierStatus: "ready_to_pick"`, `carrierStatusLabel`, `carrierParcels[]` (`parcelNo`, `clientOrderCode`, `carrierOrderCode`, `sortCode`, `feeTotalVnd`, `expectedDeliveryAt`, `carrierStatus`, `bookingError`), `carrierBookingError`, `toLocation`, `bookingRound`, `pickedUpAt`, `carrierReturnedAt`, `cancelledAt`, `carrierIncident`. `estimatedCostVnd` = **tổng phí thật GHN** khi mọi kiện đã có mã.
+Response vận đơn có thêm: `carrierManaged: true`, `status: "awaiting_pickup"`, `carrierStatus: "ready_to_pick"`, `carrierStatusLabel`, `carrierParcels[]` (`parcelNo`, `clientOrderCode`, `carrierOrderCode`, `sortCode`, `feeTotalVnd`, `expectedDeliveryAt`, `carrierStatus`, `bookingError`, `codAmountVnd`), `codAmountVnd` (tổng thu hộ), `carrierBookingError`, `toLocation`, `bookingRound`, `pickedUpAt`, `carrierReturnedAt`, `cancelledAt`, `carrierIncident`. `estimatedCostVnd` = **tổng phí thật GHN** khi mọi kiện đã có mã.
 
 **Bước 3b — Hãng báo lỗi khi tạo** (`carrierBookingError` khác null, kiện có `bookingError`): sửa địa chỉ
 ```http
@@ -796,7 +797,15 @@ Ghi chú nút trên UI: **"Mô phỏng GHN: …"** (để không hiểu nhầm s
 
 ### 11.4. Webhook thật (khi có domain / ngrok)
 
-`POST /carriers/ghn/webhook` — public, kiểm `X-OptiPack-Secret` (hoặc `?secret=`) = `GHN_WEBHOOK_SECRET` và `ShopID` = `GHN_SHOP_ID`. Trả 200 cho mọi sự kiện đã nhận (kể cả trùng / bỏ qua) vì GHN bỏ hẳn sự kiện khi nhận 4xx; chỉ lỗi tạm thời (DB) trả 5xx để GHN gửi lại. Chống trùng ở collection `carrier_webhook_events` (khoá `OrderCode|Type|Status|Time`).
+`POST /carriers/ghn/webhook` — public, kiểm header `X-OptiPack-Secret` = `GHN_WEBHOOK_SECRET` (so thời gian hằng) và `ShopID` = `GHN_SHOP_ID`. Trả 200 cho mọi sự kiện đã nhận (kể cả trùng / bỏ qua) vì GHN bỏ hẳn sự kiện khi nhận 4xx; chỉ lỗi tạm thời (DB) trả 5xx để GHN gửi lại. Chống trùng ở collection `carrier_webhook_events` (khoá `OrderCode|Type|Status|Time`).
+
+🆕 **AOFP-324 (19/11/2026):**
+- **Bỏ `?secret=`** — chỉ nhận header (URL lộ trong log). Webhook đăng ký với `?secret=` phải khai lại header `X-OptiPack-Secret` trên Developer Portal.
+- **Sự kiện cũ:** `Time` < `carrier_status_at` của kiện → chỉ ghi sổ `ignored:stale`, không ghi lùi kiện/vận đơn, không báo sàn.
+- **Xung đột phiên bản** (vận đơn đổi liên tục) → **503** (trước là 409, GHN bỏ hẳn) để GHN gửi lại.
+- **Body validate** (`GhnWebhookDto`): `Status`/`OrderCode`/`Type`/`Time`/`Reason*` phải là chuỗi, `ShopID` số hoặc chuỗi → sai kiểu trả 400; các trường khác của GHN được giữ nguyên.
+- **Sổ `carrier_webhook_events`** TTL 30 ngày; payload gốc tách sang **`raw_payloads`** (TTL 30 ngày, `ref_key` = `dedupe_key`). Bản ghi kẹt `processing` quá 5 phút được xử lý lại thay vì coi là trùng.
+- **Cron 30 phút** (`ShipmentSlaScheduler.syncStaleCarrier`): vận đơn hãng chưa kết thúc, không cập nhật ≥ 6 giờ → gọi đồng bộ (như nút "Đồng bộ"), tối đa 50 vận đơn/lượt, cũ nhất trước.
 
 ### 11.5. Mã lỗi mới
 

@@ -25,7 +25,11 @@ import {
   Role as RoleEnum,
 } from '../../../types/admin'
 import { Badge } from '../../../components/ui/Badge'
+import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
+import { useAuth } from '../../../context/use-auth'
 import { usePortal } from '../../../context/use-portal'
+import { formatApiError } from '../../../lib/api'
+import { sessionUserId } from '../../../lib/session-user'
 import { UserFormModal } from './UserFormModal'
 
 type StatusFilter = 'all' | UserLockState
@@ -128,6 +132,37 @@ export function UserManagementTable({
   const vi = locale === 'vi'
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  // AOFP-335 — xác nhận trước khi vô hiệu hóa / cài lại mật khẩu; không thao tác trên chính mình.
+  const { session } = useAuth()
+  const me = sessionUserId(session?.accessToken)
+  const [confirm, setConfirm] = useState<{ kind: 'deactivate' | 'reset'; user: AdminUser } | null>(null)
+  const [typedEmail, setTypedEmail] = useState('')
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  const [confirmError, setConfirmError] = useState<string | null>(null)
+  const selfTitle = vi
+    ? 'Không thể thao tác trên tài khoản của chính bạn'
+    : 'You cannot do this on your own account'
+
+  function openConfirm(kind: 'deactivate' | 'reset', user: AdminUser) {
+    setConfirm({ kind, user })
+    setTypedEmail('')
+    setConfirmError(null)
+  }
+
+  async function runConfirm() {
+    if (!confirm) return
+    setConfirmBusy(true)
+    setConfirmError(null)
+    try {
+      if (confirm.kind === 'deactivate') await onDeactivate(confirm.user.id)
+      else await onResetPassword(confirm.user.id)
+      setConfirm(null)
+    } catch (err: unknown) {
+      setConfirmError(formatApiError(err))
+    } finally {
+      setConfirmBusy(false)
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -292,12 +327,15 @@ export function UserManagementTable({
                         </button>
                         <button
                           type="button"
-                          onClick={() => void onResetPassword(u.id)}
-                          className={actionBtn}
+                          onClick={() => openConfirm('reset', u)}
+                          disabled={u.id === me}
+                          className={`${actionBtn} disabled:cursor-not-allowed disabled:opacity-50`}
                           title={
-                            vi
-                              ? 'Sinh mật khẩu tạm + mở khóa 72h'
-                              : 'Issue temp password + unlock 72h lock'
+                            u.id === me
+                              ? selfTitle
+                              : vi
+                                ? 'Sinh mật khẩu tạm + mở khóa 72h'
+                                : 'Issue temp password + unlock 72h lock'
                           }
                         >
                           <KeyRound className="h-3 w-3" />
@@ -327,8 +365,10 @@ export function UserManagementTable({
                         {u.active ? (
                           <button
                             type="button"
-                            onClick={() => void onDeactivate(u.id)}
-                            className="inline-flex h-8 items-center gap-1 rounded-md border border-[#EF4444]/30 px-2.5 text-xs font-medium text-[#EF4444] hover:bg-[#EF4444]/10"
+                            onClick={() => openConfirm('deactivate', u)}
+                            disabled={u.id === me}
+                            title={u.id === me ? selfTitle : undefined}
+                            className="inline-flex h-8 items-center gap-1 rounded-md border border-[#EF4444]/30 px-2.5 text-xs font-medium text-[#EF4444] hover:bg-[#EF4444]/10 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <UserX className="h-3 w-3" />
                             {vi ? 'Vô hiệu' : 'Deactivate'}
@@ -393,6 +433,50 @@ export function UserManagementTable({
         ) : null}
       </div>
 
+      <ConfirmDialog
+        open={confirm !== null}
+        danger={confirm?.kind === 'deactivate'}
+        title={
+          confirm?.kind === 'deactivate'
+            ? vi ? 'Vô hiệu hóa tài khoản' : 'Deactivate account'
+            : vi ? 'Cài lại mật khẩu' : 'Reset password'
+        }
+        description={
+          confirm === null
+            ? ''
+            : confirm.kind === 'deactivate'
+              ? vi
+                ? `Vô hiệu hóa tài khoản ${confirm.user.name}? Mọi phiên đăng nhập sẽ bị thu hồi ngay.`
+                : `Deactivate ${confirm.user.name}? All their sessions are revoked immediately.`
+              : vi
+                ? `Cài lại mật khẩu cho ${confirm.user.name}? Mật khẩu cũ hết hiệu lực và mọi phiên đăng nhập bị thu hồi.`
+                : `Reset the password for ${confirm.user.name}? The old password and all sessions stop working.`
+        }
+        confirmLabel={
+          confirm?.kind === 'deactivate' ? (vi ? 'Vô hiệu hóa' : 'Deactivate') : vi ? 'Cài lại' : 'Reset'
+        }
+        cancelLabel={vi ? 'Hủy' : 'Cancel'}
+        loading={confirmBusy}
+        confirmDisabled={
+          confirm?.kind === 'deactivate' &&
+          typedEmail.trim().toLowerCase() !== confirm.user.email.toLowerCase()
+        }
+        onConfirm={() => void runConfirm()}
+        onCancel={() => setConfirm(null)}
+      >
+        {confirm?.kind === 'deactivate' ? (
+          <label className="mt-3 block text-xs text-ink-muted">
+            {vi ? `Gõ ${confirm.user.email} để xác nhận` : `Type ${confirm.user.email} to confirm`}
+            <input
+              value={typedEmail}
+              onChange={(e) => setTypedEmail(e.target.value)}
+              autoComplete="off"
+              className="mt-1 h-9 w-full rounded-md border border-hairline bg-canvas px-2.5 text-sm text-ink"
+            />
+          </label>
+        ) : null}
+        {confirmError ? <p className="mt-2 text-xs text-[#DC2626]">{confirmError}</p> : null}
+      </ConfirmDialog>
       <UserFormModal
         key={creating ? 'create' : (editing?.id ?? 'closed')}
         open={creating || editing !== null}

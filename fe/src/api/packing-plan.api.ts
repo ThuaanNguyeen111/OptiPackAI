@@ -134,16 +134,31 @@ export function startPackingSession(
   return readPlan(groupId, '/start', { expected_version: expectedVersion })
 }
 
+/** Kết quả 1 lần quét (BE `ScanOutcome`). */
+export type ScanOutcome = {
+  parcelNo: number
+  sku: string
+  itemKeys: string[]
+  /** Món của kiện còn chưa quét. */
+  remainingInParcel: number
+  /** Gửi lại cùng client_event_id — không đếm thêm. */
+  duplicate: boolean
+}
+
 export function scanParcelItem(
   groupId: string,
   parcelNo: number,
   input: { code: string; quantity: number; clientEventId: string },
-): Promise<PackingPlan> {
-  return readPlan(groupId, `/parcels/${String(parcelNo)}/scan`, {
-    code: input.code,
-    quantity: input.quantity,
-    scan_method: 'manual',
-    client_event_id: input.clientEventId,
+): Promise<{ plan: PackingPlan; scan: ScanOutcome }> {
+  return apiRequest<{ plan: PackingPlan; scan: ScanOutcome }>(groupPath(groupId, `/parcels/${String(parcelNo)}/scan`), {
+    method: 'POST',
+    auth: true,
+    body: {
+      code: input.code,
+      quantity: input.quantity,
+      scan_method: 'manual',
+      client_event_id: input.clientEventId,
+    },
   })
 }
 
@@ -276,14 +291,25 @@ export function unpackParcel(
   input: {
     expectedVersion: number
     boxCondition: 'reusable' | 'damaged'
+    /** AOFP-332 — vật tư chèn còn dùng lại được. */
+    recoveredMaterials?: { code: string; quantity: number }[]
     note?: string
   },
 ): Promise<PackingPlan> {
   return readPlan(groupId, `/parcels/${String(parcelNo)}/unpack`, {
     expected_version: input.expectedVersion,
     box_condition: input.boxCondition,
+    ...(input.recoveredMaterials?.length ? { recovered_materials: input.recoveredMaterials } : {}),
     ...(input.note ? { note: input.note } : {}),
   })
+}
+
+export type ReplacementWarehouse = { id: string; code: string; name: string }
+
+/** AOFP-332 — kho để lấy món thay khi báo sự cố (Staff đóng gói không gọi được API kho). */
+export async function listReplacementWarehouses(groupId: string): Promise<ReplacementWarehouse[]> {
+  const rows = await apiRequest<unknown>(groupPath(groupId, '/replacement-warehouses'), { auth: true })
+  return Array.isArray(rows) ? (rows as ReplacementWarehouse[]) : []
 }
 
 export async function packPlan(
@@ -397,6 +423,22 @@ export function backToPicking(
       ...(item.restock ? { restock: true } : {}),
     })),
     ...(input.note ? { note: input.note } : {}),
+  })
+}
+
+/** (AOFP-322) Đóng gói thủ công sau khi từ chối: mọi món, mỗi món đúng 1 kiện. Kế hoạch mới chờ NGƯỜI KHÁC duyệt. */
+export function manualPackPlan(
+  groupId: string,
+  input: {
+    expectedVersion: number
+    parcels: { orderId: string; boxCode: string; itemKeys: string[] }[]
+    note: string
+  },
+): Promise<PackingPlan> {
+  return readPlan(groupId, '/manual', {
+    expected_version: input.expectedVersion,
+    parcels: input.parcels.map((p) => ({ order_id: p.orderId, box_code: p.boxCode, item_keys: p.itemKeys })),
+    note: input.note,
   })
 }
 

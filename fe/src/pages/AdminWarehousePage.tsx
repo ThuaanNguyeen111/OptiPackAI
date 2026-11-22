@@ -2074,7 +2074,6 @@ function AssignTab({
   onAssigned: () => void
 }) {
   const [sku, setSku] = useState<UnassignedSku | null>(null)
-  const [qty, setQty] = useState(0)
   const [skuQuery, setSkuQuery] = useState('')
   const [suggestCategory, setSuggestCategory] = useState('')
   const [suggestSize, setSuggestSize] = useState('')
@@ -2111,12 +2110,10 @@ function AssignTab({
         shop_id: sku.shop_id,
         seller_sku: sku.seller_sku,
         bin_location_id: binId,
-        initial_quantity: qty > 0 ? qty : undefined,
         force,
         confirm_other_bin: confirmOtherBin || undefined,
       })
       setSku(null)
-      setQty(0)
       onAssigned()
     } catch (err: unknown) {
       if (!force && getApiErrorCode(err) === 'WH_BIN_OVER_CAPACITY') {
@@ -2376,14 +2373,11 @@ function AssignTab({
                 : 'No bins yet. Open the Bins tab, pick a zone, generate bins, then choose a bin_code here.'}
             </p>
           )}
-          <Input
-            className={fieldClass}
-            type="number"
-            min={0}
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
-            placeholder={vi ? 'Tồn ban đầu' : 'Initial qty (0 = restock later)'}
-          />
+          <p className="text-[11px] text-ink-muted">
+            {vi
+              ? 'Gán xong, nhập hàng bằng "Lập phiếu nhập" (kèm ảnh phiếu NCC) ở trang Kho.'
+              : 'After assigning, receive stock with "New receipt" (supplier slip photo) on the Warehouse page.'}
+          </p>
           <Button
             type="submit"
             className="h-9 w-full text-xs"
@@ -2408,8 +2402,8 @@ function stockActionMeta(vi: boolean): Array<{
       id: 'receive',
       label: vi ? 'Nhập thêm' : 'Receive',
       hint: vi
-        ? 'Cộng thêm vào số đang có trên ô này.'
-        : 'Add to the quantity already in this bin.',
+        ? 'Nhập không có ảnh phiếu NCC — chỉ Admin, bắt buộc ghi lý do. Hàng từ NCC thì dùng "Lập phiếu nhập" ở trang Kho.'
+        : 'Receive without a supplier slip — Admin only, reason required. Supplier deliveries go through "New receipt" on the Warehouse page.',
     },
     {
       id: 'count',
@@ -2474,6 +2468,7 @@ function StockTab({
   const [qtyById, setQtyById] = useState<Record<string, number>>({})
   const [receivedAtById, setReceivedAtById] = useState<Record<string, string>>({})
   const [lotCodeById, setLotCodeById] = useState<Record<string, string>>({})
+  const [noPhotoReasonById, setNoPhotoReasonById] = useState<Record<string, string>>({})
   const [countedById, setCountedById] = useState<Record<string, number>>({})
   const [reasonById, setReasonById] = useState<Record<string, StockAdjustReason>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
@@ -2490,10 +2485,13 @@ function StockTab({
     const received = receivedAtById[assignmentId]?.trim()
     const parsed = received ? new Date(received) : null
     const lot = lotCodeById[assignmentId]?.trim()
+    const noPhotoReason = noPhotoReasonById[assignmentId]?.trim()
+    if (!noPhotoReason) return
     const extra = {
       received_at:
         parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
       lot_code: lot || undefined,
+      no_photo_reason: noPhotoReason,
     }
     try {
       await api.restock(assignmentId, qty, force, extra)
@@ -2679,9 +2677,19 @@ function StockTab({
                         setLotCodeById((prev) => ({ ...prev, [row.id]: e.target.value }))
                       }
                     />
+                    <Input
+                      className="h-9 w-56"
+                      aria-label={vi ? 'Lý do nhập không ảnh phiếu' : 'Reason (no slip photo)'}
+                      placeholder={vi ? 'Lý do (bắt buộc)' : 'Reason (required)'}
+                      maxLength={300}
+                      value={noPhotoReasonById[row.id] ?? ''}
+                      onChange={(e) =>
+                        setNoPhotoReasonById((prev) => ({ ...prev, [row.id]: e.target.value }))
+                      }
+                    />
                 <Button
                       className="h-9 px-3 text-xs sm:ml-auto"
-                  disabled={api.mutating}
+                  disabled={api.mutating || !(noPhotoReasonById[row.id] ?? '').trim()}
                   onClick={() => void submit(row.id)}
                 >
                   {vi ? 'Nhập' : 'Add'}

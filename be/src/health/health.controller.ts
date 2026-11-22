@@ -5,6 +5,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Connection, ConnectionStates } from 'mongoose';
 import { RedisCacheService } from '../common/redis/redis-cache.service';
+import { NoFeatureGate } from '../modules/role-permissions/feature-scope';
 
 export interface HealthResponse {
   status: 'ok' | 'degraded';
@@ -24,6 +25,7 @@ const MONGO_PING_TIMEOUT_MS = 1500;
  * Không trả chi tiết kết nối (host, lỗi gốc) để khỏi lộ hạ tầng.
  */
 @ApiTags('Health')
+@NoFeatureGate('Kiểm tra sống cho hạ tầng, công khai')
 @Controller('health')
 @SkipThrottle()
 export class HealthController {

@@ -83,6 +83,7 @@ export function mapShipment(raw: unknown): Shipment | null {
     carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
     carrierBookingError: pickString(row.carrierBookingError, row.carrier_booking_error) || null,
     carrierIncident: pickString(row.carrierIncident, row.carrier_incident) || null,
+    carrierIncidentLabel: pickString(row.carrierIncidentLabel) || null,
     estimatedCostVnd:
       typeof row.estimatedCostVnd === 'number'
         ? row.estimatedCostVnd
@@ -126,6 +127,7 @@ function mapCarrierParcels(raw: unknown): Shipment['carrierParcels'] {
             : typeof row.fee_total_vnd === 'number'
               ? row.fee_total_vnd
               : null,
+        carrierStatus: pickString(row.carrierStatus, row.carrier_status) || null,
         carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
         bookingError: pickString(row.bookingError, row.booking_error) || null,
         recipientName: pickString(row.recipientName, row.recipient_name) || null,

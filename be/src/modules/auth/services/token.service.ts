@@ -9,6 +9,14 @@ import { hashToken } from '../../../common/utils/hash.util';
 import { requireEnv } from '../../../common/utils/env.util';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { RefreshToken, RefreshTokenDocument } from '../schemas/refresh-token.schema';
+import { User, UserDocument } from '../../users/schemas/user.schema';
+import { RedisCacheService } from '../../../common/redis/redis-cache.service';
+
+/**
+ * AOFP-334 — 2 tab (hoặc tab + mobile dùng chung token) refresh gần nhau: lượt sau gửi token
+ * vừa bị lượt trước xoay. Trong cửa sổ này cấp cặp mới thay vì coi là đánh cắp và thu hồi mọi phiên.
+ */
+export const REFRESH_GRACE_MS = 10_000;
 
 export interface TokenPair {
   access_token: string;
@@ -45,10 +53,15 @@ export class TokenService {
     private readonly configService: ConfigService,
     @InjectModel(RefreshToken.name)
     private readonly refreshTokenModel: Model<RefreshTokenDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    private readonly redisCache: RedisCacheService,
   ) {}
 
   async generateTokenPair(user: TokenSubject, meta: RequestMeta = {}): Promise<TokenPair> {
+    const version = await this.userModel.findById(user.id).select('token_version').lean();
     const payload = { sub: user.id, email: user.email, role: user.role };
+    // AOFP-334 — chỉ access token mang `tv` (JwtStrategy so với User.token_version).
+    const accessPayload = { ...payload, tv: version?.token_version ?? 0 };
 
     //!=============================================
     // FIX #32: refresh token ký bằng SECRET RIÊNG (jwt.refreshSecret), KHÁC
@@ -61,7 +74,7 @@ export class TokenService {
     );
 
     const [accessToken, refreshTokenValue] = await Promise.all([
-      this.jwtService.signAsync(payload),
+      this.jwtService.signAsync(accessPayload),
       // jwtid ngẫu nhiên: 2 lần cấp trong cùng 1 giây (2 tab cùng refresh) cho payload + iat
       // giống hệt → JWT giống hệt → trùng token_hash (E11000, 500). jti làm mỗi token khác nhau.
       this.jwtService.signAsync(payload, {
@@ -102,12 +115,15 @@ export class TokenService {
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.REFRESH_TOKEN_INVALID, 'Refresh token không hợp lệ hoặc đã hết hạn'));
     }
 
-    if (stored.is_revoked) {
+    const now = new Date();
+    const inGrace =
+      stored.is_revoked && stored.revoked_at != null && now.getTime() - stored.revoked_at.getTime() <= REFRESH_GRACE_MS;
+    if (stored.is_revoked && !inGrace) {
       await this.revokeAllForUser(stored.user_id.toString());
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.REFRESH_TOKEN_REUSED, 'Phát hiện refresh token bị sử dụng lại bất thường — toàn bộ phiên đăng nhập đã bị thu hồi, vui lòng đăng nhập lại'));
     }
 
-    if (stored.exp < new Date()) {
+    if (stored.exp < now) {
       await this.refreshTokenModel.deleteOne({ _id: stored._id });
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.REFRESH_TOKEN_EXPIRED, 'Refresh token đã hết hạn, vui lòng đăng nhập lại'));
     }
@@ -118,8 +134,13 @@ export class TokenService {
       throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, 'Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin'));
     }
 
-    stored.is_revoked = true;
-    await stored.save();
+    // Ghi có điều kiện: 2 request cùng token chỉ 1 lượt đổi is_revoked; lượt kia (matched 0) nằm trong ân hạn.
+    if (!stored.is_revoked) {
+      await this.refreshTokenModel.updateOne(
+        { _id: stored._id, is_revoked: false },
+        { $set: { is_revoked: true, revoked_at: now } },
+      );
+    }
 
     return this.generateTokenPair(subject, meta);
   }
@@ -141,5 +162,18 @@ export class TokenService {
       { user_id: new Types.ObjectId(userId) },
       { session },
     );
+    // AOFP-334 — access token cũ (sống tới 24h) cũng hết hiệu lực ngay lượt gọi kế tiếp.
+    await this.userModel.updateOne({ _id: new Types.ObjectId(userId) }, { $inc: { token_version: 1 } }, { session });
+    // Có session: người gọi xoá cache SAU khi commit (users.service). Không có: xoá ngay.
+    if (!session) await this.redisCache.invalidateUserAuthState(userId);
+  }
+
+  /**
+   * AOFP-334 — đăng xuất: access token vừa dùng hết hiệu lực ngay. Máy khác của cùng người
+   * bị 401 một lần rồi tự làm mới bằng refresh token của nó (refresh token không bị đụng).
+   */
+  async revokeAccessTokens(userId: string): Promise<void> {
+    await this.userModel.updateOne({ _id: new Types.ObjectId(userId) }, { $inc: { token_version: 1 } });
+    await this.redisCache.invalidateUserAuthState(userId);
   }
 }

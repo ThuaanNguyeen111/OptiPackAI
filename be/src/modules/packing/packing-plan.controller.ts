@@ -8,7 +8,13 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
-import { PackingSessionService, type BoxSourcePreview, type ScanOutcome, type SessionResult } from './packing-session.service';
+import {
+  PackingSessionService,
+  type BoxSourcePreview,
+  type ReplacementWarehouse,
+  type ScanOutcome,
+  type SessionResult,
+} from './packing-session.service';
 import type { BoxSourcePlan } from './utils/box-source.util';
 import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
 import { PackingReportService, type PackingReport } from './packing-report.service';
@@ -358,6 +364,9 @@ export interface PackingPlanResponse {
   /** Mã lý do từ chối + người xử lý + hạn + đã xử lý bằng cách nào (null = chưa). */
   rejection: {
     reasonCode: string | null;
+    /** (AOFP-322) Người từ chối — tên lưu lúc từ chối; kế hoạch từ chối trước 19/11 không có tên. */
+    rejectedBy: string | null;
+    rejectedByName: string | null;
     ownerId: string | null;
     dueAt: Date | null;
     overdue: boolean;
@@ -652,6 +661,8 @@ export function toPlanResponse(
     rejection: plan.rejected_at
       ? {
           reasonCode: plan.rejection_reason_code,
+          rejectedBy: plan.rejected_by?.toString() ?? null,
+          rejectedByName: plan.rejected_by_name ?? null,
           ownerId: plan.rejection_owner_id?.toString() ?? null,
           dueAt: plan.rejection_due_at,
           overdue:
@@ -712,6 +723,13 @@ export class PackingPlanController {
       this.planService.catalogChanges(plan),
     ]);
     return { plan: toPlanResponse(plan, profileStale, catalogChanges) };
+  }
+
+  @Get('replacement-warehouses')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'AOFP-332 — kho đang hoạt động để chọn chỗ lấy món thay khi báo sự cố lúc đóng. Chỉ đọc.' })
+  replacementWarehouses(): Promise<ReplacementWarehouse[]> {
+    return this.sessionService.replacementWarehouses();
   }
 
   @Get('box-sources')
@@ -1109,6 +1127,7 @@ export interface PackingPlanSummary {
 /** Tóm tắt kế hoạch của nhiều nhóm — bảng "Hàng chờ đóng gói" gọi 1 lần thay vì N lần. */
 @ApiTags('Packing plan')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'shipping', 'order_groups')
 @Controller('packing-plans')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingPlansController {
@@ -1163,6 +1182,7 @@ export class PackingPlansController {
 /** Luật đóng gói Store Owner/Admin chỉnh được (05/10/2026). */
 @ApiTags('Packing settings & reports')
 @ApiBearerAuth('JWT-auth')
+@Features('packing', 'picking', 'packaging_rules', 'order_groups')
 @Controller('packing')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingSettingsController {
@@ -1194,6 +1214,7 @@ export class PackingSettingsController {
 
   @Put('settings')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Features('packaging_rules') // AOFP-335 — sửa cài đặt chỉ theo trang "Quy tắc đóng gói"
   @ApiOperation({ summary: 'Lưu cài đặt mới (tạo version mới, giữ lịch sử). Trường không gửi giữ nguyên.' })
   async updateSettings(
     @Body() dto: UpdatePackingSettingsDto,
@@ -1204,6 +1225,7 @@ export class PackingSettingsController {
 
   @Get('reports/summary')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Features('analytics', 'dashboard') // AOFP-335 — trang Báo cáo + Tổng quan, không ngầm theo packaging_rules
   @ApiOperation({
     summary:
       'Hiệu suất đóng gói trong khoảng ngày (?from&to ISO, mặc định 30 ngày; ?staff_id lọc 1 người): thời gian, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt số kiện tối thiểu, quét kiểm, chi phí, theo nhân viên.',
@@ -1218,6 +1240,7 @@ export class PackingSettingsController {
 
   @Get('reports/feedback')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Features('analytics')
   @ApiOperation({
     summary:
       'Vòng phản hồi (08/10/2026): gom các lần nhân viên làm KHÁC gợi ý (chỉnh tay, từ chối, lệch cân) theo lý do × SKU × thùng và ĐỀ XUẤT việc Admin nên sửa (hồ sơ SKU, danh mục thùng, cài đặt). ?from&to ISO (mặc định 30 ngày); ?min_count số lần tối thiểu để sinh đề xuất (mặc định 3).',

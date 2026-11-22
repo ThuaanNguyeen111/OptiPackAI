@@ -14,11 +14,13 @@ import {
   type RevealedAiKey,
 } from './ai-settings.service';
 import { RevealAiKeyDto, TestAiSettingsDto, UpdateAiSettingsDto } from './dto/ai-settings.dto';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 @ApiTags('AI settings')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
+@NoFeatureGate('Chỉ Admin')
 @Controller('ai-settings')
 export class AiSettingsController {
   constructor(private readonly service: AiSettingsService) {}

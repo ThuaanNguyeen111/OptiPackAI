@@ -16,6 +16,7 @@ export const WAREHOUSE_ERROR_CODES = {
   ZONE_INACTIVE: 'WH_ZONE_INACTIVE',
   BIN_NOT_FOUND: 'WH_BIN_NOT_FOUND',
   BIN_INACTIVE: 'WH_BIN_INACTIVE',
+  NO_PHOTO_REASON_REQUIRED: 'WH_NO_PHOTO_REASON_REQUIRED', // 400 (AOFP-328) — Admin nhập thêm không ảnh phiếu mà không ghi lý do
   BIN_NOT_IN_WAREHOUSE: 'WH_BIN_NOT_IN_WAREHOUSE', // gán SKU vào kệ của kho KHÁC
   HAS_STOCK: 'WH_HAS_STOCK', // chặn vô hiệu hóa khi còn hàng tồn
   NOTHING_TO_UPDATE: 'WH_NOTHING_TO_UPDATE',

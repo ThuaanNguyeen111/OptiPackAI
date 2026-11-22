@@ -15,6 +15,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { Features } from '../role-permissions/feature-scope';
+import { codAmountOf } from '../shipping/utils/cod.util';
 
 // Hình dạng response public — KHÔNG trả thẳng OrderDocument ra ngoài
 // (tránh lộ field nội bộ như __v, Mongoose internals). Cùng nguyên tắc
@@ -31,6 +32,9 @@ interface OrderResponse {
   isConsolidated: boolean;
   consolidatedGroupId: string | null;
   totalAmount: number;
+  /** AOFP-319 — cách trả tiền + tiền phải thu khi giao (0 = đã trả trước). */
+  paymentMethod: string | null;
+  codAmountVnd: number;
   subtotalAmount: number | null;
   discountAmount: number | null;
   shippingFee: number | null;
@@ -170,6 +174,8 @@ export class OrdersController {
           ? order.consolidated_group_id.toString()
           : null,
         totalAmount: order.total_amount,
+        paymentMethod: order.payment_method ?? null,
+        codAmountVnd: codAmountOf(order),
         subtotalAmount: order.subtotal_amount ?? null,
         discountAmount: order.discount_amount ?? null,
         shippingFee: order.shipping_fee ?? null,
@@ -212,6 +218,8 @@ export class OrdersController {
         ? order.consolidated_group_id.toString()
         : null,
       totalAmount: order.total_amount,
+      paymentMethod: order.payment_method ?? null,
+      codAmountVnd: codAmountOf(order),
       subtotalAmount: order.subtotal_amount ?? null,
       discountAmount: order.discount_amount ?? null,
       shippingFee: order.shipping_fee ?? null,

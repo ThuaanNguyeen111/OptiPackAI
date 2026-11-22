@@ -1,7 +1,7 @@
 import { ListShipmentsQueryDto } from './dto/list-query.dto';
 import { Body, Controller, Get, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { ShipmentsService, ShipmentActor, type CarrierChoice, type ShipmentBatchResult } from './shipments.service';
+import { ShipmentsService, ShipmentActor, type CarrierChoice, type ShipmentBatchResult, type ShipmentRecipient } from './shipments.service';
 import { CreateShipmentBatchDto } from './dto/create-shipment-batch.dto';
 import { AppException } from '../../common/exceptions/app-exception';
 import { SHIPMENT_ERROR_CODES } from './shipments.errors';
@@ -22,7 +22,7 @@ import {
 } from './dto/shipment-action.dto';
 import type { ToLocationDto } from '../shipping/dto/shipping.dto';
 import type { ToLocationInput } from '../shipping/live-carrier.service';
-import { GHN_STATUS_LABELS, SIMULATABLE_GHN_STATUSES } from './carrier-status.util';
+import { GHN_STATUS_LABELS } from './carrier-status.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -73,6 +73,8 @@ export interface ShipmentResponse {
   carrierStatusLabel: string | null;
   carrierBookingError: string | null;
   carrierIncident: string | null;
+  /** AOFP-325 — sự cố hãng bằng tiếng Việt (VD "Thất lạc hàng: ..."), null = không có. */
+  carrierIncidentLabel: string | null;
   bookingRound: number;
   toLocation: { street: string | null; wardName: string | null; provinceName: string | null; phone: string | null } | null;
   carrierParcels: {
@@ -88,13 +90,22 @@ export interface ShipmentResponse {
     carrierStatus: string | null;
     carrierStatusLabel: string | null;
     bookingError: string | null;
+    codAmountVnd: number;
   }[];
+  /** AOFP-319 — tổng tiền hãng thu hộ của các kiện (vận đơn hãng). */
+  codAmountVnd: number;
   pickedUpAt: Date | null;
   carrierReturnedAt: Date | null;
   cancelledAt: Date | null;
+  /** AOFP-336 — người nhận của nhóm đơn; null khi không đọc được đơn. */
+  recipientName: string | null;
+  recipientPhone: string | null;
+  recipientAddress: string | null;
+  /** AOFP-336 — tổng tiền thu hộ (đơn COD) của nhóm; shipper tự giao thu số này. */
+  recipientCodVnd: number;
 }
 
-export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
+export function toShipmentResponse(doc: ShipmentDocument, recipient?: ShipmentRecipient | null): ShipmentResponse {
   return {
     id: doc._id.toString(),
     shipmentCode: doc.shipment_code,
@@ -134,6 +145,7 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     carrierStatusLabel: doc.carrier_status ? (GHN_STATUS_LABELS[doc.carrier_status] ?? doc.carrier_status) : null,
     carrierBookingError: doc.carrier_booking_error ?? null,
     carrierIncident: doc.carrier_incident ?? null,
+    carrierIncidentLabel: incidentLabel(doc.carrier_incident ?? null),
     bookingRound: doc.booking_round ?? 1,
     toLocation: doc.to_location
       ? {
@@ -157,11 +169,25 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
       carrierStatus: p.carrier_status ?? null,
       carrierStatusLabel: p.carrier_status ? (GHN_STATUS_LABELS[p.carrier_status] ?? p.carrier_status) : null,
       bookingError: p.booking_error ?? null,
+      codAmountVnd: p.cod_amount ?? 0,
     })),
+    codAmountVnd: (doc.carrier_parcels ?? []).reduce((sum, p) => sum + (p.cod_amount ?? 0), 0),
     pickedUpAt: doc.picked_up_at ?? null,
     carrierReturnedAt: doc.carrier_returned_at ?? null,
     cancelledAt: doc.cancelled_at ?? null,
+    recipientName: recipient?.name ?? null,
+    recipientPhone: recipient?.phone ?? null,
+    recipientAddress: recipient?.address ?? null,
+    recipientCodVnd: recipient?.codAmountVnd ?? 0,
   };
+}
+
+/** `carrier_incident` lưu dạng "<mã GHN>: <lý do>" → đổi mã sang nhãn tiếng Việt. */
+function incidentLabel(incident: string | null): string | null {
+  if (!incident) return null;
+  const [status = '', ...rest] = incident.split(': ');
+  const label = GHN_STATUS_LABELS[status] ?? status;
+  return rest.length > 0 ? `${label}: ${rest.join(': ')}` : label;
 }
 
 /** Body địa chỉ → ToLocationInput (bỏ field không gửi). */
@@ -267,7 +293,8 @@ export class ShipmentsController {
       page: p,
       limit: l,
     });
-    return { items: items.map(toShipmentResponse), total, page: p, limit: l };
+    const recipients = await this.shipmentsService.recipientsByGroup(items.map((s) => s.order_group_id.toString()));
+    return { items: items.map((s) => toShipmentResponse(s, recipients.get(s.order_group_id.toString()))), total, page: p, limit: l };
   }
 
   @Post('overdue-scan')
@@ -316,14 +343,17 @@ export class ShipmentsController {
   @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'C5 — Trạng thái hãng (GHN) mô phỏng được + nhãn tiếng Việt (dropdown nút mô phỏng).' })
   carrierStatuses(): { status: string; label: string }[] {
-    return SIMULATABLE_GHN_STATUSES.map((status) => ({ status, label: GHN_STATUS_LABELS[status] ?? status }));
+    // AOFP-325 — rỗng khi cờ mô phỏng tắt (môi trường thật) → web ẩn nút "Mô phỏng GHN".
+    return this.shipmentsService.simulatableCarrierStatuses();
   }
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Chi tiết vận đơn.' })
   async get(@Param('id') id: string): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.getShipment(id));
+    const doc = await this.shipmentsService.getShipment(id);
+    const recipients = await this.shipmentsService.recipientsByGroup([doc.order_group_id.toString()]);
+    return toShipmentResponse(doc, recipients.get(doc.order_group_id.toString()));
   }
 
   @Get(':id/events')

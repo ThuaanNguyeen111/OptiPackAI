@@ -4,7 +4,8 @@ import { Reflector } from '@nestjs/core';
 import { CONFIGURABLE_ROLES, DEFAULT_ROLE_FEATURES, type Feature } from '../../common/enums/feature.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { ROLES_KEY } from '../auth/decorators/roles.decorator';
-import { FEATURES_KEY, resolveFeatureGate } from './feature-scope';
+import { PATH_METADATA } from '@nestjs/common/constants';
+import { FEATURE_EXEMPT_KEY, FEATURES_KEY, resolveFeatureGate } from './feature-scope';
 
 describe('resolveFeatureGate', () => {
   it('endpoint của nhân viên đóng gói → trang packing', () => {
@@ -48,12 +49,17 @@ describe('Feature gate trên controller thật', () => {
   }
 
   const handlers: HandlerInfo[] = [];
-  for (const file of controllerFiles(join(__dirname, '..'))) {
+  const unscoped: string[] = [];
+  // AOFP-335 — quét cả controller ngoài modules/ (app, health).
+  for (const file of controllerFiles(join(__dirname, '../..'))) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require(file) as Record<string, unknown>;
     for (const exported of Object.values(mod)) {
       if (typeof exported !== 'function') continue;
       const scope = reflector.get<Feature[] | undefined>(FEATURES_KEY, exported);
+      const isController = reflector.get<string | undefined>(PATH_METADATA, exported) !== undefined;
+      const exempt = reflector.get<string | undefined>(FEATURE_EXEMPT_KEY, exported);
+      if (isController && (!scope || (scope.length === 0 && !exempt?.trim()))) unscoped.push(exported.name);
       if (!scope) continue;
       const proto = (exported as { prototype: object }).prototype;
       for (const name of Object.getOwnPropertyNames(proto)) {
@@ -61,10 +67,21 @@ describe('Feature gate trên controller thật', () => {
         if (name === 'constructor' || typeof handler !== 'function') continue;
         const roles = reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, [handler, exported]);
         if (!roles?.length) continue;
-        handlers.push({ id: `${exported.name}.${name}`, roles, gate: resolveFeatureGate(roles, scope) });
+        handlers.push({ id: `${exported.name}.${name}`, roles, gate: resolveFeatureGate(roles, reflector.getAllAndOverride<Feature[]>(FEATURES_KEY, [handler, exported])) });
       }
     }
   }
+
+  it('AOFP-335: mọi controller có @Features hoặc @NoFeatureGate(lý do)', () => {
+    expect(unscoped).toEqual([]);
+  });
+
+  it('AOFP-335: PUT /packing/settings theo trang Quy tắc đóng gói, báo cáo theo trang Báo cáo', () => {
+    const gate = (id: string): Feature[] | null | undefined => handlers.find((h) => h.id === id)?.gate;
+    expect(gate('PackingSettingsController.updateSettings')).toEqual(['packaging_rules']);
+    expect(gate('PackingSettingsController.report')).toEqual(['analytics', 'dashboard']);
+    expect(gate('PackingSettingsController.feedback')).toEqual(['analytics']);
+  });
 
   it('tìm thấy endpoint gắn trang', () => {
     expect(handlers.filter((h) => h.gate).length).toBeGreaterThan(100);

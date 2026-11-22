@@ -5,10 +5,12 @@ import type { Response } from 'express';
 import { CustomerAuthService } from './customer-auth.service';
 import { LoginCustomerDto, RegisterCustomerDto } from './dto/storefront.dto';
 import { CustomerJwtGuard } from './customer-jwt.guard';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 type CustomerRequest = Request & { user: { customerId: string } };
 
 @ApiTags('Customer Auth')
+@NoFeatureGate('Khách AURELLE, không dùng tài khoản nhân viên')
 @Controller('customer-auth')
 export class CustomerAuthController {
   constructor(private readonly auth: CustomerAuthService) {}

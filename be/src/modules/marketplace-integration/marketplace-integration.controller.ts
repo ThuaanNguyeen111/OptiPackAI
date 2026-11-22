@@ -27,6 +27,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { MKT_ERROR_CODES } from './marketplace-integration.errors';
+import { Features } from '../role-permissions/feature-scope';
 
 export interface ShopResponse {
   shopId: string;
@@ -41,6 +42,7 @@ export interface ShopResponse {
 }
 
 @ApiTags('Marketplace Integration')
+@Features('order_sync')
 @Controller('marketplace')
 export class MarketplaceIntegrationController {
   private readonly logger = new Logger(MarketplaceIntegrationController.name);

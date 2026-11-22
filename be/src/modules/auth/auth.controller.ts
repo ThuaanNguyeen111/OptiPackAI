@@ -9,6 +9,7 @@ import {
   Query,
   Redirect,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -19,7 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthService, LoginResult, MfaRequiredResult } from './auth.service';
 import { GoogleOAuthErrorCode } from '../../common/constants/messages.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -32,6 +33,9 @@ import {
   RefreshTokenDto,
   ResetPasswordDto,
   VerifyMfaSetupDto,
+  SetupMfaDto,
+  GoogleLoginCodeDto,
+  GoogleMfaLoginDto,
 } from './dto';
 import {
   GoogleAccountInactiveException,
@@ -43,8 +47,21 @@ import {
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/authenticated-request.interface';
 import type { RequestMeta, TokenPair } from './services/token.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
+
+const OAUTH_STATE_COOKIE = 'op_oauth_state';
+
+/** Đọc 1 cookie từ header `Cookie` (BE không dùng cookie-parser). */
+export function readCookie(header: string | undefined, name: string): string | undefined {
+  for (const part of (header ?? '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0 && part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return undefined;
+}
 
 @ApiTags('Auth')
+@NoFeatureGate('Đăng nhập / token — mọi người dùng')
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
@@ -158,14 +175,22 @@ export class AuthController {
   //!=============================================
   // MFA
   //!=============================================
-  @ApiOperation({ summary: 'Bước 1: Sinh QR code MFA cho tài khoản hiện tại' })
+  @ApiOperation({
+    summary:
+      'Bước 1: Sinh QR code MFA (qrDataUrl = ảnh PNG data-URL). MFA đang bật thì phải gửi current_token hoặc password (401 AUTH_MFA_REAUTH_REQUIRED); MFA cũ giữ nguyên tới khi verify mã mới.',
+  })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('mfa/setup')
   async setupMfa(
+    @Body() dto: SetupMfaDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ otpauthUrl: string }> {
-    return this.authService.setupMfa(user.userId, user.email);
+  ): Promise<{ otpauthUrl: string; qrDataUrl: string }> {
+    return this.authService.setupMfa(user.userId, user.email, {
+      currentToken: dto.current_token,
+      password: dto.password,
+    });
   }
 
   @ApiOperation({ summary: 'Bước 2: Xác thực mã TOTP để kích hoạt MFA' })
@@ -219,8 +244,37 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('google/mobile')
-  async googleMobile(@Body() dto: GoogleMobileLoginDto, @Req() req: Request): Promise<LoginResult> {
+  async googleMobile(
+    @Body() dto: GoogleMobileLoginDto,
+    @Req() req: Request,
+  ): Promise<LoginResult | MfaRequiredResult> {
     return this.authService.googleMobileLogin(dto.id_token, this.extractMeta(req));
+  }
+
+  @ApiOperation({
+    summary:
+      'AOFP-333: đổi login_code trên URL /oauth-success lấy kết quả đăng nhập Google (dùng 1 lần, sống 60 giây). Lỗi: AUTH_GOOGLE_LOGIN_CODE_INVALID.',
+  })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('google/exchange')
+  async googleExchange(@Body() dto: GoogleLoginCodeDto): Promise<LoginResult | MfaRequiredResult> {
+    return this.authService.exchangeGoogleLoginCode(dto.login_code);
+  }
+
+  @ApiOperation({
+    summary:
+      'AOFP-333: tài khoản bật MFA đăng nhập Google → nhận { mfa_required, mfa_challenge }; gửi challenge + mfa_token (hoặc backup_code) để lấy token. Lỗi: AUTH_GOOGLE_MFA_CHALLENGE_INVALID, AUTH_MFA_TOKEN_INVALID, AUTH_MFA_BACKUP_CODE_INVALID.',
+  })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('google/mfa')
+  async googleMfa(@Body() dto: GoogleMfaLoginDto, @Req() req: Request): Promise<LoginResult> {
+    return this.authService.googleMfaLogin(
+      dto.mfa_challenge,
+      { mfaToken: dto.mfa_token, backupCode: dto.backup_code },
+      this.extractMeta(req),
+    );
   }
 
   //!=============================================
@@ -234,8 +288,19 @@ export class AuthController {
   })
   @Get('google')
   @Redirect()
-  googleAuth(@Query('code_challenge') codeChallenge?: string): { url: string } {
+  googleAuth(
+    @Res({ passthrough: true }) res: Response,
+    @Query('code_challenge') codeChallenge?: string,
+  ): { url: string } {
     const state = this.authService.generateOAuthState();
+    // AOFP-338 F-50 — state chỉ hợp lệ trên đúng trình duyệt đã bấm "Đăng nhập Google" (chống login CSRF).
+    res.cookie(OAUTH_STATE_COOKIE, state, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.configService.get<string>('NODE_ENV') === 'production',
+      maxAge: 5 * 60 * 1000,
+      path: '/',
+    });
     return {
       url: this.authService.getGoogleAuthorizationUrl(state, codeChallenge),
     };
@@ -249,11 +314,17 @@ export class AuthController {
     @Query('state') state: string,
     @Query('code_verifier') codeVerifier: string | undefined,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<{ url: string }> {
     const frontendUrl = this.configService.get<string>(
       'CLIENT_REDIRECT_CALLBACK',
       'http://localhost:5173/oauth-success',
     );
+    const stateFromBrowser = readCookie(req.headers.cookie, OAUTH_STATE_COOKIE);
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    if (!state || stateFromBrowser !== state) {
+      return { url: `${frontendUrl}?error=${GoogleOAuthErrorCode.INVALID_STATE}` };
+    }
 
     if (!code) {
       return {
@@ -268,13 +339,9 @@ export class AuthController {
         this.extractMeta(req),
         codeVerifier,
       );
-      const params = new URLSearchParams({
-        access_token: result.access_token,
-        refresh_token: result.refresh_token,
-        role: String(result.role),
-        must_change_password: String(result.must_change_password),
-      });
-      return { url: `${frontendUrl}?${params.toString()}` };
+      // AOFP-333 — không đặt token lên URL (lịch sử trình duyệt, log): FE đổi login_code qua POST.
+      const loginCode = await this.authService.stashGoogleResult(result);
+      return { url: `${frontendUrl}?login_code=${loginCode}` };
     } catch (err: unknown) {
       //!=============================================
       // FIX #35: trước đây "catch {}" mù, gộp MỌI lỗi thành 1 mã

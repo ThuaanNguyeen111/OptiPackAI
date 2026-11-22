@@ -1,5 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -12,7 +13,10 @@ async function bootstrap(): Promise<void> {
   // chữ ký HMAC (Mục 8.1 AURELLE_MARKETPLACE_DESIGN.md) tính trên BODY
   // GỐC (Buffer, chưa qua JSON.parse) — Nest tự lưu vào `req.rawBody` khi
   // bật cờ này, KHÔNG cần middleware `express.raw()` thủ công.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // AOFP-338 F-50 — chỉ tin X-Forwarded-For từ proxy trong mạng nội bộ (nginx, ingress): throttle đếm theo IP
+  // khách thật thay vì IP proxy (mọi người chung 1 bộ đếm), và khách gọi thẳng không giả IP được.
+  app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
   app.use(helmet());
   app.use(compression());

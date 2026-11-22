@@ -285,7 +285,7 @@ describe('PackingPlanService', () => {
       notificationsService as never,
       { get: () => null } as never, // không có CP-SAT
       { get: () => Promise.resolve(settings) } as never,
-      { assignOnReady: jest.fn(() => Promise.resolve(null)) } as never,
+      { assignOnReady: jest.fn(() => Promise.resolve(null)), packerName: jest.fn(() => Promise.resolve('Nhân viên A')) } as never,
       undefined,
       undefined,
       undefined,
@@ -502,6 +502,20 @@ describe('PackingPlanService', () => {
       expect(materialService.consumeForPack).not.toHaveBeenCalled();
     });
 
+    it('AOFP-338 F-45: kiện khác cùng mã đã niêm phong (đã trừ tồn) không bị đếm lại khi đổi thùng', async () => {
+      const plan = await approved();
+      const doc = planModel.docs[0];
+      const [sealed, target] = (doc?.parcels ?? []) as Record<string, unknown>[];
+      if (!doc || !sealed || !target) throw new Error('cần 2 kiện');
+      const code = (target.box as { code: string }).code;
+      Object.assign(sealed, { box: { ...(sealed.box as Record<string, unknown>), code }, status: 'sealed', box_consumed: true });
+      stock.set(code, 2); // thùng hỏng thay cùng loại cần thêm 1; kiện đã niêm phong không được đếm
+      const next = await service.changeBoxInSession(groupId, target.parcel_no as number, {
+        expected_version: plan.version, box_code: code, old_box_outcome: 'damaged', reason: 'BOX_SPEC_WRONG',
+      }, userId);
+      expect(next.version).toBe(plan.version + 1);
+    });
+
     it('xóa lượt quét ở mọi kiện, chặn quét tới khi chấp nhận lại', async () => {
       let plan = await approved();
       for (const p of plan.parcels) {
@@ -649,6 +663,22 @@ describe('PackingPlanService', () => {
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
     });
 
+    it('AOFP-338 F-47: hết thùng của kế hoạch → không chấp nhận được (BE chặn, không chỉ web ẩn nút)', async () => {
+      const plan = await computed();
+      const code = plan.parcels[0]?.box.code ?? '';
+      stock.set(code, 0);
+      await expect(service.approve(groupId, plan.version, userId)).rejects.toMatchObject({ errorCode: 'PKG_BOX_OUT_OF_STOCK' });
+      expect(group.fulfillment_status).not.toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+    });
+
+    it('AOFP-338 F-47: danh mục bao bì đổi sau lúc tính → PACKING_PLAN_STALE', async () => {
+      const plan = await computed();
+      materialService.getActiveRules.mockResolvedValue({ version: 99, rules: [], isDefault: false });
+      await expect(service.approve(groupId, plan.version, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.PLAN_STALE,
+      });
+    });
+
     it('approve hai lần không ghi thêm hoạt động hoặc tăng version', async () => {
       const plan = await computed();
       const approved = await service.approve(groupId, plan.version, userId);
@@ -711,6 +741,9 @@ describe('PackingPlanService', () => {
       expect(rejected.rejection_owner_id).toBeNull();
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PICKED);
       expect(notificationsService.notify).toHaveBeenCalledTimes(3); // chờ duyệt + Admin + Store Owner
+      // AOFP-322 — lưu tên người từ chối để thẻ trên web hiện "bởi <người>".
+      expect(rejected.rejected_by_name).toBe('Nhân viên A');
+      expect(toPlanResponse(rejected).rejection).toMatchObject({ rejectedBy: userId, rejectedByName: 'Nhân viên A' });
     });
 
     it('reject: giao đích danh người xử lý thì chỉ báo người đó', async () => {
@@ -1191,6 +1224,10 @@ describe('PackingPlanService', () => {
       await expect(
         session.review(groupId, first, { action: 'accept', reason: 'SCALE_ERROR', expected_version: plan.version }, userId),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SELF_REVIEW_FORBIDDEN });
+      // AOFP-331 AC3 — cân lại cũng không tự làm được (trước đây nhập số khớp ước tính là gỡ được kiện).
+      await expect(
+        session.review(groupId, first, { action: 'reweigh', reason: 'SCALE_ERROR', weight_kg: weightOf(plan, first), expected_version: plan.version }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SELF_REVIEW_FORBIDDEN, status: 403 });
       const done = await session.review(
         groupId,
         first,
@@ -1199,6 +1236,18 @@ describe('PackingPlanService', () => {
       );
       expect(done.completed).toBe(true);
       expect(done.plan.status).toBe('packed');
+    });
+
+    it('AOFP-338 F-46: kiện không có cân ước tính → bị giữ chờ người khác xem, không tự qua', async () => {
+      let plan = await approvedPlan();
+      const doc = planModel.docs[0];
+      const target = (doc?.parcels as Record<string, unknown>[] | undefined)?.[0];
+      if (!doc || !target) throw new Error('thiếu kiện');
+      target.estimated_weight_g = 0;
+      const no = target.parcel_no as number;
+      plan = await scanAll(no);
+      plan = (await session.seal(groupId, no, { weight_kg: 1.2, expected_version: plan.version }, userId)).plan;
+      expect(plan.parcels.find((p) => p.parcel_no === no)?.status).toBe('held');
     });
 
     it('mở kiện ra đóng lại không trừ thùng lần 2', async () => {
@@ -1618,6 +1667,24 @@ describe('PackingPlanService', () => {
       expect(result.box).toBe('reused');
     });
 
+    it('AOFP-332 AC3: thùng đã cắt hạ → không vào ngăn tái sử dụng dù người dùng chọn reusable', async () => {
+      const plan = await approvedPlan();
+      const doc = planModel.docs[0];
+      const target = (doc?.parcels as Record<string, unknown>[] | undefined)?.[0];
+      if (!doc || !target) throw new Error('thiếu kiện');
+      Object.assign(target, {
+        status: 'to_unpack',
+        box_consumed: true,
+        box: { ...(target.box as Record<string, unknown>), cut_from_inner_height_mm: 300 },
+        unpack: { reason: 'Đơn hủy', requested_at: new Date(), box_condition: null, units_restocked: 0, note: null, by: null, done_at: null },
+      });
+      doc.status = 'packing';
+      const result = await session.unpack(groupId, target.parcel_no as number, { box_condition: 'reusable', expected_version: plan.version }, userId);
+      const [lines] = materialsService.recoverFromUnpack.mock.calls[0] as unknown as [{ condition: string }[]];
+      expect(lines[0]?.condition).toBe('damaged');
+      expect(result.plan.parcels.find((p) => p.parcel_no === target.parcel_no)?.unpack?.box_condition).toBe('damaged');
+    });
+
     describe('thu hồi vật tư chèn khi tháo kiện', () => {
       async function parcelToUnpack(): Promise<{ plan: PackingPlanDocument; no: number }> {
         const plan = await approvedPlan();
@@ -1627,6 +1694,8 @@ describe('PackingPlanService', () => {
         Object.assign(target, {
           status: 'to_unpack',
           box_consumed: true,
+          // Thùng nguyên cỡ (kế hoạch mẫu có thể cắt hạ) — thùng cắt hạ có test riêng AOFP-332.
+          box: { ...(target.box as Record<string, unknown>), cut_from_inner_height_mm: null },
           materials: [{ type: 'foam_corner', code: 'FOAM', name: 'Góc xốp', unit: 'cái', quantity: 4, weight_g: 20, cost_vnd: 800 }],
           unpack: { reason: 'Đơn hủy', requested_at: new Date(), box_condition: null, units_restocked: 0, recovered_materials: [], note: null, by: null, done_at: null },
         });

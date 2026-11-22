@@ -1089,7 +1089,8 @@ function PackagingProfileForm({
   vi: boolean
   row: ProductMasterRow | null
   busy: boolean
-  onSave: (input: ConfirmPackagingProfileInput) => Promise<void>
+  /** Trả SKU đã lưu khi form cần ở lại hiện kết quả (độ dày tự tính / cảnh báo); null = đã đóng. */
+  onSave: (input: ConfirmPackagingProfileInput) => Promise<ProductMasterRow | null>
 }) {
   const [lengthCm, setLengthCm] = useState(row?.lengthCm != null ? String(row.lengthCm) : '')
   const [widthCm, setWidthCm] = useState(row?.widthCm != null ? String(row.widthCm) : '')
@@ -1103,7 +1104,11 @@ function PackagingProfileForm({
   const [zipFolded, setZipFolded] = useState(row?.zipBagFolded ?? false)
   const [fold, setFold] = useState(row?.canFoldInHalf ?? false)
   const [outer, setOuter] = useState<OuterRequirement | ''>(row?.outerRequirement ?? '')
+  const [gsm, setGsm] = useState(row?.fabricGsm != null ? String(row.fabricGsm) : '')
+  const [saved, setSaved] = useState<ProductMasterRow | null>(null)
   const canFold = FOLDABLE_CATEGORIES.has(category)
+  // AOFP-318 — quần áo (6 loại gập được) có ô GSM và được bỏ trống độ dày.
+  const garment = canFold
 
   if (!row) return null
 
@@ -1114,15 +1119,20 @@ function PackagingProfileForm({
         event.preventDefault()
         const length = Number(lengthCm)
         const width = Number(widthCm)
-        const height = Number(heightCm)
+        const heightBlank = garment && heightCm.trim() === ''
+        const height = heightBlank ? undefined : Number(heightCm)
         const weight = Number(weightKg)
-        if (![length, width, height, weight].every((value) => Number.isFinite(value) && value > 0)) {
+        const gsmValue = garment && gsm.trim() !== '' ? Number(gsm) : null
+        if (![length, width, height ?? 1, weight].every((value) => Number.isFinite(value) && value > 0)) {
           return
         }
+        if (gsmValue !== null && !Number.isFinite(gsmValue)) return
+        setSaved(null)
         void onSave({
           length_cm: length,
           width_cm: width,
-          height_cm: height,
+          ...(height === undefined ? {} : { height_cm: height }),
+          ...(garment ? { fabric_gsm: gsmValue } : {}),
           weight_kg: weight,
           is_fragile: fragile,
           orientation_rule: orientation,
@@ -1132,6 +1142,10 @@ function PackagingProfileForm({
           zip_bag_folded: zipBag.trim() !== '' && zipFolded,
           can_fold_in_half: canFold ? fold : false,
           outer_requirement: outer === '' ? null : outer,
+        }).then((result) => {
+          if (!result) return
+          setSaved(result)
+          if (result.heightCm != null) setHeightCm(String(result.heightCm))
         })
       }}
     >
@@ -1147,8 +1161,14 @@ function PackagingProfileForm({
         <Input className={fieldClass} value={widthCm} onChange={(e) => setWidthCm(e.target.value)} inputMode="decimal" />
       </label>
       <label className="space-y-1 text-[11px] text-ink-muted">
-        {vi ? 'Cao (cm)' : 'Height (cm)'}
-        <Input className={fieldClass} value={heightCm} onChange={(e) => setHeightCm(e.target.value)} inputMode="decimal" />
+        {garment ? (vi ? 'Cao / độ dày (cm, tuỳ chọn)' : 'Height / thickness (cm, optional)') : vi ? 'Cao (cm)' : 'Height (cm)'}
+        <Input
+          className={fieldClass}
+          value={heightCm}
+          onChange={(e) => setHeightCm(e.target.value)}
+          inputMode="decimal"
+          placeholder={garment ? (vi ? 'Để trống để tự tính từ GSM' : 'Leave blank to derive from GSM') : undefined}
+        />
       </label>
       <label className="space-y-1 text-[11px] text-ink-muted">
         {vi ? 'Nặng (kg)' : 'Weight (kg)'}
@@ -1172,6 +1192,18 @@ function PackagingProfileForm({
           ))}
         </select>
       </label>
+      {garment ? (
+        <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
+          {vi ? 'Định lượng vải (GSM, 20–1500)' : 'Fabric weight (GSM, 20–1500)'}
+          <Input
+            className={fieldClass}
+            value={gsm}
+            onChange={(e) => setGsm(e.target.value)}
+            inputMode="numeric"
+            placeholder={vi ? 'Trống = GSM mặc định theo loại' : 'Blank = category default'}
+          />
+        </label>
+      ) : null}
       <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
         {vi ? 'Lớp ngoài' : 'Outer layer'}
         <select
@@ -1241,6 +1273,23 @@ function PackagingProfileForm({
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
         {vi ? 'Lưu hồ sơ' : 'Save profile'}
       </Button>
+      {saved ? (
+        <div className="sm:col-span-4 space-y-1 text-xs">
+          <p className="text-ink">
+            {vi ? 'Đã lưu. Độ dày hệ thống dùng: ' : 'Saved. Thickness used: '}
+            <strong>{saved.heightCm != null ? `${saved.heightCm} cm` : '—'}</strong>
+            {saved.fabricGsm != null ? ` (GSM ${saved.fabricGsm})` : garment ? (vi ? ' (GSM mặc định theo loại)' : ' (category default GSM)') : null}
+          </p>
+          {saved.warnings.map((warning) => (
+            <p
+              key={warning}
+              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+            >
+              {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </form>
   )
 }
@@ -1631,6 +1680,8 @@ export function LinkSkuTab({
             setError(null)
             try {
               const saved = await confirmPackagingProfile(measuringId, input)
+              // AOFP-318 — độ dày do BE tự tính hoặc có cảnh báo: giữ form mở để kho thấy kết quả.
+              const showResult = saved.warnings.length > 0 || input.height_cm === undefined
               setProducts((current) => current.map((row) => (row.id === saved.id ? saved : row)))
               const hint = saved.suggestedZipBagCode
                 ? vi
@@ -1640,7 +1691,9 @@ export function LinkSkuTab({
               onNotice(
                 (vi ? `Đã xác nhận hồ sơ ${saved.sellerSku}.` : `Confirmed ${saved.sellerSku}.`) + hint,
               )
+              if (showResult) return saved
               setMeasuringId(null)
+              return null
             } catch (err: unknown) {
               setError(
                 getApiErrorCode(err) === 'PM_FOLD_NOT_ALLOWED'
@@ -1649,6 +1702,7 @@ export function LinkSkuTab({
                     : 'Only clothing can be folded in half. Clear the fold option and save again.'
                   : formatApiError(err),
               )
+              return null
             } finally {
               setBusy(false)
             }

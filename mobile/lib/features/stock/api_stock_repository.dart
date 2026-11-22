@@ -93,12 +93,19 @@ class ApiStockRepository implements StockRepository {
   }
 
   @override
-  Future<StockItem> restock(String assignmentId, int quantity, {required String eventId, String? lotCode}) =>
+  Future<StockItem> restock(
+    String assignmentId,
+    int quantity, {
+    required String eventId,
+    String? lotCode,
+    List<String> photoUrls = const [],
+  }) =>
       _guard(() async {
         final wid = await _wid();
         final raw = await api.post('${_base(wid, assignmentId)}/restock', body: {
           'quantity': quantity,
           if (lotCode != null && lotCode.trim().isNotEmpty) 'lot_code': lotCode.trim(),
+          if (photoUrls.isNotEmpty) 'document_photo_urls': photoUrls,
           'client_event_id': eventId,
         });
         return _item(raw, assignmentId);
@@ -154,6 +161,7 @@ class ApiStockRepository implements StockRepository {
     required int quantity,
     required String eventId,
     StockAdjustReason? reason,
+    List<String> photoUrls = const [],
   }) async {
     if (kind != 'restock' && kind != 'adjust') return null;
     final String wid;
@@ -169,7 +177,7 @@ class ApiStockRepository implements StockRepository {
       label: restock ? 'Nhập thêm $quantity × $sku vào ô $binCode' : 'Kiểm kê $sku ở ô $binCode: $quantity',
       path: '${_base(wid, assignmentId)}/${restock ? 'restock' : 'adjust'}',
       body: restock
-          ? {'quantity': quantity, 'client_event_id': eventId}
+          ? {'quantity': quantity, 'document_photo_urls': photoUrls, 'client_event_id': eventId}
           : {
               'counted_quantity': quantity,
               'reason_code': (reason ?? StockAdjustReason.countCorrection).code,

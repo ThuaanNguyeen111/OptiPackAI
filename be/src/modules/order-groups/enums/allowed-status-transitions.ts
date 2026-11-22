@@ -94,8 +94,9 @@ const ALLOWED_TRANSITIONS: Record<
   ],
   [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.RETURNED],
   [GroupFulfillmentStatus.RETURNING]: [GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.DELIVERED],
-  // Phiếu trả đủ nhóm: kiểm hàng xong mới hủy; hủy phiếu trước nhận hàng thì khôi phục đã giao.
-  [GroupFulfillmentStatus.RETURNED]: [GroupFulfillmentStatus.CANCELED, GroupFulfillmentStatus.DELIVERED],
+  // AOFP-326 (Q7) — returned là trạng thái CUỐI của hoàn (báo cáo không lẫn với hủy); chỉ quay
+  // về đã giao khi hủy phiếu trả trước lúc nhận hàng.
+  [GroupFulfillmentStatus.RETURNED]: [GroupFulfillmentStatus.DELIVERED],
   [GroupFulfillmentStatus.CANCELED]: [],
 };
 

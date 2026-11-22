@@ -213,7 +213,8 @@ export class PackerAssignmentService {
   }
 
   /** Tên hiển thị của người đóng; lỗi tra cứu → null (không chặn giao việc). */
-  private async packerName(id: Types.ObjectId): Promise<string | null> {
+  /** Tên người dùng (null nếu không tìm thấy / lỗi) — cũng dùng ghi tên người từ chối kế hoạch (AOFP-322). */
+  async packerName(id: Types.ObjectId): Promise<string | null> {
     try {
       const user = await this.userModel.findById(id).select('name').lean();
       return user?.name ?? null;

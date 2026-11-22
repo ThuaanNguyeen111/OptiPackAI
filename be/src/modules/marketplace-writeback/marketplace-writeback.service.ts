@@ -1,6 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
+import { AppException } from '../../common/exceptions/app-exception';
+import { UserRole } from '../../common/enums/user-role.enum';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { Shipment, ShipmentDocument } from '../shipments/schemas/shipment.schema';
 import { ReturnRequest, ReturnRequestDocument } from '../shipments/schemas/return-request.schema';
@@ -63,6 +67,30 @@ const BATCH_SIZE = 50;
 const BACKOFF_BASE_MS = 30 * 1000;
 const BACKOFF_MAX_MS = 30 * 60 * 1000;
 
+/**
+ * AOFP-330 — vận đơn hãng chưa có mã: chỉ là chờ, không phải lỗi → hẹn lượt sau, KHÔNG tính lượt thử.
+ * shortcut: chờ không giới hạn số lần — hãng đặt lỗi thì `carrier_booking_error` có giá trị nên hết chờ;
+ * nếu thấy dòng kẹt chờ lâu thì thêm hạn theo `event_time`.
+ */
+export class WaitingForCarrierCodeError extends Error {
+  constructor() {
+    super('Đang chờ mã vận đơn của hãng vận chuyển.');
+  }
+}
+
+/** Dòng hàng đợi báo sàn đã dừng (failed) — cho Admin xem + gửi lại. */
+export interface FailedWritebackRow {
+  id: string;
+  orderGroupId: string;
+  orderId: string | null;
+  kind: string;
+  status: string;
+  attempts: number;
+  lastError: string | null;
+  eventTime: Date;
+  updatedAt: Date | null;
+}
+
 export interface WritebackRunResult {
   processed: number;
   sent: number;
@@ -93,7 +121,60 @@ export class MarketplaceWritebackService {
     @Inject(MARKETPLACE_ADAPTERS)
     private readonly adapters: Partial<Record<MarketplacePlatform, MarketplaceAdapter>>,
     @InjectModel(ReturnRequest.name) private readonly returnModel: Model<ReturnRequestDocument>,
+    // AOFP-330 — báo Admin khi 1 dòng dừng hẳn (failed). @Optional: spec cũ không truyền.
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
+
+  /** AOFP-330 — các dòng đã dừng (failed), mới nhất trước. */
+  async listFailed(limit = 100): Promise<FailedWritebackRow[]> {
+    const rows = await this.outboxModel
+      .find({ state: 'failed' })
+      .select('order_group_id order_id kind status attempts last_error event_time updated_at')
+      .sort({ updated_at: -1 })
+      .limit(limit)
+      .lean();
+    return rows.map((r) => ({
+      id: String(r._id),
+      orderGroupId: String(r.order_group_id),
+      orderId: r.order_id ? String(r.order_id) : null,
+      kind: r.kind,
+      status: r.status,
+      attempts: r.attempts,
+      lastError: r.last_error,
+      eventTime: r.event_time,
+      updatedAt: (r as { updated_at?: Date }).updated_at ?? null,
+    }));
+  }
+
+  /** AOFP-330 — Admin bấm "Gửi lại": dòng failed về pending, đếm lượt lại từ 0, gửi ở lượt cron kế tiếp (≤ 1 phút). */
+  async retry(id: string): Promise<{ id: string; state: 'pending' }> {
+    const updated = Types.ObjectId.isValid(id)
+      ? await this.outboxModel.updateOne(
+        { _id: new Types.ObjectId(id), state: 'failed' },
+        { $set: { state: 'pending', attempts: 0, next_attempt_at: new Date(), last_error: null } },
+      )
+      : null;
+    if (!updated || updated.matchedCount === 0) {
+      throw new AppException('MKT_WRITEBACK_NOT_RETRYABLE', 'Không có dòng báo website lỗi nào với mã này (có thể đã gửi lại rồi).', HttpStatus.NOT_FOUND, { id });
+    }
+    return { id, state: 'pending' };
+  }
+
+  /**
+   * AOFP-330 — gửi theo thứ tự trong nhóm: còn dòng báo trạng thái ĐƠN cũ hơn của cùng nhóm đang chờ
+   * thì để dòng này đợi (tránh website nhận "đã giao" trước "đang giao").
+   */
+  private async hasOlderPending(row: MarketplaceStatusOutboxDocument): Promise<boolean> {
+    if (row.kind === 'return_status') return false;
+    const older = await this.outboxModel.exists({
+      _id: { $ne: row._id },
+      order_group_id: row.order_group_id,
+      kind: { $ne: 'return_status' },
+      state: 'pending',
+      event_time: { $lt: row.event_time },
+    });
+    return older !== null;
+  }
 
   async processPending(now: Date = new Date()): Promise<WritebackRunResult> {
     const rows = await this.outboxModel
@@ -108,10 +189,22 @@ export class MarketplaceWritebackService {
     for (const row of rows) {
       result.processed += 1;
       try {
+        if (await this.hasOlderPending(row)) {
+          result.skipped += 1;
+          continue;
+        }
         const outcome = await this.processOne(row, tokens);
         if (outcome === 'sent') result.sent += 1;
         else result.skipped += 1;
       } catch (error: unknown) {
+        if (error instanceof WaitingForCarrierCodeError) {
+          await this.outboxModel.updateOne(
+            { _id: row._id },
+            { $set: { last_error: error.message, next_attempt_at: new Date(now.getTime() + BACKOFF_BASE_MS) } },
+          );
+          result.retrying += 1;
+          continue;
+        }
         const message = error instanceof Error ? error.message : String(error);
         const attempts = row.attempts + 1;
         const giveUp = attempts >= MAX_WRITEBACK_ATTEMPTS;
@@ -129,6 +222,7 @@ export class MarketplaceWritebackService {
         if (giveUp) {
           result.failed += 1;
           this.logger.error(`Ghi ngược ${row.idempotency_key} thất bại ${String(attempts)} lần — dừng. ${message}`);
+          await this.notifyFailed(row, message);
         } else {
           result.retrying += 1;
           this.logger.warn(`Ghi ngược ${row.idempotency_key} lỗi (lần ${String(attempts)}): ${message}`);
@@ -198,7 +292,7 @@ export class MarketplaceWritebackService {
       && !shipment.carrier_booking_error
       && !(shipment.carrier_parcels ?? []).some((p) => p.carrier_order_code)
     ) {
-      throw new Error('Đang chờ mã vận đơn của hãng vận chuyển.');
+      throw new WaitingForCarrierCodeError();
     }
 
     // 28/10/2026 (G2) — vận đơn hãng có kiện theo đơn: đơn mà các kiện của nó đã giao xong
@@ -381,6 +475,24 @@ export class MarketplaceWritebackService {
     );
     cache.set(shopId, token);
     return token;
+  }
+
+  /** AOFP-330 — báo Admin 1 dòng báo website đã dừng (trước đây chỉ ghi log, không ai biết). */
+  private async notifyFailed(row: MarketplaceStatusOutboxDocument, message: string): Promise<void> {
+    if (!this.notificationsService) return;
+    try {
+      await this.notificationsService.notify({
+        recipientRole: UserRole.ADMIN,
+        type: NotificationType.SYNC_FAILED,
+        severity: 'critical',
+        title: `Báo website thất bại: "${row.status}"`,
+        message: `Đã thử ${String(MAX_WRITEBACK_ATTEMPTS)} lần không gửi được trạng thái "${row.status}" lên website (${message.slice(0, 200)}). Vào Kết nối sàn → Báo website lỗi để bấm "Gửi lại".`,
+        relatedEntityType: 'order_group',
+        relatedEntityId: String(row.order_group_id),
+      });
+    } catch (error: unknown) {
+      this.logger.warn(`Gửi thông báo báo-website-lỗi thất bại: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async markDone(

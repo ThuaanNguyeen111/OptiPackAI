@@ -3,9 +3,11 @@ import { ApiTags } from '@nestjs/swagger';
 import { UpdateExpressWardsDto } from './dto/storefront.dto';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
 import { StorefrontExpressService, type ExpressOrderRow } from './storefront-express.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 /** 29/10/2026 — Admin AURELLE: phường được giao hỏa tốc + theo dõi đơn hỏa tốc (nhãn "Trễ"). */
 @ApiTags('Storefront Admin')
+@NoFeatureGate('Admin website AURELLE, đăng nhập riêng')
 @Controller('storefront/admin/express')
 @UseGuards(StorefrontAdminOriginGuard, StorefrontAdminGuard)
 export class StorefrontAdminExpressController {

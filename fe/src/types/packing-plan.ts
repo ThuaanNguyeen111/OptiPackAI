@@ -82,6 +82,8 @@ export type PackingPlanParcel = {
   boxSourceUsed?: 'new' | 'reused' | null
   /** (13/11/2026) Ảnh bằng chứng lúc niêm phong; [] = không chụp. */
   sealPhotoUrls?: string[]
+  /** Id người niêm phong (AOFP-331: người này không tự chấp nhận / cân lại kiện lệch cân). */
+  sealedBy?: string | null
   boxSourceOverride?: {
     source: 'new' | 'reused'
     planned: 'new' | 'reused' | null
@@ -119,6 +121,15 @@ export type PackingPlan = {
     assignedPackerId: string | null
     assignedPackerName?: string | null
   }
+  /** (AOFP-322) Từ chối: lý do dạng "MÃ: ghi chú", người + giờ từ chối; null khi chưa từng bị từ chối. */
+  rejectedAt?: string | null
+  rejectionReason?: string | null
+  rejection?: {
+    reasonCode: string | null
+    rejectedByName?: string | null
+    dueAt: string | null
+    overdue: boolean
+  } | null
 }
 
 export const BOX_SOURCE_REASONS = [

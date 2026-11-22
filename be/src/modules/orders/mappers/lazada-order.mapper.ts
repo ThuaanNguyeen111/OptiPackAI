@@ -187,6 +187,8 @@ export interface MappedOrderFields {
   total_amount: number;
   currency: string;
   synced_at: Date;
+  /** AOFP-319 — `payment_method` của Lazada/AURELLE (AURELLE luôn 'COD'). */
+  payment_method?: string | null;
   /** 29/10/2026 — chỉ AURELLE: giao hỏa tốc + giờ hẹn giao (Lazada thật không có → standard/null). */
   delivery_option: 'standard' | 'express';
   promised_delivery_at: Date | null;
@@ -287,6 +289,7 @@ export function mapLazadaOrder(
       status: mapLazadaStatus(item.status),
     })),
     total_amount: parseMoneyString(raw.price, 'price'),
+    payment_method: raw.payment_method?.trim() ? raw.payment_method.trim() : null,
     ...deliveryOptionOf(raw),
     currency: 'VND',
     synced_at: new Date(),

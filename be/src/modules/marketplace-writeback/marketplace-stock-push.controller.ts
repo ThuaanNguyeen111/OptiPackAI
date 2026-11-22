@@ -5,11 +5,13 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { MarketplaceStockPushService, type StockPushResult } from './marketplace-stock-push.service';
+import { Features } from '../role-permissions/feature-scope';
 
 /** (21/10/2026) Đẩy tồn bán được sang AURELLE ngay, khỏi chờ cron 1 phút. */
 @ApiTags('Marketplace Writeback')
 @ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@Features('order_sync')
 @Controller('marketplace-writeback')
 export class MarketplaceStockPushController {
   constructor(private readonly stockPush: MarketplaceStockPushService) {}

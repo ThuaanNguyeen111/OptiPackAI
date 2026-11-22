@@ -10,6 +10,7 @@ import {
   MarketplaceWebhooksService,
   type MarketplaceWebhookPayload,
 } from './marketplace-webhooks.service';
+import { NoFeatureGate } from '../role-permissions/feature-scope';
 
 /**
  * ===================================================================
@@ -24,6 +25,7 @@ import {
  * ===================================================================
  */
 @ApiExcludeController() // Không expose lên Swagger — endpoint nội bộ cho AURELLE, không phải API cho FE.
+@NoFeatureGate('Webhook sàn, xác thực bằng chữ ký')
 @Controller('marketplace/webhooks')
 export class MarketplaceWebhooksController {
   constructor(private readonly webhooksService: MarketplaceWebhooksService) {}
