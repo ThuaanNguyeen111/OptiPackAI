@@ -89,5 +89,9 @@ class LoginSuccess extends LoginOutcome {
 }
 
 class LoginMfaRequired extends LoginOutcome {
-  const LoginMfaRequired();
+  const LoginMfaRequired({this.challenge});
+
+  /// Chỉ có khi đăng nhập bằng Google (AOFP-333): gửi kèm mã ở `POST /auth/google/mfa`.
+  /// Đăng nhập email + mật khẩu thì null — gọi lại `/auth/login` kèm mã.
+  final String? challenge;
 }

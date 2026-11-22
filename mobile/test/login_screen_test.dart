@@ -48,6 +48,22 @@ class FakeAuthRepository extends AuthRepository {
   }
 
   final List<String> googleLogins = [];
+  final List<Map<String, String?>> googleMfaLogins = [];
+
+  @override
+  Future<LoginOutcome> loginWithGoogleMfa({
+    required String challenge,
+    String? mfaToken,
+    String? backupCode,
+  }) async {
+    googleMfaLogins.add({'challenge': challenge, 'mfa': mfaToken, 'backup': backupCode});
+    if (script.isNotEmpty) {
+      final next = script.removeAt(0);
+      if (next is ApiException) throw next;
+      if (next is LoginOutcome) return next;
+    }
+    return LoginSuccess(mustChangePassword: mustChangePassword);
+  }
 
   @override
   Future<LoginOutcome> loginWithGoogle(String idToken) async {
@@ -220,12 +236,61 @@ void main() {
       expect(find.text('App chưa cấu hình Google.'), findsOneWidget);
     });
 
-    testWidgets('tài khoản bật MFA: dặn dùng email + mật khẩu', (tester) async {
+    testWidgets('BE cũ không gửi challenge: dặn dùng email + mật khẩu', (tester) async {
       fake.script.add(const LoginMfaRequired());
       await pumpLogin(tester);
       await tapGoogle(tester);
 
       expect(find.textContaining('xác thực 2 lớp'), findsOneWidget);
+      expect(find.text('Mã 6 số'), findsNothing);
+    });
+
+    testWidgets('tài khoản bật MFA: nhập mã rồi gửi challenge tới /auth/google/mfa, không cần mật khẩu', (tester) async {
+      fake.script.add(const LoginMfaRequired(challenge: 'chal-1'));
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      expect(find.text('Xác thực 2 lớp'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '482913');
+      await tester.tap(find.widgetWithText(FilledButton, 'Xác nhận MFA'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(fake.googleMfaLogins.single, {'challenge': 'chal-1', 'mfa': '482913', 'backup': null});
+      expect(fake.logins, isEmpty, reason: 'không đi đường email + mật khẩu');
+      expect(find.text('Chào mừng trở lại'), findsOneWidget);
+    });
+
+    testWidgets('MFA sau Google bằng mã dự phòng, quay lại rồi đăng nhập thường không dùng challenge cũ', (tester) async {
+      fake.script.add(const LoginMfaRequired(challenge: 'chal-2'));
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+
+      await tester.tap(find.text('Mã dự phòng'));
+      await tester.pump();
+      await tester.enterText(find.byType(TextField), '48213096');
+      await tester.tap(find.widgetWithText(FilledButton, 'Xác nhận MFA'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(fake.googleMfaLogins.single['backup'], '48213096');
+      expect(fake.googleMfaLogins.single['mfa'], isNull);
+    });
+
+    testWidgets('challenge hết hạn: hiện lỗi của BE, quay lại đăng nhập về form thường', (tester) async {
+      fake.script
+        ..add(const LoginMfaRequired(challenge: 'chal-3'))
+        ..add(const ApiException(message: 'Phiên xác thực đã hết hạn.'));
+      await pumpLogin(tester);
+      await tapGoogle(tester);
+      await tester.enterText(find.byType(TextField), '111111');
+      await tester.tap(find.widgetWithText(FilledButton, 'Xác nhận MFA'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Phiên xác thực đã hết hạn.'), findsWidgets);
+
+      await tester.tap(find.text('← Quay lại đăng nhập'));
+      await tester.pump();
+      expect(find.text('Quên mật khẩu?'), findsOneWidget);
     });
   });
 

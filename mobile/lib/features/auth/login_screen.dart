@@ -38,6 +38,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _remember = false;
   bool _loading = false;
   bool _mfaStep = false;
+
+  /// Có giá trị khi người dùng vào bước MFA từ nút Google: mã gửi về `/auth/google/mfa`, không cần mật khẩu.
+  String? _googleChallenge;
   bool _locked = false;
   bool _greetDone = false;
   _MfaMode _mfaMode = _MfaMode.totp;
@@ -106,18 +109,48 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           setState(() => _mfaError = 'Nhập mã xác thực 6 số.');
           return;
         }
-        await _login(mfaToken: _mfa.text.trim());
+        await _submitMfa(mfaToken: _mfa.text.trim());
       } else {
         if (_backup.text.trim().isEmpty) {
           setState(() => _mfaError = 'Nhập mã dự phòng.');
           return;
         }
-        await _login(backupCode: _backup.text.trim());
+        await _submitMfa(backupCode: _backup.text.trim());
       }
       return;
     }
     if (!_validateCredentials()) return;
     await _login();
+  }
+
+  /// Bước nhập mã: đi từ Google thì gửi challenge, ngược lại đăng nhập lại bằng email + mật khẩu.
+  Future<void> _submitMfa({String? mfaToken, String? backupCode}) async {
+    final challenge = _googleChallenge;
+    if (challenge == null) {
+      await _login(mfaToken: mfaToken, backupCode: backupCode);
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _mfaError = null;
+      _formError = null;
+    });
+    try {
+      await ref.read(authControllerProvider.notifier).loginWithGoogleMfa(
+            challenge,
+            mfaToken: mfaToken,
+            backupCode: backupCode,
+          );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _formError = e.message;
+        _mfaError = e.message;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _login({String? mfaToken, String? backupCode}) async {
@@ -178,9 +211,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       final outcome = await ref.read(authControllerProvider.notifier).loginWithGoogle();
       if (!mounted) return;
-      // Tài khoản bật MFA: nhập mã 6 số bằng form thường (BE đòi email + mật khẩu kèm mã).
+      // Tài khoản bật MFA: chuyển sang bước nhập mã, gửi kèm challenge của BE (AOFP-333).
       if (outcome is LoginMfaRequired) {
-        setState(() => _formError = 'Tài khoản bật xác thực 2 lớp. Đăng nhập bằng email và mật khẩu.');
+        final challenge = outcome.challenge;
+        if (challenge == null) {
+          // BE cũ chưa có challenge: chỉ còn cách đăng nhập bằng email + mật khẩu.
+          setState(() => _formError = 'Tài khoản bật xác thực 2 lớp. Đăng nhập bằng email và mật khẩu.');
+        } else {
+          setState(() {
+            _googleChallenge = challenge;
+            _mfaStep = true;
+          });
+        }
       }
     } on GoogleSignInCanceled {
       // Người dùng đóng hộp chọn tài khoản: không báo lỗi.
@@ -204,6 +246,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void _backToLogin() {
     setState(() {
       _mfaStep = false;
+      _googleChallenge = null;
       _mfa.clear();
       _backup.clear();
       _mfaError = null;

@@ -39,12 +39,33 @@ class AuthRepository {
     return _finishLogin(res);
   }
 
+  /// `POST /auth/google/mfa` (AOFP-333): tài khoản bật MFA đăng nhập Google phải nhập mã sau bước Google.
+  /// [challenge] lấy từ [LoginMfaRequired.challenge]; gửi mã 6 số hoặc mã dự phòng.
+  Future<LoginOutcome> loginWithGoogleMfa({
+    required String challenge,
+    String? mfaToken,
+    String? backupCode,
+  }) async {
+    final res = await api.post(
+      '/auth/google/mfa',
+      public: true,
+      body: {
+        'mfa_challenge': challenge,
+        if (mfaToken != null && mfaToken.isNotEmpty) 'mfa_token': mfaToken,
+        if (backupCode != null && backupCode.isNotEmpty) 'backup_code': backupCode,
+      },
+    );
+    return _finishLogin(res);
+  }
+
   Future<LoginOutcome> _finishLogin(Object? res) async {
     final data = asMap(res);
     if (data == null) {
       throw const ApiException(message: 'Phản hồi đăng nhập không hợp lệ.');
     }
-    if (data['mfa_required'] == true) return const LoginMfaRequired();
+    if (data['mfa_required'] == true) {
+      return LoginMfaRequired(challenge: pickStringOrNull(data, ['mfa_challenge']));
+    }
 
     final access = data['access_token'];
     final refresh = data['refresh_token'];
