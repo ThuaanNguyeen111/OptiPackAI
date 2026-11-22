@@ -1081,6 +1081,8 @@ Admin bật/tắt từng **trang** cho mỗi vai trò (trừ Admin — luôn to�
 
 ## 27. 🆕 29/10/2026 — Giao hỏa tốc AURELLE 3 giờ (shop tự giao)
 
+> ❌ **22/11/2026 — website AURELLE đã gỡ giao hỏa tốc.** Đã xoá `GET /storefront/delivery-options`, `/storefront/admin/express/wards`, `/storefront/admin/express/orders`; checkout chỉ nhận `delivery_option: standard` (gửi `express` → 400 lỗi kiểm tra dữ liệu); `/storefront/orders` bỏ `deliveryOption`, `promisedDeliveryAt`, `isLate`. Field `delivery_option`/`promised_delivery_at` vẫn lưu cho đơn cũ và Open API gửi OptiPack. Phía OptiPack (nhóm hỏa tốc, Lazada) không đổi. Bảng dưới chỉ còn để tra lịch sử.
+
 **Nghiệp vụ (Thuận chốt 29/10):** website có 2 cách giao — Tiêu chuẩn 30.000₫ (GHN) và Hỏa tốc 45.000₫ (shop tự giao trong 3 giờ); đơn từ 1 triệu miễn phí cả hai. Hỏa tốc chỉ chọn được khi phường nhận hàng thuộc danh sách (mặc định 91 phường TP.HCM mới, tương ứng 16 quận nội thành cũ + TP Thủ Đức + Thủ Dầu Một/Thuận An/Dĩ An; Admin website sửa được) **và** đặt trong 8:00–14:00, thứ 2 – thứ 7 (giờ VN). Hẹn khách: giao trước giờ đặt + 3 giờ; kho: đóng gói xong trước giờ đặt + 1 giờ. Trễ không hoàn tiền. Đơn Lazada đánh dấu hỏa tốc tay **giữ nguyên** (4 giờ làm việc, vẫn giao GHN).
 
 **Website AURELLE (BE storefront):**
