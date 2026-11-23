@@ -183,6 +183,7 @@ export function PackingRulesCard({ vi, canEdit }: { vi: boolean; canEdit: boolea
                   options={[
                     { value: 'fewest_parcels', label: vi ? 'Ít kiện nhất' : 'Fewest parcels' },
                     { value: 'cheapest', label: vi ? 'Rẻ nhất' : 'Cheapest' },
+                    { value: 'lowest_total_vnd', label: vi ? 'Tổng tiền thấp nhất' : 'Lowest total cost' },
                   ]}
                 />
               </div>

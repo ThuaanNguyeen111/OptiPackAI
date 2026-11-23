@@ -84,6 +84,7 @@ describe('Cân tính cước theo bậc', () => {
       parcels: 1,
       packaging_cost_vnd: 2000,
       billable_g: 1000,
+      est_total_vnd: 26500,
       volumetric_g: 600,
       folds: 0,
       imbalance: 0,

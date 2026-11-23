@@ -68,7 +68,7 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
     platform: doc.platform,
     shopId: doc.shop_id,
     sellerSku: doc.seller_sku,
-    packagingProfileStatus: doc.packaging_profile_status,
+    packagingProfileStatus: doc.packaging_profile_status === 'ready' ? 'ready' : 'needs_measurement',
     dimension: mapDimension(doc.dimension),
     marketplaceDimension: mapDimension(doc.marketplace_dimension),
     isFragile: doc.is_fragile ?? null,

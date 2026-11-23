@@ -13,7 +13,9 @@ import type { Variant } from './types';
  * Mỗi món: thử các kiện đang mở theo thứ tự mở (first-fit), trong mỗi kiện
  * dùng EMS đáy-sâu-trái. Không kiện nào chứa được → mở kiện mới (mặc định
  * thùng LỚN NHẤT còn tồn, gen dịch về thùng nhỏ hơn). Cuối cùng CO THÙNG:
- * mỗi kiện thử xếp lại vào thùng rẻ hơn còn tồn.
+ * mỗi kiện thử xếp lại vào mọi thùng khác còn tồn, giữ thùng TỐT NHẤT theo
+ * mục tiêu bậc (`parcelBetter`) — không theo giá thùng, vì thùng to giá rẻ
+ * (hoặc chưa nhập giá) có thể làm cước tăng (audit 20/11/2026, F1).
  * Hoàn toàn xác định: cùng khóa → cùng kết quả.
  * ===================================================================
  */
@@ -24,8 +26,10 @@ export interface DecodeContext {
   variants: Variant[][];
   /** Thùng được phép, sắp thể tích lòng GIẢM dần (để mở kiện). */
   boxesBySizeDesc: BoxSpec[];
-  /** Thùng được phép, sắp RẺ dần (giá, rồi thể tích ngoài) — để co thùng. */
+  /** Thùng được phép, sắp RẺ dần (giá, rồi thể tích ngoài) — thứ tự thử khi co thùng. */
   boxesByCostAsc: BoxSpec[];
+  /** true nếu kiện `a` tốt hơn kiện `b` theo mục tiêu bậc của bộ giải (cước, giá, …). */
+  parcelBetter: (a: ParcelState, b: ParcelState) => boolean;
   /** Tồn còn trống; bỏ qua = không giới hạn. */
   stock?: Map<string, number>;
   minDim: number;
@@ -137,20 +141,26 @@ export function decode(keys: ArrayLike<number>, ctx: DecodeContext): Decoded {
     take(box.code, 1);
   }
 
-  // Co thùng: mỗi kiện thử thùng rẻ nhất còn tồn mà vẫn xếp lại được đủ món.
+  // Co thùng: mỗi kiện thử mọi thùng khác còn tồn, giữ kiện tốt nhất theo mục tiêu bậc.
   for (let p = 0; p < parcels.length; p += 1) {
     const current = parcels[p];
     if (!current) continue;
+    // Cận dưới rẻ để bỏ thùng chắc chắn không vừa (thể tích dạng gốc ≤ dạng gập).
+    const originals = current.unitIndices.map((i) => ctx.units[i]).filter((u): u is PackingUnit => u !== undefined);
+    const volume = originals.reduce((s, u) => s + u.length_mm * u.width_mm * u.height_mm, 0);
+    const weight = originals.reduce((s, u) => s + u.weight_g, 0);
+    let best = current;
     for (const box of ctx.boxesByCostAsc) {
-      if (!cheaper(box, current.box)) break;
-      if (available(box.code) <= 0) continue;
+      if (box.code === current.box.code || available(box.code) <= 0) continue;
+      const inner = box.inner.length_mm * box.inner.width_mm * box.inner.height_mm;
+      if (inner < volume || box.max_load_g < weight) continue;
       const repacked = packInto(box, current.unitIndices, keys, ctx);
-      if (repacked) {
-        take(current.box.code, -1);
-        take(box.code, 1);
-        parcels[p] = repacked;
-        break;
-      }
+      if (repacked && ctx.parcelBetter(repacked, best)) best = repacked;
+    }
+    if (best !== current) {
+      take(current.box.code, -1);
+      take(best.box.code, 1);
+      parcels[p] = best;
     }
   }
 

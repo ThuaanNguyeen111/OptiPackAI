@@ -237,7 +237,7 @@ export type BoxComparisonRow = {
 }
 
 export type BoxComparison = {
-  prefer: 'fewest_parcels' | 'cheapest'
+  prefer: 'fewest_parcels' | 'cheapest' | 'lowest_total_vnd'
   weights: { billable: number; packaging: number; fill: number; handling: number }
   rows: BoxComparisonRow[]
   /** false = có thùng điểm cao hơn mà xếp sau. */
@@ -285,7 +285,7 @@ export type PackingSettings = {
   version: number | null
   abnormalWeightThreshold: number
   fragileCushionMm: number
-  defaultPrefer: 'fewest_parcels' | 'cheapest'
+  defaultPrefer: 'fewest_parcels' | 'cheapest' | 'lowest_total_vnd'
   maxParcelsPerOrder: number | null
   allowReusedBoxForFragile: boolean
   requireScan: boolean

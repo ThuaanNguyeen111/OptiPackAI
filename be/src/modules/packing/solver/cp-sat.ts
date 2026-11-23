@@ -8,7 +8,8 @@ import type {
 } from '../../packaging/engine/types';
 import { compareObjective, objectiveOf, summarizePlacements, type ChargeRule } from './objective';
 import { validatePlan, variantsOf } from './solve-order';
-import type { SolvePreference, SolveResult, SolvedParcel } from './types';
+import { comboBound } from './proof';
+import type { FeeEstimate, SolvePreference, SolveResult, SolvedParcel } from './types';
 
 /**
  * ===================================================================
@@ -106,6 +107,7 @@ export interface CpSatUpgradeOptions {
   availability?: Map<string, number>;
   materials?: Parameters<typeof summarizePlacements>[3];
   charge?: ChargeRule;
+  fee?: FeeEstimate;
   /** Ưu tiên giống lúc giải BRKGA — so phương án CP-SAT cùng thước đo. */
   prefer?: SolvePreference;
   maxUnits?: number;
@@ -191,7 +193,7 @@ function parcelsFromPlacements(
       });
     }
     parcels.push(
-      summarizePlacements(box, units, placed, options.materials, options.charge),
+      summarizePlacements(box, units, placed, options.materials, options.charge, options.fee),
     );
   }
   return parcels;
@@ -218,7 +220,8 @@ export async function upgradeWithCpSat(
     };
   }
 
-  const allBoxes = [...new Map(candidates.flat().map((b) => [b.code, b])).values()];
+  // Không gộp theo mã: cùng mã có thể vừa là thùng nguyên vừa là thùng đã hạ lòng/tải (proof.ts).
+  const allBoxes = candidates.flat();
   const request: CheckCombosRequest = {
     schema_version: CP_SAT_SCHEMA_VERSION,
     units: units.map((u) => toPayloadUnit(u, allBoxes)),
@@ -255,15 +258,25 @@ export async function upgradeWithCpSat(
         : ['món lạ trong lời giải CP-SAT'];
       const candidate = parcels ? objectiveOf(parcels, 0) : null;
       if (parcels && candidate && problems.length === 0 && compareObjective(candidate, result.objective, options.prefer) < 0) {
+        // Ứng viên sắp theo CẬN DƯỚI cước: tổ hợp sau vẫn có thể tốt hơn cách xếp vừa tìm.
+        const target = {
+          parcels: parcels.length,
+          billable_g: candidate.billable_g,
+          box_price_vnd: parcels.reduce((s, p) => s + (p.box.price_vnd ?? 0), 0),
+        };
+        const bound = comboBound(units, units.map((u) => variantsOf(u)), options.charge);
+        const stillOpen = candidates.slice(r.combo_index + 1).some((c) => bound.canBeat(c, target));
         return {
           ...result,
           parcels,
           objective: candidate,
-          proof: 'optimal_in_model',
+          proof: stillOpen ? 'heuristic' : 'optimal_in_model',
           explanation: [
             ...result.explanation,
             ...lines,
-            `${comboName(combo)}: CP-SAT tìm được cách xếp tốt hơn — mọi tổ hợp tốt hơn nữa đều đã bị loại → tối ưu (theo luật chồng chặt).`,
+            stillOpen
+              ? `${comboName(combo)}: CP-SAT tìm được cách xếp tốt hơn — còn tổ hợp có thể tốt hơn nữa, giữ nhãn heuristic.`
+              : `${comboName(combo)}: CP-SAT tìm được cách xếp tốt hơn — mọi tổ hợp tốt hơn nữa đều đã bị loại → tối ưu (theo luật chồng chặt).`,
           ],
           open_candidates: [],
         };

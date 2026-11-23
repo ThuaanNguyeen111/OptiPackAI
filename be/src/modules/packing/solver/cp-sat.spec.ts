@@ -6,6 +6,7 @@ import {
   type CheckCombosResponse,
   type CpSatChecker,
 } from './cp-sat';
+import { loweredBox } from './proof';
 import { solveOrder } from './solve-order';
 import type { SolveResult } from './types';
 import type { PackingUnit } from '../../packaging/engine/types';
@@ -130,6 +131,20 @@ describe('upgradeWithCpSat', () => {
     const r2 = await upgradeWithCpSat(weakResult(), units, down);
     expect(r2.proof).toBe('heuristic');
     expect(r2.explanation.at(-1)).toMatch(/không phản hồi/);
+  });
+
+  it('cùng mã có cả thùng nguyên và thùng đã hạ: hướng xoay lọc theo thùng nguyên', async () => {
+    const answer = (): CheckCombosResponse => ({
+      schema_version: 1,
+      stopped_early: false,
+      results: [{ combo_index: 0, status: 'infeasible', placements: null, wall_ms: 5 }],
+    });
+    const full = fake(answer);
+    await upgradeWithCpSat({ ...weakResult(), open_candidates: [[M]] }, units, full);
+    const mixed = fake(answer);
+    // Thùng hạ đứng SAU: trước đây gộp theo mã chỉ giữ bản thấp, mất hướng xoay đứng.
+    await upgradeWithCpSat({ ...weakResult(), open_candidates: [[M], [loweredBox(M, 40)]] }, units, mixed);
+    expect(mixed.calls[0]?.units[0]?.variants).toEqual(full.calls[0]?.units[0]?.variants);
   });
 
   it('bỏ qua khi đã tối ưu, hoặc đơn vượt ngưỡng số món', async () => {

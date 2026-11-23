@@ -196,7 +196,7 @@ interface PackingPlan {
   issues: …[]; activity: …[];
 }
 interface BoxComparison {               // 🆕 05/11/2026 — "vì sao thùng này mà không phải thùng khác" (mục 2.7.1)
-  prefer: 'fewest_parcels' | 'cheapest';
+  prefer: 'fewest_parcels' | 'cheapest' | 'lowest_total_vnd';
   weights: { billable: number; packaging: number; fill: number; handling: number };   // 0.4 / 0.3 / 0.2 / 0.1
   rows: {
     boxCode: string; boxName: string; kind: 'box' | 'mailer';
@@ -224,7 +224,7 @@ interface BoxComparison {               // 🆕 05/11/2026 — "vì sao thùng n
 POST …/packing-plan/recompute                 Role: Packaging, Admin
 { "expected_version": 3,                      // bắt buộc nếu đã có kế hoạch
   "exclude_box_codes": ["BOX-L"],          // tùy chọn: không dùng các thùng này
-  "prefer": "cheapest" }                      // tùy chọn: fewest_parcels (mặc định) | cheapest
+  "prefer": "cheapest" }                      // tùy chọn: fewest_parcels (mặc định) | cheapest | lowest_total_vnd (tổng cước theo bậc từng kiện + bao bì + vật tư)
 → { "plan": … }
 ```
 
@@ -740,7 +740,7 @@ PUT /packing/settings     Role: Store Owner, Admin      (field không gửi ⇒ 
 { "expected_version": 2,
   "abnormal_weight_threshold": 0.2,       // 0.01–1: ngưỡng lệch cân
   "fragile_cushion_mm": 5,                // 0–50: đệm quanh hàng dễ vỡ (áp cho LẦN TÍNH TIẾP THEO)
-  "default_prefer": "fewest_parcels",     // | cheapest
+  "default_prefer": "fewest_parcels",     // | cheapest | lowest_total_vnd
   "max_parcels_per_order": 3,             // null = bỏ giới hạn
   "allow_reused_box_for_fragile": false,
   "require_scan": true,

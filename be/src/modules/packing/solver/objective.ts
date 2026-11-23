@@ -6,7 +6,7 @@ import type {
   Placement,
 } from '../../packaging/engine/types';
 import type { ParcelState } from './parcel-state';
-import type { Objective, SolvePreference, SolvedParcel } from './types';
+import type { FeeEstimate, Objective, SolvePreference, SolvedParcel } from './types';
 
 /**
  * Luật tính cân tính cước của hãng (AOFP-224, docs/PACKAGING_STANDARD.md §2):
@@ -24,6 +24,14 @@ export const DEFAULT_CHARGE_RULE: ChargeRule = {
   volumetricDivisor: DEFAULT_VOLUMETRIC_DIVISOR,
   billingStepG: DEFAULT_BILLING_STEP_G,
 };
+
+export const DEFAULT_FEE_ESTIMATE: FeeEstimate = { firstStepVnd: 22000, perExtraStepVnd: 2500 };
+
+/** Cước ước tính 1 kiện: bậc đầu + mỗi bậc thêm. */
+export function estimateFeeVnd(billableG: number, stepG: number, fee: FeeEstimate): number {
+  const steps = stepG > 0 ? Math.max(1, Math.ceil(billableG / stepG)) : 1;
+  return fee.firstStepVnd + (steps - 1) * fee.perExtraStepVnd;
+}
 
 /** Cân tính cước (g): max(thật, quy đổi) làm tròn lên bội số bước; bước ≤ 0 = không làm tròn. */
 export function billableWeightG(actualG: number, volumetricG: number, stepG: number): number {
@@ -43,12 +51,13 @@ export const MIN_BOX_CUT_MM = 50;
 
 /** Thùng gốc trong danh mục (bỏ phần cắt hạ nếu có). */
 export function uncutBox(box: BoxSpec): BoxSpec {
-  if (!box.cut_from) return box;
-  const { cut_from: from, ...rest } = box;
+  if (!box.cut_from && box.catalog_max_load_g === undefined) return box;
+  const { cut_from: from, catalog_max_load_g: load, ...rest } = box;
   return {
     ...rest,
-    inner: { ...box.inner, height_mm: from.inner_height_mm },
-    outer: { ...box.outer, height_mm: from.outer_height_mm },
+    max_load_g: load ?? box.max_load_g,
+    inner: { ...box.inner, height_mm: from?.inner_height_mm ?? box.inner.height_mm },
+    outer: { ...box.outer, height_mm: from?.outer_height_mm ?? box.outer.height_mm },
   };
 }
 
@@ -74,6 +83,7 @@ export function summarizeParcel(
   state: ParcelState,
   materials: MaterialPlanning | undefined,
   charge: ChargeRule = DEFAULT_CHARGE_RULE,
+  fee: FeeEstimate = DEFAULT_FEE_ESTIMATE,
 ): SolvedParcel {
   return summarizePlacements(
     state.box,
@@ -81,6 +91,7 @@ export function summarizeParcel(
     state.placements,
     materials,
     charge,
+    fee,
   );
 }
 
@@ -91,6 +102,7 @@ export function summarizePlacements(
   placements: Placement[],
   materials: MaterialPlanning | undefined,
   charge: ChargeRule = DEFAULT_CHARGE_RULE,
+  fee: FeeEstimate = DEFAULT_FEE_ESTIMATE,
 ): SolvedParcel {
   const box = cutBoxToLoad(catalogBox, placements);
   const itemsWeight = units.reduce((s, u) => s + u.weight_g, 0);
@@ -103,6 +115,7 @@ export function summarizePlacements(
     (box.outer.length_mm * box.outer.width_mm * box.outer.height_mm) / 1000;
   const packageWeight = itemsWeight + box.tare_g + materialsWeight;
   const volumetricWeight = Math.ceil((outerCm3 / charge.volumetricDivisor) * 1000);
+  const billable = billableWeightG(packageWeight, volumetricWeight, charge.billingStepG);
   return {
     box,
     units: [...units],
@@ -114,7 +127,8 @@ export function summarizePlacements(
     materials_cost_vnd: materialsCost,
     estimated_package_weight_g: packageWeight,
     volumetric_weight_g: volumetricWeight,
-    billable_weight_g: billableWeightG(packageWeight, volumetricWeight, charge.billingStepG),
+    billable_weight_g: billable,
+    estimated_fee_vnd: estimateFeeVnd(billable, charge.billingStepG, fee),
   };
 }
 
@@ -151,6 +165,15 @@ export function objectiveOf(
       0,
     ),
     billable_g: parcels.reduce((s, p) => s + p.billable_weight_g, 0),
+    est_total_vnd: parcels.reduce(
+      (s, p) =>
+        s +
+        (p.estimated_fee_vnd ??
+          estimateFeeVnd(p.billable_weight_g, DEFAULT_CHARGE_RULE.billingStepG, DEFAULT_FEE_ESTIMATE)) +
+        (p.box.price_vnd ?? 0) +
+        p.materials_cost_vnd,
+      0,
+    ),
     volumetric_g: parcels.reduce((s, p) => s + p.volumetric_weight_g, 0),
     folds: parcels.reduce(
       (s, p) => s + p.placements.filter((q) => q.folded === true).length,
@@ -183,7 +206,9 @@ export function objectiveTierOrder(prefer: SolvePreference = 'fewest_parcels'): 
   const head: (keyof Objective)[] =
     prefer === 'cheapest'
       ? ['billable_g', 'packaging_cost_vnd', 'parcels']
-      : ['parcels', 'billable_g', 'packaging_cost_vnd'];
+      : prefer === 'lowest_total_vnd'
+        ? ['est_total_vnd', 'parcels', 'billable_g', 'packaging_cost_vnd']
+        : ['parcels', 'billable_g', 'packaging_cost_vnd'];
   return ['unplaced', ...head, 'volumetric_g', 'folds', 'imbalance', 'cog'];
 }
 

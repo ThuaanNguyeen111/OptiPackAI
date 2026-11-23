@@ -27,6 +27,7 @@ import {
   type AdjustmentReason,
   type BoxSourceReason,
 } from './packing-plan.dto';
+import { SOLVE_PREFERENCES, type SolvePreference } from '../solver/types';
 
 /** Lý do khi xem lại kiện lệch cân / gỡ lần quét. */
 export const PARCEL_REVIEW_REASONS = [
@@ -288,10 +289,10 @@ export class UpdatePackingSettingsDto {
   @Max(50, { message: 'fragile_cushion_mm tối đa 50' })
   fragile_cushion_mm?: number;
 
-  @ApiProperty({ required: false, enum: ['fewest_parcels', 'cheapest'] })
+  @ApiProperty({ required: false, enum: SOLVE_PREFERENCES })
   @IsOptional()
-  @IsIn(['fewest_parcels', 'cheapest'], { message: 'default_prefer chỉ nhận fewest_parcels hoặc cheapest' })
-  default_prefer?: 'fewest_parcels' | 'cheapest';
+  @IsIn(SOLVE_PREFERENCES, { message: 'default_prefer chỉ nhận fewest_parcels, cheapest hoặc lowest_total_vnd' })
+  default_prefer?: SolvePreference;
 
   @ApiProperty({ required: false, nullable: true, description: 'Số kiện tối đa mỗi đơn; null = bỏ giới hạn.' })
   @IsOptional()

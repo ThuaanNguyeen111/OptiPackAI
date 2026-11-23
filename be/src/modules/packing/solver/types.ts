@@ -19,8 +19,19 @@ import type { ChargeRule } from './objective';
  * ===================================================================
  */
 
-/** Ưu tiên khi so hai phương án: ít kiện trước (mặc định) hay rẻ trước. */
-export type SolvePreference = 'fewest_parcels' | 'cheapest';
+/**
+ * Ưu tiên khi so hai phương án: ít kiện trước (mặc định), cước rẻ trước, hoặc
+ * tổng tiền ước tính (cước theo bậc từng kiện + bao bì + vật tư) trước — đúng
+ * §2 PACKAGING_STANDARD (audit 20/11/2026, OPT-4).
+ */
+export const SOLVE_PREFERENCES = ['fewest_parcels', 'cheapest', 'lowest_total_vnd'] as const;
+export type SolvePreference = (typeof SOLVE_PREFERENCES)[number];
+
+/** Biểu cước ước tính: bậc đầu + mỗi bậc thêm (VND). */
+export interface FeeEstimate {
+  firstStepVnd: number;
+  perExtraStepVnd: number;
+}
 
 /**
  * Nhãn chứng minh — KHÔNG dùng chữ "tối ưu" chung chung:
@@ -47,6 +58,8 @@ export interface SolveOptions {
   maxEvaluations?: number;
   /** Luật cân tính cước của hãng (divisor + bước làm tròn); bỏ qua = mặc định GHN. */
   charge?: ChargeRule;
+  /** Biểu cước ước tính cho bậc `est_total_vnd`; bỏ qua = mặc định. */
+  fee?: FeeEstimate;
   /** Bước chia đều cặp kiện lệch tải (v2). Mặc định bật; `false` để so trước/sau. */
   balance?: boolean;
 }
@@ -76,6 +89,8 @@ export interface SolvedParcel {
   volumetric_weight_g: number;
   /** Cân tính cước: max(cân kiện, quy đổi) làm tròn lên theo bước của hãng. */
   billable_weight_g: number;
+  /** Cước ước tính của kiện (VND) theo biểu cước lúc giải; thiếu (kế hoạch cũ) = tính lại theo mặc định. */
+  estimated_fee_vnd?: number;
   /** (17/11/2026) Thùng đầy thấp vì danh mục thiếu cỡ: cỡ lòng thùng nhỏ nhất xếp vừa kiện. */
   fill_hint?: FillHint;
 }
@@ -102,6 +117,8 @@ export interface Objective {
   packaging_cost_vnd: number;
   /** Tổng cân tính cước (g, đã làm tròn bậc) — đại diện cho cước. */
   billable_g: number;
+  /** Tổng tiền ước tính (VND): cước theo bậc từng kiện + bao bì + vật tư. */
+  est_total_vnd: number;
   /** Tổng cân quy đổi (g) — phân định khi cùng bậc cước. */
   volumetric_g: number;
   folds: number;

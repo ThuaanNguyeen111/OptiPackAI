@@ -164,11 +164,17 @@ describe('solveWithMailers — luật chọn bao bì theo tổ hợp hàng', () 
     expect(codes(solve([polo(1)], MAILERS))[0]).toMatch(/^MAILER-/);
   });
   it('kiện lấp đầy < 80% ghi lý do: hàng mềm thiếu túi niêm phong', () => {
-    const notes = solve([ao(2)]).explanation.filter((e) => e.includes('< 80%'));
-    expect(notes).toEqual([expect.stringContaining('Kiện 1 (BOX-M) lấp đầy 39% < 80%')]);
+    const notes = solve([polo(2)]).explanation.filter((e) => e.includes('< 80%'));
+    expect(notes).toEqual([expect.stringContaining('Kiện 1 (BOX-M) lấp đầy 46% < 80%')]);
     expect(notes[0]).toContain('kho chưa có túi niêm phong');
     // AC5 — lỗi do thiếu túi, không phải thiếu cỡ thùng → không gợi ý cỡ thùng.
-    expect(solve([ao(2)]).parcels[0]?.fill_hint).toBeUndefined();
+    expect(solve([polo(2)]).parcels[0]?.fill_hint).toBeUndefined();
+  });
+  it('audit F1 — 2 áo: thùng LT cắt hạ (2,5 kg cước, không gập) thắng thùng M rẻ hơn mà phải gập (4 kg cước)', () => {
+    const r = solve([ao(2)]);
+    expect(codes(r)).toEqual(['BOX-LT']);
+    expect(r.parcels[0]?.billable_weight_g).toBe(2500);
+    expect(r.parcels[0]?.placements.every((q) => q.folded !== true)).toBe(true);
   });
   it('AOFP-310 AC3 — không cỡ nào nhỏ hơn xếp vừa → không gợi ý, báo đã là thùng sát nhất', () => {
     // Khối 10,1 cm trong lòng 11 cm: đầy 77%, nhưng làm tròn lên cm thì cỡ sát nhất vẫn là 11×11×11.

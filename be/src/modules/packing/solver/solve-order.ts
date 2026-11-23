@@ -2,15 +2,17 @@ import { foldUnit, orientedDims } from '../../packaging/engine/units';
 import { validateCandidate } from '../../packaging/engine/validator';
 import { lowerBoundCartons } from '../../packaging/engine/lower-bound';
 import { orderUnits } from '../../packaging/engine/greedy-packer';
-import type { BoxSpec, PackingUnit } from '../../packaging/engine/types';
+import { ALL_ORIENTATIONS, type BoxSpec, type PackingUnit } from '../../packaging/engine/types';
 import { runBrkga, DEFAULT_BRKGA } from './brkga';
 import { cheaper, decode, nKeys, type DecodeContext } from './decoder';
 import {
   DEFAULT_CHARGE_RULE,
+  DEFAULT_FEE_ESTIMATE,
   compareObjective,
   objectiveOf,
   summarizeParcel,
 } from './objective';
+import type { ParcelState } from './parcel-state';
 import { hashString, mulberry32 } from './prng';
 import { proveOptimality } from './proof';
 import type {
@@ -67,6 +69,17 @@ export function variantsOf(unit: PackingUnit): Variant[] {
     }
   }
   return out;
+}
+
+/** Lý do món không vừa thùng nào — nói đúng nguyên nhân (luật hướng, lớp đệm dễ vỡ) để kho sửa đúng chỗ (audit F6). */
+export function tooLargeReason(u: PackingUnit, boxes: BoxSpec[]): string {
+  const rotated = variantsOf({ ...u, orientations: ALL_ORIENTATIONS });
+  const byRotation = boxes.find((b) => rotated.some((v) => fitsBox(v, b)));
+  if (u.orientations.length < ALL_ORIENTATIONS.length && byRotation)
+    return `Món ${u.sku} chỉ được đặt theo hướng quy định (đứng hoặc nằm phẳng) nên không vừa thùng nào; xoay hướng khác thì vừa ${byRotation.code} — kiểm tra lại luật hướng của SKU.`;
+  const cushion = u.is_fragile ? ' (số đo đã cộng lớp đệm xốp quanh món dễ vỡ)' : '';
+  const fold = u.foldable === true ? ', kể cả khi gập' : '';
+  return `Món ${u.sku} không vừa bất kỳ thùng nào được phép${cushion} — đã thử mọi hướng cho phép${fold}.`;
 }
 
 function fitsBox(v: Variant, box: BoxSpec): boolean {
@@ -152,7 +165,7 @@ export function solveOrder(
       unplaced.push({
         item_key: u.item_key,
         code: 'ITEM_TOO_LARGE',
-        reason: `Món ${u.sku} không vừa bất kỳ thùng nào được phép (mọi hướng, kể cả khi gập).`,
+        reason: tooLargeReason(u, boxes),
       });
     } else if (fitOk.length === 0) {
       unplaced.push({
@@ -193,6 +206,18 @@ export function solveOrder(
   const minDim = Math.min(
     ...variants.flat().map((v) => Math.min(v.dx, v.dy, v.dz)),
   );
+  const charge = options.charge ?? DEFAULT_CHARGE_RULE;
+  const fee = options.fee ?? DEFAULT_FEE_ESTIMATE;
+  // Mục tiêu 1 kiện, nhớ theo trạng thái (co thùng so cùng kiện nhiều lần).
+  const parcelObjective = new WeakMap<ParcelState, Objective>();
+  const objectiveOfState = (state: ParcelState): Objective => {
+    let o = parcelObjective.get(state);
+    if (!o) {
+      o = objectiveOf([summarizeParcel(state, options.materials, charge, fee)], 0);
+      parcelObjective.set(state, o);
+    }
+    return o;
+  };
   const ctx: DecodeContext = {
     units,
     variants,
@@ -205,15 +230,15 @@ export function solveOrder(
     boxesByCostAsc: [...boxes].sort((a, b) =>
       cheaper(a, b) ? -1 : cheaper(b, a) ? 1 : a.code.localeCompare(b.code),
     ),
+    parcelBetter: (a, b) => compareObjective(objectiveOfState(a), objectiveOfState(b), prefer) < 0,
     stock,
     minDim,
   };
 
-  const charge = options.charge ?? DEFAULT_CHARGE_RULE;
   const evaluateWith = (c: DecodeContext) => (keys: Float64Array): Evaluated => {
     const decoded = decode(keys, c);
     const parcels = decoded.parcels.map((s) =>
-      summarizeParcel(s, options.materials, charge),
+      summarizeParcel(s, options.materials, charge, fee),
     );
     return {
       parcels,
@@ -307,13 +332,15 @@ export function solveOrder(
   // Chứng minh chỉ áp cho mục tiêu "ít kiện trước" và khi đã xếp đủ mọi món.
   const proof =
     unplaced.length === 0 && prefer === 'fewest_parcels'
-      ? proveOptimality(units, variants, boxes, stock, best.parcels, lowerBound)
+      ? proveOptimality(units, variants, boxes, stock, best.parcels, lowerBound, charge)
       : {
           label: 'heuristic' as const,
           explanation:
             prefer === 'cheapest'
               ? ['Chế độ ưu tiên rẻ nhất: không chạy phần chứng minh tối ưu.']
-              : [],
+              : prefer === 'lowest_total_vnd'
+                ? ['Chế độ ưu tiên tổng tiền ước tính: không chạy phần chứng minh tối ưu.']
+                : [],
           openCandidates: [] as BoxSpec[][],
         };
 
@@ -464,8 +491,8 @@ function stockWithout(ctx: DecodeContext, rest: SolvedParcel[]): Map<string, num
 }
 
 /**
- * Gộp cặp kiện: lấy kiện vơi nhất, lần lượt giải lại hợp của nó với từng kiện
- * khác bằng một BRKGA nhỏ (cùng bộ giải mã, cùng validator), nhận khi cả kế
+ * Gộp cặp kiện: lần lượt giải lại hợp của từng cặp kiện (vơi nhất trước)
+ * bằng một BRKGA nhỏ (cùng bộ giải mã, cùng validator), nhận khi cả kế
  * hoạch tốt hơn theo mục tiêu bậc. Lặp tới khi không cải thiện hoặc hết ngân sách.
  */
 function mergeParcels(
@@ -484,13 +511,13 @@ function mergeParcels(
   while (improved && best.parcels.length >= 2 && evaluations < MERGE_MAX_EVALUATIONS) {
     improved = false;
     const current = best;
-    const order = current.parcels
-      .map((p, i) => ({ i, fill: p.fill_ratio }))
-      .sort((a, b) => a.fill - b.fill || a.i - b.i)
-      .map((x) => x.i);
-    const least = order[0];
-    if (least === undefined) break;
-    for (const other of order.slice(1)) {
+    // Mọi cặp, cặp vơi nhất (tổng độ đầy nhỏ) trước — trước đây chỉ ghép kiện vơi nhất (audit F4).
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < current.parcels.length; i += 1)
+      for (let j = i + 1; j < current.parcels.length; j += 1) pairs.push([i, j]);
+    const fill = (i: number): number => current.parcels[i]?.fill_ratio ?? 0;
+    pairs.sort((a, b) => fill(a[0]) + fill(a[1]) - (fill(b[0]) + fill(b[1])) || a[0] - b[0] || a[1] - b[1]);
+    for (const [least, other] of pairs) {
       if (evaluations >= MERGE_MAX_EVALUATIONS) break;
       const pair = [current.parcels[least], current.parcels[other]].filter(
         (p): p is SolvedParcel => p !== undefined,

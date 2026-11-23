@@ -12,12 +12,16 @@ import type { BoxSpec, MailerSpec, MaterialPlanning, PackingUnit } from '../../p
 import {
   compareObjective,
   DEFAULT_CHARGE_RULE,
+  DEFAULT_FEE_ESTIMATE,
+  estimateFeeVnd,
   objectiveOf,
   summarizePlacements,
   type ChargeRule,
 } from './objective';
 import { solveOrder } from './solve-order';
-import type { FillHint, SolveOptions, SolveResult, SolvedParcel } from './types';
+import type { FeeEstimate, FillHint, SolveOptions, SolveResult, SolvedParcel } from './types';
+
+export { DEFAULT_FEE_ESTIMATE, estimateFeeVnd, type FeeEstimate };
 
 /**
  * ===================================================================
@@ -37,11 +41,6 @@ import type { FillHint, SolveOptions, SolveResult, SolvedParcel } from './types'
  */
 
 /** Cước ước tính theo bậc cân tính cước — chỉ để so phương án tách/gộp (giả định, packing_settings). */
-export interface FeeEstimate {
-  firstStepVnd: number;
-  perExtraStepVnd: number;
-}
-
 export interface MailerSolveOptions {
   mailers: MailerSpec[];
   fit?: MailerFitOptions;
@@ -50,14 +49,6 @@ export interface MailerSolveOptions {
 }
 
 export const DEFAULT_SPLIT_MIN_SAVING_VND = 5000;
-export const DEFAULT_FEE_ESTIMATE: FeeEstimate = { firstStepVnd: 22000, perExtraStepVnd: 2500 };
-
-/** Cước ước tính 1 kiện: bậc đầu + mỗi bậc thêm. */
-export function estimateFeeVnd(billableG: number, stepG: number, fee: FeeEstimate): number {
-  const steps = stepG > 0 ? Math.max(1, Math.ceil(billableG / stepG)) : 1;
-  return fee.firstStepVnd + (steps - 1) * fee.perExtraStepVnd;
-}
-
 /** Tổng chi phí ước tính = cước theo bậc + bao bì + vật tư. */
 export function estimateTotalVnd(parcels: SolvedParcel[], charge: ChargeRule, fee: FeeEstimate): number {
   return parcels.reduce(
@@ -98,6 +89,7 @@ function mailerParcel(
   stack: MailerStack,
   charge: ChargeRule,
   materials: MaterialPlanning | undefined,
+  fee: FeeEstimate,
 ): SolvedParcel {
   const placements = stackPlacements(stack);
   return summarizePlacements(
@@ -106,6 +98,7 @@ function mailerParcel(
     placements,
     mailerMaterials(materials),
     charge,
+    fee,
   );
 }
 
@@ -117,6 +110,7 @@ function bestMailerFor(
   charge: ChargeRule,
   stockLeft: (code: string) => number,
   materials: MaterialPlanning | undefined,
+  fee: FeeEstimate,
 ): SolvedParcel | null {
   let best: SolvedParcel | null = null;
   // Duyệt từ túi nhỏ → lớn; chỉ thay khi TỐT HƠN hẳn nên hòa thì giữ túi nhỏ.
@@ -125,7 +119,7 @@ function bestMailerFor(
   );
   for (const m of bySize) {
     if (stockLeft(m.code) <= 0 || !mailerFits(stack, m, fit)) continue;
-    const parcel = mailerParcel(m, stack, charge, materials);
+    const parcel = mailerParcel(m, stack, charge, materials, fee);
     const price = parcel.box.price_vnd ?? 0;
     if (
       best === null ||
@@ -155,18 +149,20 @@ export function packIntoMailers(
     charge?: ChargeRule;
     availability?: Map<string, number>;
     materials?: MaterialPlanning;
+    fee?: FeeEstimate;
   } = {},
 ): SolvedParcel[] | null {
   if (units.length === 0 || mailers.length === 0) return null;
   const fit = options.fit ?? DEFAULT_MAILER_FIT;
   const charge = options.charge ?? DEFAULT_CHARGE_RULE;
+  const fee = options.fee ?? DEFAULT_FEE_ESTIMATE;
   const used = new Map<string, number>();
   const stockLeft = (code: string): number =>
     options.availability ? (options.availability.get(code) ?? 0) - (used.get(code) ?? 0) : Number.POSITIVE_INFINITY;
 
   // 1 túi cho cả chồng.
   const singles = [units, units.map(foldedIfAllowed)]
-    .map((us) => bestMailerFor(stackOf(us), mailers, fit, charge, stockLeft, options.materials))
+    .map((us) => bestMailerFor(stackOf(us), mailers, fit, charge, stockLeft, options.materials, fee))
     .filter((p): p is SolvedParcel => p !== null)
     .sort((p, q) => compareObjective(objectiveOf([p], 0), objectiveOf([q], 0)));
   const [single] = singles;
@@ -191,7 +187,7 @@ export function packIntoMailers(
   }
   const parcels: SolvedParcel[] = [];
   for (const bin of bins) {
-    const parcel = bestMailerFor(stackOf(bin), mailers, fit, charge, stockLeft, options.materials);
+    const parcel = bestMailerFor(stackOf(bin), mailers, fit, charge, stockLeft, options.materials, fee);
     if (!parcel) return null;
     used.set(parcel.box.code, (used.get(parcel.box.code) ?? 0) + 1);
     parcels.push(parcel);
@@ -333,18 +329,20 @@ function solveWithMailersCore(
   options: SolveOptions,
   mailerOptions: MailerSolveOptions,
 ): SolveResult {
+  const fee = mailerOptions.fee ?? options.fee ?? DEFAULT_FEE_ESTIMATE;
+  options = { ...options, fee };
   const boxResult = solveOrder(units, boxes, options);
   const soft = units.filter((u) => u.mailer_ok === true);
   if (mailerOptions.mailers.length === 0 || soft.length === 0) return boxResult;
 
   const charge = options.charge ?? DEFAULT_CHARGE_RULE;
-  const fee = mailerOptions.fee ?? DEFAULT_FEE_ESTIMATE;
   const prefer = options.prefer ?? 'fewest_parcels';
   const softParcels = packIntoMailers(soft, mailerOptions.mailers, {
     fit: mailerOptions.fit,
     charge,
     availability: options.availability,
     materials: options.materials,
+    fee,
   });
   if (!softParcels) return boxResult;
   const mailerCodes = softParcels.map((p) => p.box.code).join(', ');

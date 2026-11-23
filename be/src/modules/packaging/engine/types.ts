@@ -75,6 +75,8 @@ export interface BoxSpec {
    * đây là chiều cao gốc trong danh mục. Thiếu = không cắt. Xem `cutBoxToLoad`.
    */
   cut_from?: { inner_height_mm: number; outer_height_mm: number };
+  /** Tải gốc khi bộ chứng minh hạ `max_load_g` để ép bậc cước (proof.ts); `uncutBox` trả lại. */
+  catalog_max_load_g?: number;
   /**
    * ADR 0002 (13/11/2026) — sàn chiều cao lòng khi cắt hạ = lòng thùng thấp nhất của
    * danh mục lúc nạp (`PackagingBoxService`). Thiếu = không có sàn (test/dữ liệu cũ).
