@@ -148,7 +148,23 @@ export function fitToBlock(box: Box3, size: Vec3, uniform: boolean): Fit {
   const rot = new Matrix4().makeBasis(c0, c1, c2)
   if (rot.determinant() < 0) {
     // Phải đảo một trục để ra phép xoay thật. Đảo trục nằm ngang: đảo trục đứng sẽ lật ngược món hàng.
-    const flip = [0, 1, 2].find((k) => (to[k] ?? k) !== 1) ?? 0
+    const horizontal = [0, 1, 2].filter((k) => (to[k] ?? k) !== 1)
+    let flip = horizontal[0] ?? 0
+    if (uniform && horizontal.length > 1) {
+      // Hàng cứng gần đối xứng trái-phải: chọn trục đảo cho phép xoay NHỎ NHẤT. Đảo trục dài nhất cho phép xoay
+      // 180° quanh một đường chéo — lúc hoạt ảnh nội suy từ tư thế gốc, món lật nhào qua lại, nhìn phi logic.
+      let bestW = -1
+      for (const k of horizontal) {
+        const col = cols[mo[k] ?? k]
+        col?.negate()
+        const w = Math.abs(new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(c0, c1, c2)).w)
+        col?.negate()
+        if (w > bestW + 1e-9) {
+          bestW = w
+          flip = k
+        }
+      }
+    }
     cols[mo[flip] ?? flip]?.negate()
     rot.makeBasis(c0, c1, c2)
   }

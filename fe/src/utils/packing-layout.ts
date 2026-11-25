@@ -87,7 +87,7 @@ export function sortedPlacements(parcel: PackingPlanParcel): PackingPlacement[] 
 /**
  * prepare: thùng + vật tư. fold: gấp áo (clip có sẵn). halfFold: gập đôi thêm (placement.folded).
  * zip: cho vào túi zip + kéo khoá (clip). zipFold: gập túi. bagPrep: túi xách vào túi chống bụi (clip).
- * shoeBox: đóng giày vào hộp (clip).
+ * shoeBox: đóng giày vào hộp (clip). caseIn: cho kính vào hộp kính, đóng nắp (clip).
  * place: đặt vào thùng / lên chồng hàng. slip: đặt phiếu đóng gói của từng đơn (kiện gộp).
  * close: gập nắp thùng.
  * Túi niêm phong (PACKAGING_STANDARD mục 10) thay close bằng bagIn → seal → label.
@@ -100,6 +100,7 @@ export type PackStepKind =
   | 'zipFold'
   | 'bagPrep'
   | 'shoeBox'
+  | 'caseIn'
   | 'wrap'
   | 'tape'
   | 'place'
@@ -219,6 +220,8 @@ export function stepLabel(kind: PackStepKind, vi: boolean, mailer = false): stri
       return vi ? 'Nhồi giấy, cho vào túi chống bụi' : 'Stuff and put into the dust bag'
     case 'shoeBox':
       return vi ? 'Đóng hộp giày' : 'Box the shoes'
+    case 'caseIn':
+      return vi ? 'Cho kính vào hộp kính' : 'Put the glasses into the case'
     case 'wrap':
       return vi ? 'Bọc xốp hơi quanh món' : 'Wrap in bubble wrap'
     case 'tape':
@@ -248,6 +251,7 @@ export const STEP_SECONDS: Record<PackStepKind, number> = {
   zipFold: 1.2,
   bagPrep: 5,
   shoeBox: 9,
+  caseIn: 8,
   wrap: 5,
   tape: 2.4,
   place: 1.5,
@@ -304,6 +308,7 @@ export function isWorkAreaStep(kind: PackStepKind | undefined): boolean {
     kind === 'zipFold' ||
     kind === 'bagPrep' ||
     kind === 'shoeBox' ||
+    kind === 'caseIn' ||
     kind === 'wrap' ||
     kind === 'tape'
   )

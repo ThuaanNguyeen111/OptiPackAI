@@ -390,7 +390,7 @@ MODELS = {
     "kraft_paper": build_kraft_paper,
     "tissue_paper": build_tissue_paper,
     "tape_roll": build_tape_roll,
-    "accessory_case": build_accessory_case,
+    # accessory_case (kính + hộp kính, có clip) dựng riêng, không dựng lại ở đây để chạy lại script này không ghi đè file đó.
 }
 
 

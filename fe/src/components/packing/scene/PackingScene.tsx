@@ -47,7 +47,11 @@ function Block({ size, color, wire = false }: { size: Vec3; color: string; wire?
 }
 
 /** Trạng thái clip khi xem bước `kind` của chính món đó (đã đặt/đang đặt = trạng thái cuối). */
-/** Phần cuối bước chuẩn bị: cụm đã gọn, phóng về đúng cỡ khối. */
+/**
+ * Bước chuẩn bị có clip (giày vào hộp, túi xách, kính vào hộp): clip chạy hết trong phần đầu của bước
+ * ([0, PREP_SETTLE_FROM]); phần cuối là một động tác riêng — xoay món về đúng tư thế xếp và phóng về đúng cỡ khối.
+ * Hai việc không chạy chồng nhau, nếu không món vừa xoay vừa còn đóng nắp / gập thì nhìn như hỏng.
+ */
 const PREP_SETTLE_FROM = 0.82
 
 /**
@@ -165,6 +169,7 @@ function clipRange(
       return [bagEnd, bagEnd]
     case 'bagPrep':
     case 'shoeBox':
+    case 'caseIn':
       return [0, end]
     default:
       return [rig.finalTime, rig.finalTime]
@@ -242,6 +247,7 @@ function ModelBody({
   const turnRef = useRef<Group>(null)
   const upright = useMemo(() => new Quaternion(), [])
   const drift = useMemo(() => new Vector3(), [])
+  const corner = useMemo(() => new Vector3(), [])
   const startScale = useMemo(() => {
     if (model.kind !== 'garment' || rig.flatBox.isEmpty()) return 1
     const flat = rig.flatBox.getSize(new Vector3()).applyQuaternion(fit.quaternion)
@@ -268,6 +274,8 @@ function ModelBody({
     const scale = Math.min(1, areaSize / Math.max(span.x, span.z, 1e-6))
     return {
       scale,
+      /** Điểm thấp nhất của cụm khi còn ở tư thế gốc (chưa nhân scale). */
+      minY: area.min.y,
       x: -((area.min.x + area.max.x) / 2) * scale,
       z: -((area.min.z + area.max.z) / 2) * scale,
       y: -sy / 2 - area.min.y * scale,
@@ -281,7 +289,10 @@ function ModelBody({
     const folding = role === 'staged' && kind === 'fold'
     const clipSeconds = folding ? seconds * FOLD_CLIP_SHARE : seconds
     const p = clipSeconds > 0 ? Math.min(1, elapsed / clipSeconds) : 1
-    rig.setTime(from + (to - from) * p)
+    const prepStep = role === 'staged' && (kind === 'bagPrep' || kind === 'shoeBox' || kind === 'caseIn')
+    // Bước chuẩn bị: clip chỉ chạy trong phần đầu của bước, phần cuối dành cho xoay về tư thế xếp.
+    const clipP = prepStep ? Math.min(1, p / PREP_SETTLE_FROM) : p
+    rig.setTime(from + (to - from) * clipP)
     if (role === 'staged' && kind === 'zip') {
       // Túi zip nằm yên, gói trượt vào theo clip; vào xong (30% cuối) cả túi mới dời về giữa khu chuẩn bị.
       const settle = easeInOut((p - 0.7) / 0.3)
@@ -294,16 +305,30 @@ function ModelBody({
     const stage = stageRef.current
     if (!stage) return
     turnRef.current?.quaternion.copy(fit.quaternion)
-    if (prepFrame && role === 'staged' && (kind === 'bagPrep' || kind === 'shoeBox')) {
-      const settle = 1 - easeInOut((p - PREP_SETTLE_FROM) / (1 - PREP_SETTLE_FROM))
-      turnRef.current?.quaternion.slerpQuaternions(upright, fit.quaternion, 1 - settle)
+    if (prepFrame && prepStep) {
+      const settle = 1 - easeInOut(MathUtils.clamp((p - PREP_SETTLE_FROM) / (1 - PREP_SETTLE_FROM), 0, 1))
+      const turn = turnRef.current
+      turn?.quaternion.slerpQuaternions(upright, fit.quaternion, 1 - settle)
       stage.rotation.set(0, 0, 0)
-      stage.scale.setScalar(MathUtils.lerp(1, prepFrame.scale, settle))
-      stage.position.set(
-        prepFrame.x * settle,
-        prepFrame.y * settle + sink * (1 - settle),
-        prepFrame.z * settle,
-      )
+      const s = MathUtils.lerp(1, prepFrame.scale, settle)
+      stage.scale.setScalar(s)
+      // Khi xoay, góc thấp nhất của món đổi: giữ nó chạm mặt bàn (không chìm xuống sàn, không lơ lửng) —
+      // món lật quanh cạnh đáy thay vì xuyên qua mặt bàn.
+      let low = prepFrame.minY
+      if (turn && !rig.finalBox.isEmpty()) {
+        const { min, max } = rig.finalBox
+        let lowest = Number.POSITIVE_INFINITY
+        for (const x of [min.x, max.x]) {
+          for (const y of [min.y, max.y]) {
+            for (const z of [min.z, max.z]) {
+              corner.set(x, y, z).add(fit.offset).applyQuaternion(turn.quaternion).multiply(fit.scale)
+              lowest = Math.min(lowest, corner.y)
+            }
+          }
+        }
+        low = MathUtils.lerp(lowest, prepFrame.minY, settle)
+      }
+      stage.position.set(prepFrame.x * settle, -sy / 2 - s * low, prepFrame.z * settle)
       return
     }
     if (!folding) {
@@ -457,10 +482,12 @@ function PlacedItem({
         {bubble ? (
           role === 'staged' && (kind === 'wrap' || kind === 'tape') ? (
             <WrapAnimation size={size} index={index} mode={kind} />
-          ) : (
+          ) : role === 'placing' || role === 'placed' ? (
             // Xốp chỉ hiện ngoài bước bọc khi món đã qua bước dán (đang đặt / đã nằm trong thùng).
-            <BubbleSleeve size={size} taped={role === 'placing' || role === 'placed'} />
-          )
+            // Các bước chuẩn bị TRƯỚC bước bọc (gấp, túi zip, cho kính vào hộp...) chưa có xốp: nếu vẽ ở đây,
+            // khối xốp đứng nguyên tại chỗ trong khi món được dời sang khu chuẩn bị nên chồng lên món.
+            <BubbleSleeve size={size} taped />
+          ) : null
         ) : null}
         {tint && model && (role === 'placed' || role === 'placing') ? (
           <mesh>

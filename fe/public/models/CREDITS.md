@@ -37,7 +37,7 @@ Không ghi đè các file này bằng model của màn đóng gói. Trang giới
 
 ## Model vật tư đóng gói (`materials/`)
 
-Tự dựng bằng Blender 5.2 từ script `fe/blender/make_packing_materials.py`, không dùng asset ngoài. Đơn vị mét, trục Y hướng lên, đáy nằm ở y = 0. Chạy lại script để dựng lại cả 9 file.
+Tự dựng bằng Blender 5.2 từ script `fe/blender/make_packing_materials.py`, không dùng asset ngoài. Đơn vị mét, trục Y hướng lên, đáy nằm ở y = 0. Chạy lại script để dựng lại 8 file vật tư. `materials/accessory_case.glb` (kính + hộp kính) dựng riêng bằng Blender, không có script — xem dòng cuối bảng.
 
 | File | Dùng cho (`materials[].type` của BE) | Kích thước thật | Ghi chú |
 | --- | --- | --- | --- |
@@ -49,4 +49,4 @@ Tự dựng bằng Blender 5.2 từ script `fe/blender/make_packing_materials.py
 | `materials/kraft_paper.glb` | `kraft_paper` — giấy kraft vò độn | đường kính khoảng 100 mm | Bóng giấy vò |
 | `materials/tissue_paper.glb` | `tissue_paper` — giấy lót | 250 × 180 mm | Chồng 3 tờ gợn sóng |
 | `materials/tape_roll.glb` | Băng keo dán thùng (không có trong danh mục vật tư) | ⌀ 76 × 48 mm | Cuộn băng keo, lõi giấy |
-| `materials/accessory_case.glb` | `productCategory = accessory` (hộp kính / đồ nhỏ dễ vỡ) | 160 × 60 × 80 mm | Hộp cứng có nắp, khoá gài, bản lề; bọc xốp hơi + dán băng keo trước khi đặt vào thùng |
+| `materials/accessory_case.glb` | `productCategory = accessory` (kính + hộp kính) | Hộp 165 × 62 × 58 mm | Tự dựng bằng Blender 5.2, không dùng asset ngoài; không giữ script dựng, muốn sửa thì mở file `.glb` trong Blender. Có kính (gọng, 2 tròng, càng gập được) và hộp cứng (thân, nắp bản lề, khoá gài). Clip `PackGlasses` 7,2 s: mở nắp → gập càng → nhấc kính nằm ngang → hạ vào hộp → đóng nắp. Sau đó bọc xốp hơi + dán băng keo trước khi đặt vào thùng. Cuối clip kính nằm trong hộp đóng kín |
