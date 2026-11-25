@@ -21,10 +21,11 @@ export const BOX_MODELS: Record<string, string> = {
  * prepClip: clip trong file là thao tác nhân viên phải làm (túi xách: nhồi giấy, túi chống bụi).
  * Giày: bước đóng hộp bật theo yêu cầu trình diễn (04/11/2026). PACKAGING_STANDARD mục 5.1 giữ nguyên hộp gốc,
  * nên hướng dẫn này lệch quy chuẩn; muốn theo đúng quy chuẩn thì bỏ prepStep của giày.
+ * Phụ kiện (kính): bước 'caseIn' — gập càng, cho kính vào hộp kính rồi đóng nắp (26/11/2026).
  */
 export type ItemModelKind = 'garment' | 'rigid'
 
-export type ItemModel = { path: string; kind: ItemModelKind; prepStep?: 'bagPrep' | 'shoeBox' }
+export type ItemModel = { path: string; kind: ItemModelKind; prepStep?: 'bagPrep' | 'shoeBox' | 'caseIn' }
 
 export const ITEM_MODELS: Record<string, ItemModel> = {
   shirt: { path: '/models/somi.glb', kind: 'garment' },
@@ -35,8 +36,9 @@ export const ITEM_MODELS: Record<string, ItemModel> = {
   jacket: { path: '/models/bomber.glb', kind: 'garment' },
   shoes: { path: '/models/shoepack.glb', kind: 'rigid', prepStep: 'shoeBox' },
   bag: { path: '/models/handbag.glb', kind: 'rigid', prepStep: 'bagPrep' },
-  // Hộp phụ kiện (kính, đồ nhỏ dễ vỡ): bọc xốp hơi rồi dán băng keo trước khi đặt vào thùng.
-  accessory: { path: '/models/materials/accessory_case.glb', kind: 'rigid' },
+  // Kính + hộp kính (clip PackGlasses): cho kính vào hộp, đóng nắp,
+  // rồi bọc xốp hơi + dán băng keo trước khi đặt vào thùng.
+  accessory: { path: '/models/materials/accessory_case.glb', kind: 'rigid', prepStep: 'caseIn' },
 }
 
 /**
