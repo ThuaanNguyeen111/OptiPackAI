@@ -1,0 +1,65 @@
+@startuml login
+title Sequence Diagram - Login
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Staff" as Staff
+participant "Login Screen" as UI
+participant "AuthController" as Ctrl
+participant "AuthService" as Auth
+participant "MfaService" as Mfa
+participant "TokenService" as Token
+participant "User" as User
+participant "TrustedDevice" as Device
+participant "RefreshToken" as RT
+participant "LoginAuditLog" as Log
+
+Staff -> UI : Enter email and password
+activate UI
+UI -> Ctrl : POST /auth/login
+activate Ctrl
+Ctrl -> Auth : login(email, password)
+activate Auth
+Auth -> User : findOne(email)
+User --> Auth : user
+Auth -> Auth : validateCredentials()
+
+opt invalid credentials, locked or inactive account
+  Auth -> User : update(failedLoginAttempts)
+  Ctrl --> UI : 401 Unauthorized
+end
+
+opt MFA enabled and device not trusted
+  Auth -> Device : findOne(deviceTokenHash)
+  Device --> Auth : trustedDevice
+  Ctrl --> UI : mfaRequired
+  Staff -> UI : Enter authenticator or backup code
+  UI -> Ctrl : POST /auth/login (mfaToken or backupCode)
+  Ctrl -> Auth : login(email, password, mfaToken)
+  Auth -> Mfa : verifyToken(mfaToken)
+  activate Mfa
+  Mfa --> Auth : isValid
+  deactivate Mfa
+  alt mfaToken or backupCode invalid
+    Ctrl --> UI : 401 Unauthorized
+  else mfaToken or backupCode valid
+    Auth -> Device : create(trustedDevice)
+  end
+end
+
+Auth -> Token : generateTokenPair(user)
+activate Token
+Token -> RT : create(refreshToken)
+Token --> Auth : tokenPair
+deactivate Token
+Auth -> User : update(lastLoginAt)
+Auth -> Log : create(loginAuditLog)
+Ctrl --> UI : 200 OK
+deactivate Auth
+deactivate Ctrl
+UI --> Staff : Open main page
+deactivate UI
+@enduml
