@@ -1,5 +1,5 @@
 import { strict as assert } from 'assert';
-import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname } from 'path';
 import { expandToUnits } from '../src/modules/packaging/engine/units';
 import { sampleBoxes } from '../src/modules/packaging/engine/scenarios/order-scenarios';
@@ -8,6 +8,7 @@ import type { PackableItem } from '../src/common/interfaces/packaging.interface'
 import { compareObjective, objectiveOf, validatePlan, solveOrder, SOLVER_VERSION } from '../src/modules/packing/solver';
 import { uncutBox } from '../src/modules/packing/solver/objective';
 import type { SolveOptions } from '../src/modules/packing/solver';
+import { SOLVE_PREFERENCES, type SolvePreference } from '../src/modules/packing/solver/types';
 import { generateOrder, mulberry32 } from './benchmark-orders';
 
 type Split = 'train' | 'validation' | 'test';
@@ -16,7 +17,8 @@ interface PackingCase {
   schema_version: 1;
   id: string;
   group_id: string;
-  source: 'synthetic';
+  /** production = xuất từ kế hoạch đóng thật (scripts/export-real-orders.ts), generated_seed = 0. */
+  source: 'synthetic' | 'production';
   split: Split;
   generated_seed: number;
   expected: { all_items_placed: true };
@@ -71,6 +73,8 @@ interface EvaluationReport {
 
 const SPLITS: Split[] = ['train', 'validation', 'test'];
 const DEFAULT_OUTPUT = 'scripts/datasets/packing/v1.jsonl';
+/** Đơn thật đã ẩn danh — `check` chạy kèm nếu file có (xuất bằng scripts/export-real-orders.ts). */
+const REAL_DATASET = 'scripts/datasets/packing/real-v1.jsonl';
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const positive = (value: unknown): value is number =>
@@ -88,7 +92,7 @@ function validateCase(value: unknown, line: number): PackingCase {
     throw new Error(`Dòng ${String(line)}: schema_version/id không hợp lệ.`);
   if (
     typeof value.group_id !== 'string' ||
-    value.source !== 'synthetic' ||
+    (value.source !== 'synthetic' && value.source !== 'production') ||
     !SPLITS.includes(value.split as Split) ||
     typeof value.generated_seed !== 'number' ||
     !Number.isInteger(value.generated_seed) ||
@@ -140,7 +144,7 @@ function validateCase(value: unknown, line: number): PackingCase {
   const options = value.input.solver_options;
   if (
     !nonNegative(options.fragile_cushion_mm) ||
-    (options.prefer !== undefined && options.prefer !== 'fewest_parcels' && options.prefer !== 'cheapest') ||
+    (options.prefer !== undefined && !SOLVE_PREFERENCES.includes(options.prefer as SolvePreference)) ||
     (options.maxEvaluations !== undefined && !positive(options.maxEvaluations)) ||
     (options.seed !== undefined && !Number.isInteger(options.seed))
   ) {
@@ -301,6 +305,15 @@ function writeJsonl(path: string, cases: PackingCase[]): void {
   writeFileSync(path, `${cases.map((testCase) => JSON.stringify(testCase)).join('\n')}\n`);
 }
 
+function assertClean(report: EvaluationReport, label: string): void {
+  assert.equal(report.failed, 0, `${label}: case fails the validator or leaves items unplaced: ${JSON.stringify(report.cases.filter((row) => !row.valid).map((row) => row.id))}`);
+  assert.equal(
+    report.proof_contradictions,
+    0,
+    `${label}: optimal proof label contradicted by a better single-box repack: ${JSON.stringify(report.cases.filter((row) => row.proof !== 'heuristic' && row.better_box.length > 0).map((row) => [row.id, row.better_box]))}`,
+  );
+}
+
 function selfCheck(): void {
   const first = generateDataset(20, 20261117);
   const second = generateDataset(20, 20261117);
@@ -309,13 +322,8 @@ function selfCheck(): void {
     Object.fromEntries(SPLITS.map((split) => [split, first.filter((row) => row.split === split).length])),
     { train: 14, validation: 3, test: 3 },
   );
-  const report = evaluate(first, true);
-  assert.equal(report.failed, 0, 'generated cases must satisfy the solver validator and place all items');
-  assert.equal(
-    report.proof_contradictions,
-    0,
-    `optimal proof label contradicted by a better single-box repack: ${JSON.stringify(report.cases.filter((row) => row.proof !== 'heuristic' && row.better_box.length > 0).map((row) => [row.id, row.better_box]))}`,
-  );
+  assertClean(evaluate(first, true), 'synthetic');
+  if (existsSync(REAL_DATASET)) assertClean(evaluate(readDataset(REAL_DATASET), true), 'production');
 }
 
 function main(): void {
