@@ -1,0 +1,62 @@
+@startuml approve_reject_return
+title Sequence Diagram - Approve / Reject Return Request
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Store Owner" as Owner
+participant "Returns Screen" as UI
+participant "ReturnsController" as Ctrl
+participant "ReturnsService" as Svc
+participant "ReturnRequest" as RR
+participant "OrderGroup" as OG
+participant "ActivityLog" as Log
+participant "MarketplaceStatusOutbox" as Outbox
+
+Owner -> UI : Open pending return request
+activate UI
+UI -> Ctrl : GET /returns/{id}
+activate Ctrl
+Ctrl -> Svc : get(id)
+activate Svc
+Svc -> RR : findOne(id)
+RR --> Svc : returnRequest
+Svc --> Ctrl : returnRequest
+deactivate Svc
+Ctrl --> UI : returnRequest
+deactivate Ctrl
+deactivate UI
+
+Owner -> UI : Review request and decide
+activate UI
+alt decision is approve
+  UI -> Ctrl : POST /returns/{id}/approve
+  activate Ctrl
+  Ctrl -> Svc : approve(id, expectedVersion)
+  activate Svc
+  Svc -> Svc : validateApprover()
+  opt creator approves own request
+    Svc --> Ctrl : 403 Forbidden
+    Ctrl --> UI : 403 Forbidden
+  end
+  Svc -> RR : update(status = awaiting_receipt)
+  Svc -> OG : update(fulfillmentStatus = returned)
+else decision is reject
+  UI -> Ctrl : POST /returns/{id}/reject
+  Ctrl -> Svc : reject(id, expectedVersion, note)
+  Svc -> RR : update(status = rejected)
+  Svc -> OG : update(fulfillmentStatus = delivered)
+end
+Svc -> Log : create(activityLog)
+opt return source is marketplace
+  Svc -> Outbox : create(statusOutbox)
+end
+Svc --> Ctrl : updated returnRequest
+deactivate Svc
+Ctrl --> UI : 200 OK
+deactivate Ctrl
+UI --> Owner : Show decision result
+deactivate UI
+@enduml

@@ -1,0 +1,62 @@
+@startuml receive_inspect_return
+title Sequence Diagram - Receive and Inspect Returned Parcel
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Warehouse Staff" as Staff
+participant "Returns Screen" as UI
+participant "ReturnsController" as Ctrl
+participant "ReturnsService" as Svc
+participant "ReturnRequest" as RR
+participant "OrderGroup" as OG
+participant "SkuBinAssignment" as Bin
+participant "InventoryMovement" as Mov
+
+Staff -> UI : Select returned parcel
+activate UI
+UI -> Ctrl : POST /returns/{id}/receive
+activate Ctrl
+Ctrl -> Svc : receive(id, expectedVersion)
+activate Svc
+Svc -> RR : findOne(id)
+RR --> Svc : returnRequest
+Svc -> RR : update(status = received)
+opt return covers the whole order group
+  Svc -> OG : update(fulfillmentStatus = returned)
+end
+Svc --> Ctrl : returnRequest
+deactivate Svc
+Ctrl --> UI : 200 OK
+deactivate Ctrl
+deactivate UI
+
+Staff -> UI : Enter inspection result
+activate UI
+UI -> Ctrl : POST /returns/{id}/inspect
+activate Ctrl
+Ctrl -> Svc : inspect(id, inspection)
+activate Svc
+Svc -> Svc : validateInspection()
+alt counted quantity does not match
+  Svc --> Ctrl : 400 Bad Request
+  Ctrl --> UI : 400 Bad Request
+else quantities match
+  opt inspection result is restock
+    Svc -> Bin : update(quantityOnHand)
+    Svc -> Mov : create(inventoryMovement)
+  end
+  Svc -> RR : update(status = closed, inspection)
+  opt all items of the order group are returned
+    Svc -> OG : update(fulfillmentStatus = canceled)
+  end
+  Svc --> Ctrl : returnRequest
+  Ctrl --> UI : 200 OK
+end
+deactivate Svc
+deactivate Ctrl
+UI --> Staff : Show inspection result
+deactivate UI
+@enduml
