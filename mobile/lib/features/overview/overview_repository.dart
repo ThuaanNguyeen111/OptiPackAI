@@ -273,7 +273,7 @@ class MockOverviewRepository implements OverviewRepository {
       shortageSkuCount: 2,
       outOfStockSkuCount: 1,
       shortageSkus: const [ShortageSku(sku: 'AOPOLO-030-BE-L', shortage: 3)],
-      materialsLow: const [LowMaterial(name: 'Thùng BOX-S', usable: 6, reorderLevel: 10)],
+      materialsLow: const [LowMaterial(name: 'Thùng CTN-001', usable: 6, reorderLevel: 10)],
       express: [
         ExpressItem(shortId: '6ae76ee49b', stage: 'đóng gói', deadline: now.add(const Duration(minutes: 42))),
         ExpressItem(shortId: '7f3a1c9e00', stage: 'giao khách', deadline: now.subtract(const Duration(minutes: 18))),
