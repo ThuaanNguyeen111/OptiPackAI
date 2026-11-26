@@ -4951,6 +4951,14 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 4. **Quy tắc rút ra:** update dạng mảng qua Mongoose Model LUÔN kèm `updatePipeline: true`.
 5. **Kiểm chứng:** `stock-reservation.service.unconsume.spec.ts` dùng Model thật (chặn `exec`) — fail khi chưa sửa, pass sau khi sửa; `tsc` 0 lỗi.
 
+## 📐 Nhật ký 27/11/2026 — Hồ sơ kho (số đo) dùng chung giữa các sàn
+
+1. **Vấn đề gì?** `product_master` khóa theo `{platform, shop_id, seller_sku}` → cùng 1 hàng bán ở Lazada + AURELLE là 2 dòng. Đo dòng Lazada xong, dòng AURELLE kéo về sau vẫn "Chưa đo" → kho phải đo lại cùng 1 món (user báo 27/11, VD `QUANDAI-006-TRANG-M`, `AOTHUN-001-*`).
+2. **Thế nào là "cùng hàng"?** `ProductMasterService.findSameProductRows()`: cùng SKU nội bộ qua `marketplace_sku_mappings` (kể cả mã sàn khác nhau); hoặc dòng CHƯA NỐI mà mã SKU sàn trùng (không phân biệt hoa/thường) / trùng đúng SKU nội bộ. Đã nối sang SKU nội bộ KHÁC thì không tính dù trùng mã.
+3. **Đã làm gì?** Hồ sơ kho = 13 field (`SHARED_PROFILE_FIELDS`: số đo, GSM, dễ vỡ, hướng xếp, tải chồng, loại hàng, túi zip, gập đôi, lớp ngoài, trạng thái, người/lúc xác nhận). (a) `confirmPackagingProfile` → chép sang mọi dòng cùng hàng (đo lại thì ghi đè: cùng 1 món thật) + gỡ kẹt đóng gói của chúng. (b) `inheritSharedProfiles()` — dòng `needs_measurement` (không tính SKU ngừng dùng) nhận hồ sơ MỚI NHẤT của dòng cùng hàng đã đo: chạy sau mỗi `upsertProducts`, cuối `syncCatalogAllShops` (bắt cả SKU vừa nối tay) và lúc khởi động (`onModuleInit`, dữ liệu cũ). Module đăng ký thêm model `MarketplaceSkuMapping` (chỉ đọc).
+4. **Không đổi API.** FE nên hiện cột Sàn để phân biệt 2 dòng cùng mã — `FE_UPDATE_CHECKLIST.md` mục 22.
+5. **Kiểm chứng?** `product-master.shared-profile.spec.ts` (trùng mã 2 sàn → nhận số đo; mã khác nhưng cùng SKU nội bộ; trùng mã nhưng khác SKU nội bộ → không; SKU ngừng dùng → không). `tsc` 0 lỗi, `jest` 197 suite / 1827 test pass.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
