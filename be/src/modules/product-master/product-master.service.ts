@@ -445,7 +445,7 @@ export class ProductMasterService implements OnModuleInit {
    * ẩn khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối", đẩy tồn. Không xoá hồ sơ (đơn cũ
    * vẫn tra được). retired=false để dùng lại.
    */
-  async setRetired(id: string, retired: boolean): Promise<ProductMasterDocument> {
+  async setRetired(id: string, retired: boolean, onlyThis = false): Promise<ProductMasterDocument> {
     if (!Types.ObjectId.isValid(id)) {
       throw new AppException(PRODUCT_MASTER_ERROR_CODES.INVALID_ID, `"${id}" không đúng định dạng ObjectId hợp lệ.`, HttpStatus.BAD_REQUEST, { id });
     }
@@ -458,7 +458,55 @@ export class ProductMasterService implements OnModuleInit {
       throw new AppException(PRODUCT_MASTER_ERROR_CODES.NOT_FOUND, `Không tìm thấy hồ sơ sản phẩm "${id}".`, HttpStatus.NOT_FOUND, { id });
     }
     this.logger.log(`SKU ${updated.seller_sku} (shop ${updated.shop_id}) ${retired ? 'ngừng dùng' : 'dùng lại'}.`);
+    // 27/11/2026 — màn danh sách gộp 1 dòng/hàng → ngừng dùng / dùng lại áp cho mọi sàn của hàng đó
+    // (onlyThis = chỉ dòng này, khi muốn ngừng riêng 1 sàn).
+    if (!onlyThis) {
+      try {
+        const same = await this.findSameProductRows(updated);
+        if (same.length > 0) {
+          await this.productMasterModel.updateMany(
+            { _id: { $in: same.map((r) => (r as ProductMaster & { _id: Types.ObjectId })._id) } },
+            { $set: { retired, retired_at: retired ? new Date() : null } },
+          );
+          this.logger.log(`… áp cho ${String(same.length)} dòng cùng hàng ở sàn/shop khác.`);
+        }
+      } catch (error: unknown) {
+        this.logger.warn(`Áp ngừng dùng/dùng lại cho dòng cùng hàng của SKU ${updated.seller_sku} thất bại: ${describeError(error)}`);
+      }
+    }
     return updated;
+  }
+
+  /**
+   * 27/11/2026 — gộp các dòng product_master CÙNG 1 HÀNG (cùng SKU nội bộ, hoặc trùng mã khi chưa
+   * nối) thành 1 nhóm cho màn danh sách. Dòng đại diện = dòng đã đo mới nhất, không có thì dòng đầu.
+   */
+  async groupSameProduct<T extends SkuRef & Partial<ProductMaster>>(rows: T[]): Promise<{ representative: T; members: T[] }[]> {
+    if (rows.length === 0) return [];
+    const refKey = (r: { platform: string; shop_id: string; seller_sku: string }): string =>
+      `${r.platform}|${r.shop_id}|${normalizeSellerSku(r.seller_sku)}`;
+    const mappings = this.mappingModel
+      ? await this.mappingModel
+        .find({ $or: rows.map((r) => ({ platform: r.platform, shop_id: r.shop_id, seller_sku_normalized: normalizeSellerSku(r.seller_sku) })) })
+        .select('platform shop_id seller_sku master_sku')
+        .lean()
+      : [];
+    const masterOf = new Map(mappings.map((m) => [refKey(m), m.master_sku]));
+    const groups = new Map<string, T[]>();
+    for (const row of rows) {
+      const key = normalizeSellerSku(masterOf.get(refKey(row)) ?? row.seller_sku);
+      const list = groups.get(key) ?? [];
+      list.push(row);
+      groups.set(key, list);
+    }
+    return [...groups.values()].map((members) => {
+      const ready = members
+        .filter((m) => m.packaging_profile_status === 'ready')
+        .sort((a, b) => (b.profile_confirmed_at?.getTime() ?? 0) - (a.profile_confirmed_at?.getTime() ?? 0));
+      const representative = ready[0] ?? members[0];
+      if (!representative) throw new Error('Nhóm SKU rỗng'); // không xảy ra: mỗi nhóm có ≥ 1 dòng
+      return { representative, members };
+    });
   }
 
   /**

@@ -110,3 +110,22 @@ describe('ProductMasterService — hồ sơ kho dùng chung giữa các sàn (27
     expect(productModel.updateOne).not.toHaveBeenCalled();
   });
 });
+
+describe('ProductMasterService.groupSameProduct — 1 dòng / hàng (27/11/2026)', () => {
+  it('gộp dòng Lazada + AURELLE cùng mã, đại diện là dòng đã đo; SKU khác tách nhóm', async () => {
+    const lz = { _id: new Types.ObjectId(), platform: 'lazada', shop_id: 'L', seller_sku: 'AOTHUN-001-BE-L', packaging_profile_status: 'ready', profile_confirmed_at: new Date() };
+    const au = { _id: new Types.ObjectId(), platform: 'aurelle', shop_id: 'A', seller_sku: 'AOTHUN-001-BE-L', packaging_profile_status: 'needs_measurement' };
+    const other = { _id: new Types.ObjectId(), platform: 'aurelle', shop_id: 'A', seller_sku: 'AOTHUN-001-BE-M', packaging_profile_status: 'needs_measurement' };
+    const mappingModel = {
+      find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([{ platform: 'aurelle', shop_id: 'A', seller_sku: 'AOTHUN-001-BE-L', master_sku: 'AOTHUN-001-BE-L' }]) }) })),
+    };
+    const service = new ProductMasterService({} as never, {} as never, {} as never, {} as never, {}, undefined, undefined, undefined, mappingModel as never);
+
+    const groups = await service.groupSameProduct([au, lz, other] as never[]);
+
+    expect(groups).toHaveLength(2);
+    const first = groups[0] as unknown as { representative: { _id: Types.ObjectId }; members: unknown[] };
+    expect(first.representative._id.equals(lz._id)).toBe(true);
+    expect(first.members).toHaveLength(2);
+  });
+});
