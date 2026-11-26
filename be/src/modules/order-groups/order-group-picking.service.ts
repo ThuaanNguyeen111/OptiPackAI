@@ -780,10 +780,29 @@ export class OrderGroupPickingService {
     return out;
   }
 
+  /**
+   * 26/11/2026 — tiền phần giao thiếu của 1 đơn = Σ đơn giá SKU × (số đặt − số giao). Cùng
+   * công thức website AURELLE dùng để tính `short_refund_amount` (đơn giá dòng × số thiếu).
+   */
+  static shortAmountOf(
+    orderItems: { sku: string; unit_price: number; status?: string }[],
+    shortItems: { sku: string; ordered: number; shipped: number }[],
+  ): number {
+    let amount = 0;
+    for (const s of shortItems) {
+      const missing = s.ordered - s.shipped;
+      if (missing <= 0) continue;
+      const unit = orderItems.find(
+        (i) => i.sku === s.sku && i.status !== OrderStatus.CANCELED,
+      )?.unit_price ?? 0;
+      amount += unit * missing;
+    }
+    return Math.round(amount);
+  }
+
   private async enqueueShortShipments(
     group: OrderGroupDocument,
   ): Promise<void> {
-    if (!this.statusOutboxModel) return;
     const orders = await this.orderModel
       .find({
         consolidated_group_id: group._id,
@@ -813,6 +832,13 @@ export class OrderGroupPickingService {
         entityId: order._id,
         skus: short.items.map((i) => i.sku),
       });
+      // 26/11/2026 — ghi tiền phần thiếu lên đơn: tiền hãng thu hộ (COD) = tổng − phần thiếu
+      // (shipping/utils/cod.util.ts). Đặt tuyệt đối → chạy lại không trừ 2 lần.
+      await this.orderModel.updateOne(
+        { _id: order._id },
+        { $set: { short_shipped_amount: OrderGroupPickingService.shortAmountOf(order.items, short.items) } },
+      );
+      if (!this.statusOutboxModel) continue;
       await enqueueStatusPush(this.statusOutboxModel, {
         orderGroupId: group._id,
         orderId: order._id,

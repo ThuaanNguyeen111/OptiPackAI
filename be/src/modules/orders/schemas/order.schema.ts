@@ -255,6 +255,11 @@ export class Order {
   @Prop({ type: Number, default: null, min: 0 })
   shipping_fee!: number | null;
 
+  // 26/11/2026 — tiền phần kho giao thiếu (chọn "Giao phần có sẵn"); 0 = giao đủ. Tiền hãng thu
+  // hộ và doanh thu đã giao = total_amount − giá trị này (phí ship giữ nguyên).
+  @Prop({ type: Number, default: 0, min: 0 })
+  short_shipped_amount?: number;
+
   @Prop({ type: String, required: true, default: 'VND' })
   currency!: string;
 
