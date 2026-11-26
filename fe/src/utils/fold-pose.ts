@@ -55,3 +55,8 @@ function bentPose(size: Vec3, remain: number, e: number): FoldPose {
     bend: { axis: ax === 0 ? 0 : 1, hingeA: c, hingeY: -h / 2 + thickPre, angle: Math.PI * e },
   }
 }
+
+/** AOFP-350: hệ số trải lớn nhất trên mặt sàn của dáng `pose` — khu chuẩn bị trong hệ toạ độ của mô hình = cạnh khu ÷ số này. */
+export function stagedSpread(pose: FoldPose): number {
+  return Math.max(1, pose.scale[0], pose.scale[2])
+}

@@ -178,9 +178,9 @@ function ParcelGuidePlayer({
   // Nắp thùng mở choãi ra ngoài thân thùng: khung toàn cảnh phải chứa cả phần này.
   const flap = mailer ? 0 : Math.min(outer.lengthMm, outer.widthMm) / 2000
   const fullMinX = minX - flap
-  // Cho vào túi zip / gập đôi là thao tác trên một gói nhỏ: lại gần để thấy rõ nếp gập.
-  const closeUp = current?.kind === 'zip' || current?.kind === 'halfFold' || current?.kind === 'zipFold'
-  const areaView = area.size * (closeUp ? 0.6 : 1)
+  // AOFP-350: mọi bước trên khu chuẩn bị giữ CÙNG một khung — trước đây zip/gập đôi sáp lại 60% nên mỗi lần
+  // bấm tiếp camera giật vào, và gói còn trải rộng bị cắt khỏi khung. Chuyển động là của món hàng, không phải camera.
+  const areaView = area.size
   const focus = useMemo<CameraFocus>(
     () =>
       onWorkArea
