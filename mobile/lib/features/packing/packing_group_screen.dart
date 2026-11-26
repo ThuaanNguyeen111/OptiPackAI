@@ -533,9 +533,9 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
                       ..._header(group, tab),
                       ..._assignRow(group),
                       ..._tabPanels(group, tab),
-                      ..._items(group),
-                      if (tab != QueueTab.partial && tab != QueueTab.awaiting) ..._planSection(group, canApprove),
                       if (tab == QueueTab.picked) ..._pickedPanel(),
+                      if (tab != QueueTab.partial && tab != QueueTab.awaiting) ..._planSection(group, canApprove),
+                      ..._items(group),
                       if (_actionError != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 12),
@@ -618,29 +618,39 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
     final name = pickString(session, ['assignedPackerName'], id == null ? 'Chưa giao' : tail(id, 6));
     final me = _user?.id;
     return [
-      sectionTitle('Người đóng gói'),
-      Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              style: compactOutlined(),
-              onPressed: _busy ? null : () => _pickPacker(id),
-              icon: const Icon(Icons.expand_more, size: 18),
-              label: Text('$name${id != null && id == me ? ' (bạn)' : ''}',
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
+      const SizedBox(height: 10),
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 15,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.14),
+                child: Icon(Icons.person_outline, size: 18, color: AppColors.primary),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Người đóng gói', style: subtle(11.5)),
+                    Text('$name${id != null && id == me ? ' (bạn)' : ''}',
+                        maxLines: 1, overflow: TextOverflow.ellipsis, style: boldText),
+                  ],
+                ),
+              ),
+              if (_isStaff && me != null && id != me)
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => _assign({'mode': 'manual', 'staff_id': me}, 'Đã nhận việc đóng gói nhóm này.'),
+                  child: const Text('Giao cho tôi'),
+                ),
+              TextButton(onPressed: _busy ? null : () => _pickPacker(id), child: const Text('Đổi')),
+            ],
           ),
-          if (_isStaff && me != null && id != me) ...[
-            const SizedBox(width: 8),
-            FilledButton(
-              style: compactButton(),
-              onPressed: _busy
-                  ? null
-                  : () => _assign({'mode': 'manual', 'staff_id': me}, 'Đã nhận việc đóng gói nhóm này.'),
-              child: const Text('Giao cho tôi'),
-            ),
-          ],
-        ],
+        ),
       ),
     ];
   }
@@ -860,6 +870,7 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
         ),
         if (plan['status'] == 'computing')
           const Padding(padding: EdgeInsets.only(top: 6), child: LinearProgressIndicator()),
+        PlanParcelList(plan: plan),
         if (canApprove)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -897,11 +908,18 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             padding: const EdgeInsets.only(top: 8),
             child: Panel(color: AppColors.warning, children: [
               const Text('Danh mục thùng/vật tư đã đổi sau khi tính kế hoạch.', style: boldText),
-              for (final c in changes) Text('• $c', style: const TextStyle(fontSize: 12.5)),
+              if (changes.isNotEmpty)
+                ExpansionTile(
+                  dense: true,
+                  shape: const Border(),
+                  tilePadding: EdgeInsets.zero,
+                  expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                  title: Text('Xem ${changes.length} thay đổi'),
+                  children: [for (final c in changes) Text('• $c', style: const TextStyle(fontSize: 12.5))],
+                ),
               Align(alignment: Alignment.centerLeft, child: recomputeButton()),
             ]),
           ),
-        PlanParcelList(plan: plan),
       ],
       BoxStockTable(boxes: _boxes, plan: plan, error: _boxError),
     ];
@@ -959,16 +977,8 @@ class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
             },
           ),
         ),
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Text(
-          '${pickString(boxOf(parcel), ['name'])}: ${outerDims(boxOf(parcel))}'
-          '${parcels.length > 1 ? ' · kiện $no/${parcels.length}' : ''}',
-          style: subtle(13),
-        ),
-      ),
+      const SizedBox(height: 8),
       if (parcel['manualLayout'] != true) ParcelLayoutCard(groupId: widget.groupId, parcelNo: no),
-      MaterialTags(materials: rowsOf(parcel['materials'])),
       const SizedBox(height: 12),
       SegmentedButton<bool>(
         segments: const [

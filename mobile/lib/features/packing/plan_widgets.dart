@@ -82,6 +82,7 @@ List<Widget> sharedOrderWidgets(Map<String, dynamic> parcel, Map<String, dynamic
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(line, style: const TextStyle(fontSize: 12.5))),
     ];
 
+/// Vật tư của kiện: dòng chữ (không đóng khung để khỏi bị tưởng là nút).
 class MaterialTags extends StatelessWidget {
   const MaterialTags({super.key, required this.materials});
 
@@ -91,12 +92,9 @@ class MaterialTags extends StatelessWidget {
   Widget build(BuildContext context) => materials.isEmpty
       ? const SizedBox.shrink()
       : Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [for (final m in materials) Pill(materialLabel(m), AppColors.primary)],
-          ),
+          padding: const EdgeInsets.only(top: 6),
+          child: Text('Vật tư: ${materials.map(materialLabel).join(', ')}',
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.primary)),
         );
 }
 
@@ -462,6 +460,22 @@ class BoxComparisonList extends StatelessWidget {
   }
 }
 
+/// Câu hướng dẫn đã bỏ mã lặp, mã hàng in đậm để dò khi cầm hàng.
+Widget guideSentence(String text, {TextStyle? style}) {
+  final clean = cleanGuideText(text);
+  final spans = <TextSpan>[];
+  var last = 0;
+  for (final m in guideCodePattern.allMatches(clean)) {
+    spans
+      ..add(TextSpan(text: clean.substring(last, m.start)))
+      ..add(TextSpan(text: m[0], style: const TextStyle(fontWeight: FontWeight.w800)));
+    last = m.end;
+  }
+  spans.add(TextSpan(text: clean.substring(last)));
+  return Text.rich(TextSpan(style: style, children: spans));
+}
+
+
 /// Lời hướng dẫn của kiện (tóm tắt + từng món). Các bước thao tác đầy đủ đi cùng hoạt ảnh nằm trong khung 3D.
 class GuideText extends StatelessWidget {
   const GuideText({super.key, required this.guide});
@@ -481,7 +495,7 @@ class GuideText extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (summary.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(summary)),
+        if (summary.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: guideSentence(summary)),
         for (final (i, step) in steps.indexed)
           Padding(
             padding: const EdgeInsets.only(top: 10),
@@ -499,8 +513,9 @@ class GuideText extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(pickString(step, ['instruction'])),
-                      if (pickString(step, ['tip']).isNotEmpty) Text('Lưu ý: ${pickString(step, ['tip'])}', style: subtle()),
+                      guideSentence(pickString(step, ['instruction'])),
+                      if (pickString(step, ['tip']).isNotEmpty)
+                        guideSentence('Lưu ý: ${pickString(step, ['tip'])}', style: subtle()),
                     ],
                   ),
                 ),

@@ -7,6 +7,7 @@ import '../features/auth/forgot_password_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/history/history_screen.dart';
 import '../features/home/app_shell.dart';
+import '../features/packing/packing_screens.dart';
 import '../features/warehouse/pick_screen.dart';
 import 'providers.dart';
 
@@ -46,6 +47,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/timeline/:groupId',
         builder: (_, state) => TimelineScreen(groupId: state.pathParameters['groupId']!),
+      ),
+      GoRoute(
+        path: '/packing/:groupId',
+        builder: (_, state) => PackingGroupScreen(groupId: state.pathParameters['groupId']!),
       ),
       GoRoute(
         path: '/pick/:groupId',

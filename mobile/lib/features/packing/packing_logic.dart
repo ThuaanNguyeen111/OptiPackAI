@@ -11,14 +11,17 @@ import '../../shared/admin_kit.dart';
 // ---- Hàng đợi ----
 
 enum QueueTab {
-  picked('picked', 'Đã lấy hàng'),
-  pendingApproval('pending_approval', 'Chờ chấp nhận kế hoạch'),
-  blocked('blocked', 'Kẹt — SKU chưa đo', viewOnly: true),
-  partial('partial_needs_review', 'Thiếu hàng'),
-  packing('approved_for_packing', 'Đang đóng gói'),
-  awaiting('awaiting_packaging', 'Kho đang lấy', viewOnly: true);
+  picked('picked', 'Đã lấy hàng', 'Đã lấy'),
+  pendingApproval('pending_approval', 'Chờ chấp nhận kế hoạch', 'Chờ duyệt'),
+  blocked('blocked', 'Kẹt — SKU chưa đo', 'Kẹt SKU', viewOnly: true),
+  partial('partial_needs_review', 'Thiếu hàng', 'Thiếu hàng'),
+  packing('approved_for_packing', 'Đang đóng gói', 'Đang đóng'),
+  awaiting('awaiting_packaging', 'Kho đang lấy', 'Kho đang lấy', viewOnly: true);
 
-  const QueueTab(this.status, this.label, {this.viewOnly = false});
+  const QueueTab(this.status, this.label, this.shortLabel, {this.viewOnly = false});
+
+  /// Nhãn trên nút chọn: đủ ngắn để cả 6 tab cùng nằm trên màn điện thoại.
+  final String shortLabel;
 
   /// Trạng thái nhóm đơn tương ứng; `blocked` không phải trạng thái BE.
   final String status;
@@ -117,7 +120,12 @@ bool matchesSearch(Map<String, dynamic> g, String query) {
   if (q.isEmpty) return true;
   final id = pickString(g, ['id']);
   final names = g['recipientNames'];
+  final info = asMap(g['queueInfo']);
+  final orderNumbers = info?['orderNumbers'];
   final parts = <String>[
+    pickString(info, ['recipientName']),
+    if (orderNumbers is List) for (final n in orderNumbers) '$n',
+    for (final s in rowsOf(info?['skus'])) pickString(s, ['sku']),
     id,
     tail(id),
     pickString(g, ['platform']),
@@ -152,6 +160,33 @@ String quickPackBlockedCopy(Map<String, dynamic> g) {
   final count = pickInt(g, ['activeOrderCount']) > 0 ? pickInt(g, ['activeOrderCount']) : 2;
   return 'Nhóm gộp $count đơn — mỗi đơn 1 vận đơn, quét từng món vào đúng kiện rồi niêm phong.';
 }
+
+/// Dòng nhận diện trên thẻ: người nhận, số món và mã đơn sàn (`groups` của `/packing-plans/summary`).
+({String who, String items})? queueInfoLines(Map<String, dynamic> g) {
+  final info = asMap(g['queueInfo']);
+  if (info == null) return null;
+  final numbers = info['orderNumbers'];
+  final first = numbers is List && numbers.isNotEmpty ? '${numbers.first}' : '';
+  final more = numbers is List && numbers.length > 1 ? ' +${numbers.length - 1}' : '';
+  final who = [pickString(info, ['recipientName']), if (first.isNotEmpty) 'Đơn $first$more']
+      .where((s) => s.isNotEmpty)
+      .join(' · ');
+  final skus = rowsOf(info['skus']);
+  final items = skus.isEmpty
+      ? ''
+      : '${pickInt(info, ['units'])} món: ${pickString(skus.first, ['sku'])} ×${pickInt(skus.first, ['quantity'])}'
+          '${skus.length > 1 ? ' +${skus.length - 1} loại' : ''}';
+  return who.isEmpty && items.isEmpty ? null : (who: who, items: items);
+}
+
+/// Mã hàng trong lời hướng dẫn, vd `AOPOLO-030-BE-L` hoặc `AOPOLO-030-BE-L#1`.
+final guideCodePattern = RegExp(r'[A-Z0-9]+(?:-[A-Z0-9]+)+(?:#\d+)?');
+
+/// BE viết "SKU (SKU#1)": bỏ phần trong ngoặc khi mã đó đã đứng ngay trước trong câu.
+String cleanGuideText(String text) => text.replaceAllMapped(
+      RegExp(r'\s*\(([A-Z0-9]+(?:-[A-Z0-9]+)+)#\d+\)'),
+      (m) => text.substring(0, m.start).contains(m[1]!) ? '' : m[0]!,
+    );
 
 // ---- Kế hoạch ----
 
