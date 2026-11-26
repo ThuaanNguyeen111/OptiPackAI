@@ -176,8 +176,13 @@ Mã thùng là `CTN-xxx`, đánh theo thể tích lòng nhỏ → lớn; thùng 
 | CTN-009 | BOX-M | 350 × 250 × 200 | 3 |
 | CTN-010 | BOX-LT | 500 × 400 × 200 | 5 |
 | CTN-011 | BOX-L | 500 × 400 × 350 | 5 |
+| CTN-012 | — | 180 × 180 × 110 | 3 |
+| CTN-013 | — | 190 × 170 × 70 | 3 |
+| CTN-014 | — | 400 × 190 × 130 | 3 |
 
 CTN-002, CTN-004…CTN-008 là 6 cỡ chuẩn của AOFP-345. Đổi mã bằng `be/scripts/migrate-carton-codes.ts` (đổi ở mọi collection; câu chữ lịch sử giữ mã cũ). Tài liệu viết trước 27/11 còn dùng mã cũ.
+
+**Thùng nhỏ/dài cho đơn ít món (AOFP-347, 27/11/2026, user chốt).** CTN-012…014 đo bằng engine thật trên 915 kiện mẫu: kiện đạt lấp đầy ≥ 70% tăng từ 278 (30%) lên 418 (46%), trung vị 52% → 67%. Đơn kính + túi + quần dài trước đây vào CTN-001 46%, nay vào CTN-012 72%. Giá và khối lượng thùng là số ước theo diện tích giấy (giá ≈ 1.150 + 0,807 × cm² giấy, làm tròn 100 đ; khối lượng ≈ 0,0515 g/cm²) — thay bằng báo giá NCC khi có. Kế hoạch đang `ready` tính lại bằng `be/scripts/recompute-ready-plans.ts`.
 
 ## 6. Đơn có cả hàng mềm và hàng cứng
 
