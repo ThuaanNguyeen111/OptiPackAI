@@ -147,7 +147,9 @@ function App() {
                 <Route index element={<DashboardPage />} />
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="orders/:id" element={<OrderDetailPage />} />
-                <Route path="order-groups" element={<OrderGroupsPage />} />
+                <Route path="order-groups" element={<OrderGroupsPage key="all" view="all" />} />
+                <Route path="order-groups/express" element={<OrderGroupsPage key="express" view="express" />} />
+                <Route path="order-groups/shortage" element={<OrderGroupsPage key="shortage" view="shortage" />} />
                 <Route path="returns" element={<ReturnsPage />} />
                 <Route path="order-sync" element={<OrderSyncSettingsPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />

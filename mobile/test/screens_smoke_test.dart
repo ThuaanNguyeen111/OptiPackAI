@@ -5,7 +5,6 @@ import 'package:optipack_mobile/app/mock_providers.dart';
 import 'package:optipack_mobile/app/theme.dart';
 import 'package:optipack_mobile/features/notifications/notifications_screen.dart';
 import 'package:optipack_mobile/features/overview/overview_screen.dart';
-import 'package:optipack_mobile/features/packing/packing_screens.dart';
 import 'package:optipack_mobile/features/returns/returns_screens.dart';
 import 'package:optipack_mobile/features/shipping/shipping_screen.dart';
 import 'package:optipack_mobile/features/stock/stock_screen.dart';
@@ -97,48 +96,28 @@ void main() {
     expect(find.text('Từ chối'), findsWidgets);
   });
 
-  testWidgets('Đóng gói: hàng đợi và màn xem kế hoạch có nút chấp nhận / từ chối', (tester) async {
-    await pumpScreen(tester, const PackingQueueScreen());
-    expect(find.text('6ae76ee49b'), findsOneWidget);
-    expect(find.text('Hỏa tốc'), findsOneWidget);
-
-    await tester.tap(find.text('6ae76ee49b'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Chấp nhận'), findsWidgets);
-    expect(find.text('Từ chối'), findsOneWidget);
-    expect(find.textContaining('Cắt hạ thùng còn'), findsOneWidget, reason: 'BOX-M có cắt hạ');
-    expect(find.textContaining('Đang hiện 4/4 món'), findsOneWidget);
-  });
-
-  testWidgets('Đóng gói: phiên đóng quét món rồi niêm phong', (tester) async {
-    await pumpScreen(tester, const PackingGroupScreen(groupId: 'pg2'));
-
-    expect(find.text('Quét đủ món để niêm phong'), findsOneWidget);
-    expect(find.text('Báo lỗi kiện (hỏng / thiếu / nhầm)'), findsOneWidget);
-
-    for (final sku in ['AOPOLO-030-BE-M', 'QJEAN-012-XA-30']) {
-      await tester.enterText(find.widgetWithText(TextField, 'Quét / nhập SKU món'), sku);
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      // Repository giả trễ 200 ms khi quét rồi 200 ms khi tải lại: phải tua thời gian thì mới chạy.
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pumpAndSettle();
-    }
-    expect(find.text('Đã quét 2/2 món'), findsOneWidget);
-    expect(find.text('Niêm phong kiện 1'), findsOneWidget);
-  });
-
   testWidgets('Giao hàng: tạo vận đơn; shop tự giao phải có ảnh mới xác nhận được', (tester) async {
     await pumpScreen(tester, const ShippingScreen());
     expect(find.text('Nguyễn Văn An'), findsOneWidget);
     expect(find.text('Tạo vận đơn'), findsWidgets);
 
-    await tester.tap(find.text('Đang giao'));
+    // 9 tab giống web, mỗi tab một trạng thái.
+    expect(find.text('Chờ giao 2'), findsOneWidget);
+    expect(find.text('Đang giao 2'), findsOneWidget);
+    expect(find.text('Giao thất bại 1'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Giao thất bại 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Giao thất bại 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('Giao lại'), findsOneWidget, reason: 'ship42 thất bại lần 1 nên giao lại được');
+
+    await tester.ensureVisible(find.text('Đang giao 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Đang giao 2'));
     await tester.pumpAndSettle();
     expect(find.text('SHP-261109-000041'), findsOneWidget);
     expect(find.text('Quá hạn giao'), findsOneWidget);
-    expect(find.text('Giao lại'), findsOneWidget, reason: 'ship42 thất bại lần 1 nên giao lại được');
     expect(find.textContaining('giao thành công cần ảnh bằng chứng'), findsOneWidget);
 
     // Vận đơn đầu tiên (ship40) là shop tự giao: chưa có ảnh thì không xác nhận được.

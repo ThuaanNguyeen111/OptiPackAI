@@ -86,7 +86,7 @@ export function resolveNotificationPath(
     }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.SHIPPING_COORDINATOR) return '/app/shipping'
-    return '/app/order-groups'
+    return type === 'stock_shortage' ? '/app/order-groups/shortage' : '/app/order-groups'
   }
   // 10/11/2026 (BE) — nhân viên kho vừa được giao một nhóm đơn: mở thẳng màn lấy hàng của nhóm đó.
   if (type === 'picking_assigned') {
@@ -100,7 +100,7 @@ export function resolveNotificationPath(
       return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'
     }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
-    if (role === UserRole.STORE_OWNER) return '/app/order-groups'
+    if (role === UserRole.STORE_OWNER) return '/app/order-groups/shortage'
     return '/app'
   }
   if (type === 'sla_warning' || type === 'sla_breach') {
@@ -109,7 +109,7 @@ export function resolveNotificationPath(
     }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.SHIPPING_COORDINATOR) return '/app/shipping'
-    if (role === UserRole.STORE_OWNER) return '/app/order-groups'
+    if (role === UserRole.STORE_OWNER) return '/app/order-groups/express'
     return '/app'
   }
   if (notif.relatedEntityType === 'order_group' && entityId) {

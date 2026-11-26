@@ -9,7 +9,7 @@ import { Header } from '@/components/layout/header'
 import { OrderProgressBar } from '@/components/order/order-progress'
 import { OrderTimeline } from '@/components/order/order-timeline'
 import { ReturnRequestForm } from '@/components/order/return-request-form'
-import { ApiError, cancelOrder, getOrder, getReturns } from '@/lib/api-client'
+import { acceptShortShipment, ApiError, cancelOrder, getOrder, getReturns } from '@/lib/api-client'
 import { getFulfillmentStatusLabel, getOrderStatusLabel, getPaymentMethodLabel, getPaymentStatusLabel } from '@/lib/order-labels'
 import { OPEN_RETURN_STATUSES } from '@/lib/order-labels'
 import { formatPromisedTime } from '@/lib/express-delivery'
@@ -51,6 +51,23 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const [cancelError, setCancelError] = useState('')
   // Chỉ hủy được khi đơn chưa đóng gói — sau đó hàng đã rời kho, phải dùng luồng trả hàng.
   const canCancel = order?.status === 'pending' && order.fulfillmentStatus === 'awaiting_packaging'
+
+  // 27/11/2026 — kho đề nghị giao thiếu: khách đồng ý (giao phần có sẵn) hoặc hủy đơn trước hạn.
+  const [accepting, setAccepting] = useState(false)
+  const shortPending = order?.shortShipConfirmation?.status === 'pending' && canCancel
+  async function handleAcceptShort() {
+    if (!order) return
+    setAccepting(true)
+    setCancelError('')
+    try {
+      await acceptShortShipment(order.id)
+      setOrder(await getOrder(order.id)) // tải lại để thấy hành trình mới
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Không thể xác nhận')
+    } finally {
+      setAccepting(false)
+    }
+  }
 
   async function handleCancel() {
     if (!order || !window.confirm('Bạn chắc chắn muốn hủy đơn hàng này?')) return
@@ -110,9 +127,29 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             {(order.paymentStatus === 'refunded' || order.paymentStatus === 'partially_refunded')
               && <p>Số tiền bạn đã thanh toán sẽ được hoàn lại theo phương thức thanh toán ban đầu.</p>}
           </div>}
-          {order.cancelSource !== 'seller' && shortUnits > 0 && <div className="order-seller-notice" role="status">
+          {/* 27/11/2026 — chờ khách xác nhận giao thiếu: 2 nút ngay trong khung */}
+          {shortPending && <div className="order-seller-notice order-short-confirm" role="status">
+            <strong>Shop cần bạn xác nhận: kho thiếu {shortUnits} sản phẩm</strong>
+            <p>Shop có thể giao phần có sẵn và không tính tiền phần thiếu{shortRefund ? ` (giảm ${formatVnd(shortRefund)}, cần trả khi nhận ${formatVnd(Math.max(0, order.totalAmount - shortRefund))})` : ''}. Phí vận chuyển giữ nguyên.</p>
+            {order.shortShipConfirmation?.deadlineAt && <p>Vui lòng chọn trước <strong>{new Date(order.shortShipConfirmation.deadlineAt).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</strong>. Không phản hồi, shop sẽ giao phần có sẵn.</p>}
+            <div className="order-short-actions">
+              <button className="button" disabled={accepting || cancelling} onClick={() => void handleAcceptShort()} type="button">{accepting ? 'Đang xác nhận...' : 'Đồng ý nhận phần có sẵn'}</button>
+              <button className="button order-cancel-button" disabled={accepting || cancelling} onClick={() => void handleCancel()} type="button">{cancelling ? 'Đang hủy...' : 'Hủy đơn'}</button>
+            </div>
+          </div>}
+          {/* 27/11/2026 — kho lấy lại mà tồn không đủ: đơn chờ shop bổ sung hàng */}
+          {order.backorder && order.status !== 'cancelled' && <div className="order-seller-notice order-backorder" role="status">
+            <strong>Một số sản phẩm tạm hết — shop đang bổ sung hàng</strong>
+            <p>{order.backorder.items.map((b) => {
+              const line = order.items.find((item) => item.sku_snapshot.trim().toUpperCase() === b.sku.trim().toUpperCase())
+              return `${line ? `${line.product_name_snapshot} (${line.variant_snapshot})` : b.sku}: thiếu ${b.missing_quantity}`
+            }).join(' · ')}</p>
+            <p>Shop sẽ giao ngay khi có đủ hàng. Nếu không muốn chờ, bạn có thể hủy đơn miễn phí bên dưới — đơn COD nên bạn chưa bị trừ tiền.</p>
+          </div>}
+          {order.cancelSource !== 'seller' && shortUnits > 0 && !shortPending && <div className="order-seller-notice" role="status">
             <strong>Kho giao thiếu {shortUnits} sản phẩm</strong>
-            <p>Những sản phẩm thiếu không được tính tiền{shortRefund ? ` — giảm trừ ${formatVnd(shortRefund)}` : ''}.</p>
+            <p>Những sản phẩm thiếu không được tính tiền{shortRefund ? ` — giảm trừ ${formatVnd(shortRefund)}` : ''}. Phí vận chuyển giữ nguyên.</p>
+            {shortRefund > 0 && order.status !== 'cancelled' && <p>Số tiền cần trả khi nhận hàng: <strong>{formatVnd(Math.max(0, order.totalAmount - shortRefund))}</strong>.</p>}
           </div>}
 
           {/* 29/10/2026 — hỏa tốc: giờ hẹn giao, shipper của shop, cảnh báo khi trễ hẹn */}
@@ -160,6 +197,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <div className="order-cost-line"><span>Phí vận chuyển</span><strong>{shippingFee ? formatVnd(shippingFee) : 'Miễn phí'}</strong></div>
               <div className="order-cost-total"><span>Tổng thanh toán</span><strong>{formatVnd(order.totalAmount)}</strong></div>
               {shortRefund > 0 && <div className="order-cost-line"><span>Giảm trừ do giao thiếu</span><strong>− {formatVnd(shortRefund)}</strong></div>}
+              {/* 26/11/2026 — giao thiếu: số khách thật sự trả khi nhận (COD), phí ship giữ nguyên */}
+              {shortRefund > 0 && order.status !== 'cancelled' && <div className="order-cost-total"><span>{order.paymentStatus === 'paid' ? 'Đã thanh toán' : 'Cần trả khi nhận hàng'}</span><strong>{formatVnd(Math.max(0, order.totalAmount - shortRefund))}</strong></div>}
               {refunded > 0 && <div className="order-cost-line"><span>Đã hoàn tiền</span><strong>{formatVnd(refunded)}</strong></div>}
             </aside>
           </div>

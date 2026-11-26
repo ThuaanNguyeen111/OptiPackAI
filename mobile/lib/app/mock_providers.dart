@@ -1,13 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/env.dart';
-import '../features/auth/auth_models.dart';
+import '../features/history/history_repository.dart';
 import '../features/notifications/api_notifications_repository.dart';
 import '../features/notifications/notifications_repository.dart';
 import '../features/overview/api_overview_repository.dart';
 import '../features/overview/overview_repository.dart';
-import '../features/packing/api_packing_repository.dart';
-import '../features/packing/packing_repository.dart';
 import '../features/returns/api_returns_repository.dart';
 import '../features/returns/returns_repository.dart';
 import '../features/shipping/api_shipping_repository.dart';
@@ -26,7 +24,7 @@ import 'providers.dart';
 //   notifications  → /notifications*
 //   stock          → /warehouse/warehouses/:wid/bins/by-code, …/restock|adjust|transfer
 //   returns        → /returns*  (ảnh: POST /proof-photos)
-//   packing        → /order-groups/:id/packing-plan/*  (ảnh: POST /proof-photos)
+//   (đóng gói luôn gọi BE thật qua packing_api.dart, không có dữ liệu mẫu)
 //   shipping       → /shipping/quote, /packing-plans/summary, /shipments*  (ảnh: POST /proof-photos)
 //   overview       → /dashboard/summary, /order-groups?order_priority=express, /orders
 // ============================================================================
@@ -60,15 +58,6 @@ final returnsRepositoryProvider = Provider<ReturnsRepository>((ref) {
   );
 });
 
-final packingRepositoryProvider = Provider<PackingRepository>((ref) => ref.watch(useMockDataProvider)
-    ? MockPackingRepository()
-    : ApiPackingRepository(
-        api: ref.watch(apiClientProvider),
-        currentUserId: () => _userId(ref),
-        isAdmin: () => ref.read(authControllerProvider).user?.role == UserRole.admin,
-        warehouseId: () => _warehouseId(ref),
-      ));
-
 final shippingRepositoryProvider = Provider<ShippingRepository>((ref) => ref.watch(useMockDataProvider)
     ? MockShippingRepository()
     : ApiShippingRepository(api: ref.watch(apiClientProvider), currentUserId: () => _userId(ref)));
@@ -76,6 +65,10 @@ final shippingRepositoryProvider = Provider<ShippingRepository>((ref) => ref.wat
 final overviewRepositoryProvider = Provider<OverviewRepository>((ref) => ref.watch(useMockDataProvider)
     ? MockOverviewRepository()
     : ApiOverviewRepository(ref.watch(apiClientProvider)));
+
+final historyRepositoryProvider = Provider<HistoryRepository>((ref) => ref.watch(useMockDataProvider)
+    ? MockHistoryRepository()
+    : ApiHistoryRepository(ref.watch(apiClientProvider)));
 
 /// Dùng trong test và bản trình diễn: mọi màn chạy dữ liệu giả.
 final mockDataOverrides = [useMockDataProvider.overrideWithValue(true)];
@@ -100,27 +93,12 @@ final returnsByStatusProvider =
   (ref, status) => ref.watch(returnsRepositoryProvider).list(status),
 );
 
-final packingQueueProvider =
-    FutureProvider.autoDispose.family<List<PackingGroup>, PackingStage>(
-  (ref, stage) => ref.watch(packingRepositoryProvider).queue(stage),
-);
-
-/// Cài đặt "bắt buộc chụp ảnh khi niêm phong".
-final sealPhotoRequiredProvider = FutureProvider.autoDispose<bool>(
-  (ref) => ref.watch(packingRepositoryProvider).requireSealPhoto(),
-);
-
-final packingGroupProvider =
-    FutureProvider.autoDispose.family<PackingGroup, String>(
-  (ref, id) => ref.watch(packingRepositoryProvider).get(id),
-);
-
 final readyToShipProvider = FutureProvider.autoDispose<List<ShipGroup>>(
   (ref) => ref.watch(shippingRepositoryProvider).readyToShip(),
 );
 
-/// AOFP-336 — tab Đang giao mặc định chỉ hiện vận đơn giao cho mình (`shipper_id=me`).
-final shipmentsMineOnlyProvider = StateProvider<bool>((ref) => true);
+/// Lọc "Của tôi" (`shipper_id=me`). Mặc định tắt, giống web: đa số vận đơn không gán người giao.
+final shipmentsMineOnlyProvider = StateProvider<bool>((ref) => false);
 
 final shipmentsProvider = FutureProvider.autoDispose<List<ShipmentView>>(
   (ref) => ref.watch(shippingRepositoryProvider).shipments(mine: ref.watch(shipmentsMineOnlyProvider)),

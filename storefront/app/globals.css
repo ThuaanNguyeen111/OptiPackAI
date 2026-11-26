@@ -286,6 +286,11 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 /* 22/10/2026 — người bán hủy / giao thiếu, danh mục Admin */
 .order-seller-notice { margin:18px 0; padding:14px 16px; border:1px solid #e0b79c; background:#fbefe6; color:#6b3a20; font-size:13px; line-height:1.6; }
 .order-seller-notice p { margin:4px 0 0; }
+/* 27/11/2026 — giao thiếu chờ khách xác nhận + chờ bổ sung hàng */
+.order-short-confirm { border-color:#c9a27a; background:#fff7ec; }
+.order-short-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.order-short-actions .button { min-height:40px; padding:0 16px; }
+.order-backorder { border-color:#e3c46b; background:#fffbea; color:#5c4a10; }
 .order-item-short { color:#a2482a !important; font-size:12px; }
 .admin-warning { margin:6px 0 0; color:#a2482a; font-size:12px; line-height:1.5; }
 .admin-dim-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
@@ -354,3 +359,63 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 .admin-express th, .admin-express td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
 .admin-express textarea { width:100%; min-height:180px; padding:10px; border:1px solid var(--line); font:13px/1.5 inherit; }
 .admin-express-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px; }
+
+/* 26/11/2026 — trang Sản phẩm: tìm kiếm, lọc danh mục, sắp xếp; ảnh đồng nhất. */
+.shop-page { max-width:1320px; margin:0 auto; }
+.shop-heading { margin-bottom:28px; }
+.shop-controls { display:grid; gap:18px; margin-bottom:34px; }
+.shop-search { position:relative; display:flex; align-items:center; max-width:560px; border:1px solid var(--line); background:#fff; transition:border-color .2s ease, box-shadow .2s ease; }
+.shop-search:focus-within { border-color:var(--ink); box-shadow:0 6px 20px rgba(38,37,34,.06); }
+.shop-search svg { width:18px; height:18px; margin-left:16px; fill:none; stroke:var(--muted); stroke-width:1.6; stroke-linecap:round; flex:none; }
+.shop-search input { flex:1; min-width:0; padding:14px 14px 14px 12px; border:0; outline:0; background:none; font-size:14px; }
+.shop-search input::-webkit-search-cancel-button { display:none; }
+.shop-search-clear { width:40px; height:40px; border:0; background:none; color:var(--muted); font-size:22px; line-height:1; }
+.shop-search-clear:hover { color:var(--ink); }
+.shop-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.chip { padding:8px 16px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); font-size:13px; transition:background-color .2s ease, color .2s ease, border-color .2s ease; }
+.chip:hover { border-color:var(--ink); }
+.chip.active { color:#fff; border-color:var(--ink); background:var(--ink); }
+.shop-controls .shop-toolbar { align-items:center; margin:0; padding:12px 0; }
+.shop-count { color:var(--muted); font-size:13px; letter-spacing:.04em; }
+.shop-toolbar-right { display:flex; align-items:center; gap:22px; }
+.shop-toggle { display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; user-select:none; }
+.shop-toggle input { width:16px; height:16px; accent-color:var(--ink); }
+.shop-sort { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--muted); }
+.shop-sort select { min-width:180px; padding:9px 34px 9px 12px; color:var(--ink); border:1px solid var(--line); background:#fff; appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--ink) 50%),linear-gradient(135deg,var(--ink) 50%,transparent 50%); background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%; background-size:5px 5px; background-repeat:no-repeat; }
+
+/* Ảnh sản phẩm: cùng tỉ lệ, cùng nền; ảnh nền trắng hoà vào nền ô nên lưới trông đều. */
+.product-grid { gap:34px 22px; }
+.product-image { aspect-ratio:4/5; background:#f3f0eb; }
+.product-image img.product-image-main, .product-image img.product-image-alt { object-fit:contain !important; padding:7%; mix-blend-mode:multiply; }
+.product-image-alt { opacity:0; transition:opacity .45s ease !important; }
+.product-card:hover .product-image-alt { opacity:1; }
+.product-card:hover .product-image:has(.product-image-alt) .product-image-main { opacity:0; }
+.product-image-main { transition:opacity .45s ease, transform .4s !important; }
+.product-badges { position:absolute; top:12px; left:12px; display:flex; flex-direction:column; gap:6px; z-index:1; }
+.badge { padding:4px 9px; font-size:11px; letter-spacing:.06em; text-transform:uppercase; background:#fff; color:var(--ink); }
+.badge-sale { color:#fff; background:#a34a3c; }
+.badge-muted { color:#fff; background:#55524d; }
+.product-quick { position:absolute; right:12px; bottom:12px; left:12px; padding:11px; color:#fff; background:rgba(34,34,34,.9); font-size:12px; letter-spacing:.08em; text-align:center; text-transform:uppercase; opacity:0; transform:translateY(8px); transition:opacity .3s ease, transform .3s ease; z-index:1; }
+.product-card:hover .product-quick { opacity:1; transform:none; }
+.product-card-info { padding:16px 2px 4px; }
+.product-card-info h3 { margin:6px 0 8px; font-size:20px; line-height:1.25; }
+.product-card-meta { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.product-card-meta strong { font-size:15px; font-weight:600; }
+.product-card-meta small { color:var(--muted); font-size:12px; white-space:nowrap; }
+.product-card.is-sold-out .product-image img { opacity:.55; }
+.empty .button { margin-top:16px; }
+@media (max-width:1100px) { .product-grid { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:800px) {
+  .product-grid { grid-template-columns:repeat(2,1fr); gap:26px 12px; }
+  .shop-search { max-width:none; }
+  .shop-chips { flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
+  .shop-chips::-webkit-scrollbar { display:none; }
+  .chip { flex:none; }
+  .shop-controls .shop-toolbar { flex-wrap:wrap; }
+  .shop-toolbar-right { width:100%; justify-content:space-between; gap:12px; }
+  .shop-sort > span { display:none; }
+  .shop-sort select { min-width:0; }
+  .product-card-info h3 { font-size:17px; }
+  .product-card-meta { flex-direction:column; gap:2px; }
+  .product-quick { display:none; }
+}

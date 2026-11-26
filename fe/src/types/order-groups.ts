@@ -255,18 +255,24 @@ export type TransitionOrderGroupInput = {
 }
 
 /** Kho lấy hàng trước — không đợi duyệt gợi ý thùng. */
+/** Còn ở bước lấy hàng. BE chỉ cho quét / hoàn tất khi `picking`; báo thiếu được ở cả hai. */
 export const WAREHOUSE_PICKABLE_STATUSES = [
   'awaiting_packaging',
+  'picking',
+] as const
+
+/** Đã lấy xong, đang ở khâu đóng gói (tab «Đã lấy — giao gói»). */
+export const WAREHOUSE_HANDOFF_STATUSES = [
+  'picked',
   'pending_approval',
   'approved_for_packing',
-  'picking',
 ] as const
 
 /** Hàng đợi Warehouse Staff (lọc FE sau GET /order-groups). */
 export const WAREHOUSE_STAFF_QUEUE_STATUSES = [
   ...WAREHOUSE_PICKABLE_STATUSES,
   'partial_needs_review',
-  'picked',
+  ...WAREHOUSE_HANDOFF_STATUSES,
   'packed',
   'shipped',
   'delivered',

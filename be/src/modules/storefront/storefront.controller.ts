@@ -42,6 +42,8 @@ export class StorefrontController {
   @Post('cart/sync') @UseGuards(CustomerJwtGuard) syncCart(@Req() req: CustomerRequest, @Body() dto: SyncCartDto) { return this.cart.sync(req.user.customerId, dto); }
   @Post('orders/checkout') @UseGuards(CustomerJwtGuard) checkout(@Req() req: CustomerRequest, @Body() dto: CheckoutDto) { return this.orders.checkout(req.user.customerId, dto); }
   @Get('orders') @UseGuards(CustomerJwtGuard) listOrders(@Req() req: CustomerRequest) { return this.orders.list(req.user.customerId); }
+  // 27/11/2026 — khách đồng ý nhận phần có sẵn khi kho giao thiếu (không đồng ý thì dùng orders/:id/cancel).
+  @Post('orders/:id/short-ship/accept') @UseGuards(CustomerJwtGuard) acceptShortShipment(@Req() req: CustomerRequest, @Param('id') id: string) { return this.orders.acceptShortShipment(req.user.customerId, id); }
   @Post('orders/:id/cancel') @UseGuards(CustomerJwtGuard) cancelOrder(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CancelOrderDto) { return this.orders.cancel(req.user.customerId, id, dto.reason); }
   @Post('orders/:id/returns') @UseGuards(CustomerJwtGuard) createReturn(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CreateStorefrontReturnDto) { return this.returns.create(req.user.customerId, id, dto); }
   @Get('returns') @UseGuards(CustomerJwtGuard) listReturns(@Req() req: CustomerRequest) { return this.returns.list(req.user.customerId); }

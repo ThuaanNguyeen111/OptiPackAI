@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,11 +8,12 @@ import '../../app/providers.dart';
 import '../../core/format/deadline.dart';
 import '../../core/network/api_exception.dart';
 import '../../shared/widgets.dart';
+import '../warehouse/warehouse_logic.dart';
 import '../warehouse/warehouse_models.dart';
 import '../warehouse/warehouse_repository.dart';
 import '../../app/colors.dart';
 
-/// "Việc của tôi" của Warehouse Staff — **đã nối BE thật** (`GET /order-groups?assigned_staff_id=`).
+/// Hàng đợi lấy hàng — các mục và bộ lọc giống trang "Lấy hàng trong kho" trên web.
 class MyWorkView extends ConsumerWidget {
   const MyWorkView({super.key});
 
@@ -37,19 +40,64 @@ class MyWorkView extends ConsumerWidget {
   }
 }
 
-class _WorkList extends StatelessWidget {
+class _WorkList extends ConsumerStatefulWidget {
   const _WorkList({required this.loaded});
 
   final Loaded<List<OrderGroupSummary>> loaded;
 
   @override
+  ConsumerState<_WorkList> createState() => _WorkListState();
+}
+
+class _WorkListState extends ConsumerState<_WorkList> {
+  WorkTab _tab = WorkTab.toPick;
+  WorkFilter _filter = WorkFilter.all;
+  String _search = '';
+
+  /// Từ khóa đã ngừng gõ, dùng để hỏi máy chủ.
+  String _remoteQuery = '';
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearch(String value) {
+    setState(() => _search = value);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) setState(() => _remoteQuery = value.trim());
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final groups = loaded.data;
+    final all = widget.loaded.data;
+    final userId = ref.watch(authControllerProvider.select((s) => s.user?.id));
+    final names = {
+      for (final s in ref.watch(warehouseStaffProvider).valueOrNull ?? const <StaffOption>[])
+        s.id: s.name,
+    };
+    final groups = queueGroups(all, tab: _tab, filter: _filter, userId: userId, search: _search);
+    final query = _search.trim();
+    final searchRemote = query.length >= 4;
+    final remote = searchRemote && _remoteQuery == query
+        ? ref.watch(groupSearchProvider(query))
+        : null;
+    final shown = {for (final g in groups) g.id};
+    final elsewhere = [
+      for (final g in remote?.valueOrNull ?? const <OrderGroupSummary>[])
+        if (!shown.contains(g.id) && workTabOf(g) != null) g,
+    ];
+    final searching = searchRemote && (remote == null || remote.isLoading);
+
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
       children: [
-        if (loaded.fromCache)
+        if (widget.loaded.fromCache)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
@@ -60,9 +108,60 @@ class _WorkList extends StatelessWidget {
               ),
             ),
           ),
-        if (groups.isEmpty)
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final t in WorkTab.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text('${t.label} ${all.where((g) => inWorkTab(g, t)).length}'),
+                    selected: _tab == t,
+                    onSelected: (_) => setState(() => _tab = t),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final f in WorkFilter.values)
+              FilterChip(
+                label: Text(f.label),
+                selected: _filter == f,
+                onSelected: (_) => setState(() => _filter = f),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          onChanged: _onSearch,
+          decoration: const InputDecoration(
+            hintText: 'Tìm mã đơn sàn, mã nhóm, sàn',
+            prefixIcon: Icon(Icons.search),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (searching)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: Text('Đang tìm ở các mục khác…'),
+          )
+        else if (remote != null && remote.hasError)
           Padding(
-            padding: EdgeInsets.symmetric(vertical: 64),
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              'Không tìm được trên máy chủ, chỉ lọc trong danh sách đang có.',
+              style: TextStyle(color: AppColors.warning),
+            ),
+          ),
+        if (groups.isEmpty && elsewhere.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 48),
             child: Column(
               children: [
                 Icon(
@@ -70,12 +169,12 @@ class _WorkList extends StatelessWidget {
                   size: 56,
                   color: AppColors.inkTertiary,
                 ),
-                SizedBox(height: 12),
-                Text(
-                  'Chưa có nhóm đơn nào giao cho bạn.',
+                const SizedBox(height: 12),
+                const Text(
+                  'Không có nhóm đơn nào ở mục này.',
                   textAlign: TextAlign.center,
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   'Kéo xuống để tải lại.',
                   style: TextStyle(color: AppColors.inkSubtle),
@@ -85,18 +184,42 @@ class _WorkList extends StatelessWidget {
           )
         else
           for (final g in groups) ...[
-            _GroupCard(group: g),
+            _GroupCard(
+              key: ValueKey(g.id),
+              group: g,
+              assignee: assigneeLabel(g.assignedStaffId, userId, names),
+            ),
             const SizedBox(height: 12),
           ],
+        if (elsewhere.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text('Ở mục khác', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          for (final g in elsewhere) ...[
+            Text(
+              'Mục: ${workTabOf(g)!.label}',
+              style: TextStyle(fontSize: 12, color: AppColors.inkSubtle),
+            ),
+            const SizedBox(height: 4),
+            _GroupCard(
+              key: ValueKey('elsewhere-${g.id}'),
+              group: g,
+              assignee: assigneeLabel(g.assignedStaffId, userId, names),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ],
       ],
     );
   }
 }
 
 class _GroupCard extends StatelessWidget {
-  const _GroupCard({required this.group});
+  const _GroupCard({super.key, required this.group, required this.assignee});
 
   final OrderGroupSummary group;
+  final String assignee;
 
   @override
   Widget build(BuildContext context) {
@@ -114,20 +237,27 @@ class _GroupCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  group.shortId,
-                  style: const TextStyle(
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w800,
-                    fontSize: 16,
+                Flexible(
+                  child: Text(
+                    group.shortId,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  _platform(group.platform),
-                  style: TextStyle(color: AppColors.inkSubtle),
+                Expanded(
+                  child: Text(
+                    _platform(group.platform),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: AppColors.inkSubtle),
+                  ),
                 ),
-                const Spacer(),
                 const Icon(Icons.chevron_right),
               ],
             ),
@@ -151,8 +281,12 @@ class _GroupCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '${group.activeOrderCount} đơn · ${_status(group.fulfillmentStatus)}',
+              '${group.activeOrderCount} đơn · ${fulfillmentLabel(group.fulfillmentStatus)}',
               style: TextStyle(color: AppColors.inkSubtle),
+            ),
+            Text(
+              'Người lấy: $assignee',
+              style: TextStyle(fontSize: 12, color: AppColors.inkSubtle),
             ),
           ],
         ),
@@ -166,11 +300,6 @@ class _GroupCard extends StatelessWidget {
     'tiki' => 'Tiki',
     'aurelle' => 'AURELLE',
     _ => p,
-  };
-
-  static String _status(String s) => switch (s) {
-    'picking' => 'Đang lấy hàng',
-    _ => 'Cần lấy hàng',
   };
 }
 

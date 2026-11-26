@@ -49,14 +49,14 @@ type QueueItem = {
 }
 
 const ALERT_ITEMS: (QueueItem & { tone: AlertTone; icon: LucideIcon })[] = [
-  { key: 'expressOverdue', vi: 'Hỏa tốc quá hạn', en: 'Express overdue', to: '/app/order-groups', tone: 'danger', icon: Zap },
+  { key: 'expressOverdue', vi: 'Hỏa tốc quá hạn', en: 'Express overdue', to: '/app/order-groups/express', tone: 'danger', icon: Zap },
   { key: 'deliveryFailed', vi: 'Giao thất bại', en: 'Delivery failed', to: '/app/shipping', tone: 'danger', icon: Truck },
   { key: 'carrierBookingErrors', vi: 'Lỗi đặt vận đơn', en: 'Booking errors', to: '/app/shipping', tone: 'danger', icon: AlertTriangle },
   { key: 'marketplaceWritebackFailed', vi: 'Ghi ngược sàn lỗi', en: 'Write-back failed', to: '/app/orders', tone: 'danger', icon: AlertTriangle },
-  { key: 'expressDueSoon', vi: 'Hỏa tốc sắp hạn', en: 'Express due soon', to: '/app/order-groups', tone: 'warning', icon: Clock },
-  { key: 'partialNeedsReview', vi: 'Thiếu hàng cần duyệt', en: 'Partial review', to: '/app/order-groups', tone: 'warning', icon: AlertTriangle },
+  { key: 'expressDueSoon', vi: 'Hỏa tốc sắp hạn', en: 'Express due soon', to: '/app/order-groups/express', tone: 'warning', icon: Clock },
+  { key: 'partialNeedsReview', vi: 'Thiếu hàng cần duyệt', en: 'Partial review', to: '/app/order-groups/shortage', tone: 'warning', icon: AlertTriangle },
   { key: 'plansWithHeldParcels', vi: 'Kiện lệch cân', en: 'Held parcels', to: '/app/packing', tone: 'warning', icon: Boxes },
-  { key: 'stockShortageGroups', vi: 'Nhóm thiếu tồn', en: 'Stock shortage', to: '/app/order-groups', tone: 'warning', icon: Warehouse },
+  { key: 'stockShortageGroups', vi: 'Nhóm thiếu tồn', en: 'Stock shortage', to: '/app/order-groups/shortage', tone: 'warning', icon: Warehouse },
 ]
 
 const STAGE_GROUPS: {

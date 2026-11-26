@@ -5,12 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app/mock_providers.dart';
 import '../../app/providers.dart';
 import '../../app/theme_mode.dart';
+import '../admin/admin_menu_screen.dart';
+import '../admin/inventory_screen.dart';
 import '../auth/auth_models.dart';
 import '../auth/role_permissions.dart';
+import '../history/history_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../offline/sync_status_bar.dart';
 import '../overview/overview_screen.dart';
 import '../packing/packing_screens.dart';
+import '../profile/profile_screen.dart';
 import '../returns/returns_screens.dart';
 import '../shipping/shipping_screen.dart';
 import '../stock/stock_screen.dart';
@@ -46,8 +50,17 @@ _TabSpec _notifications() => _TabSpec(
       isNotifications: true,
     );
 
+/// Tab "Kho". Dữ liệu mẫu không có danh sách tồn nên vẫn dùng màn tra theo ô.
+class _StockTab extends ConsumerWidget {
+  const _StockTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) =>
+      ref.watch(useMockDataProvider) ? const StockScreen() : const InventoryScreen(embedded: true);
+}
+
 _TabSpec _myWork() => _TabSpec(
-      'Việc của tôi',
+      'Lấy hàng',
       Icons.checklist_outlined,
       Icons.checklist,
       () => const MyWorkView(),
@@ -58,7 +71,7 @@ _TabSpec _stock() => _TabSpec(
       'Kho',
       Icons.warehouse_outlined,
       Icons.warehouse,
-      () => const StockScreen(),
+      () => const _StockTab(),
       needs: const {'inventory'},
     );
 
@@ -94,6 +107,21 @@ _TabSpec _overview() => _TabSpec(
       needs: const {'dashboard'},
     );
 
+_TabSpec _history() => _TabSpec(
+      'Lịch sử',
+      Icons.history,
+      Icons.history,
+      () => const HistoryScreen(),
+      needs: const {'history'},
+    );
+
+_TabSpec _more() => _TabSpec(
+      'Thêm',
+      Icons.grid_view_outlined,
+      Icons.grid_view,
+      () => const AdminMenuScreen(),
+    );
+
 _TabSpec _returnsApproval() => _TabSpec(
       'Duyệt hoàn',
       Icons.fact_check_outlined,
@@ -112,13 +140,17 @@ const _maxWorkTabs = 4;
 /// (xem `app/mock_providers.dart`).
 List<_TabSpec> _tabsFor(UserRole role, Set<String> features) {
   final preferred = switch (role) {
-    UserRole.warehouseStaff => [_myWork(), _stock(), _warehouseReturns()],
+    UserRole.warehouseStaff => [_myWork(), _stock(), _warehouseReturns(), _history()],
     UserRole.packagingStaff => [_packing()],
     UserRole.shippingCoordinator => [_shipping()],
-    UserRole.storeOwner => [_overview(), _returnsApproval()],
-    UserRole.admin => [_overview(), _myWork(), _packing(), _shipping()],
+    // Các trang còn lại của web nằm trong "Thêm".
+    UserRole.storeOwner => [_overview(), _returnsApproval(), _history(), _more()],
+    // Admin có nhiều trang hơn chỗ trên thanh dưới: 3 tab hay dùng, còn lại nằm trong "Thêm".
+    UserRole.admin => [_overview(), _myWork(), _packing(), _more()],
   };
-  final all = [_overview(), _myWork(), _stock(), _warehouseReturns(), _packing(), _shipping(), _returnsApproval()];
+  final all = [
+    _overview(), _myWork(), _stock(), _warehouseReturns(), _packing(), _shipping(), _returnsApproval(), _history(),
+  ];
   final tabs = <_TabSpec>[];
   for (final t in [...preferred, ...all]) {
     if (tabs.length >= _maxWorkTabs) break;
@@ -193,12 +225,19 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
           title: const Text('Đổi mật khẩu'),
           actions: [IconButton(icon: const Icon(Icons.logout), onPressed: _confirmLogout)],
         ),
-        body: const Center(
+        body: Center(
           child: Padding(
-            padding: EdgeInsets.all(32),
-            child: Text(
-              'Tài khoản cần đổi mật khẩu trước khi dùng.\nHãy đăng nhập trên web để đổi mật khẩu, rồi quay lại app.',
-              textAlign: TextAlign.center,
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Tài khoản cần đổi mật khẩu trước khi dùng.', textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: () => changePasswordFlow(context, ref),
+                  child: const Text('Đổi mật khẩu'),
+                ),
+              ],
             ),
           ),
         ),
@@ -236,6 +275,11 @@ class _AppShellState extends ConsumerState<AppShell> with WidgetsBindingObserver
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: 'Hồ sơ & Bảo mật',
+            icon: const Icon(Icons.account_circle_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileScreen())),
+          ),
           const _ThemeMenu(),
           IconButton(tooltip: 'Đăng xuất', icon: const Icon(Icons.logout), onPressed: _confirmLogout),
         ],

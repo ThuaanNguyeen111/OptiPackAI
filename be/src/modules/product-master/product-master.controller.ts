@@ -46,6 +46,18 @@ export interface ProductMasterResponse {
   /** 22/10/2026 — sàn báo ngừng bán ('inactive') / Admin đánh dấu ngừng dùng. */
   marketplaceStatus: 'active' | 'inactive' | null;
   retired: boolean;
+  /**
+   * 27/11/2026 — chỉ ở danh sách gộp (mặc định): mọi dòng sàn của cùng 1 hàng. Dòng trả về là dòng
+   * đại diện; xác nhận số đo / ngừng dùng trên `id` đại diện tự áp cho cả nhóm.
+   */
+  platforms?: {
+    id: string;
+    platform: string;
+    shopId: string;
+    sellerSku: string;
+    packagingProfileStatus: 'needs_measurement' | 'ready';
+    retired: boolean;
+  }[];
 }
 
 type ProductMasterLike = ProductMaster & { _id: { toString(): string } };
@@ -121,7 +133,20 @@ export class ProductMasterController {
       search: query.search,
       includeRetired: query.include_retired === 'true',
     });
-    return docs.map((d) => toResponse(d as ProductMasterLike));
+    if (query.group === 'false') return docs.map((d) => toResponse(d as ProductMasterLike));
+    // 27/11/2026 — 1 dòng / hàng thật (Lazada + AURELLE cùng SKU không còn hiện 2 dòng).
+    const groups = await this.productMasterService.groupSameProduct(docs as ProductMasterLike[]);
+    return groups.map(({ representative, members }) => ({
+      ...toResponse(representative),
+      platforms: members.map((m) => ({
+        id: m._id.toString(),
+        platform: m.platform,
+        shopId: m.shop_id,
+        sellerSku: m.seller_sku,
+        packagingProfileStatus: m.packaging_profile_status,
+        retired: m.retired === true,
+      })),
+    }));
   }
 
   @Patch(':id/retire')
@@ -131,7 +156,7 @@ export class ProductMasterController {
       '22/10/2026 — Đánh dấu SKU sàn NGỪNG DÙNG (retired=true) hoặc dùng lại (false). Ẩn khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối", đẩy tồn; không xoá hồ sơ.',
   })
   async retire(@Param('id') id: string, @Body() dto: RetireProductMasterDto): Promise<ProductMasterResponse> {
-    const doc = await this.productMasterService.setRetired(id, dto.retired);
+    const doc = await this.productMasterService.setRetired(id, dto.retired, dto.only_this === true);
     return toResponse(doc.toObject());
   }
 

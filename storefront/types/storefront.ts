@@ -129,6 +129,10 @@ export type StorefrontOrder = {
   shortRefundAmount?: number
   /** 22/10/2026 — tổng tiền đã hoàn (trả hàng / hủy). */
   refundedAmount?: number
+  /** 27/11/2026 — kho đề nghị giao thiếu, chờ khách đồng ý / hủy tới deadlineAt (pending). */
+  shortShipConfirmation?: { status: 'pending' | 'accepted' | 'auto_accepted'; deadlineAt: string | null; decidedAt: string | null } | null
+  /** 27/11/2026 — SKU tạm hết, shop đang bổ sung (tự mất khi đơn đóng gói). */
+  backorder?: { items: { sku: string; missing_quantity: number }[]; since: string } | null
   /** 23/10/2026 — chặng giao chi tiết (processing, in_transit, out_for_delivery...), null với đơn cũ. */
   trackingStage?: string | null
   /** 23/10/2026 — nhãn trạng thái DUY NHẤT (dùng chung danh sách + chi tiết đơn). */

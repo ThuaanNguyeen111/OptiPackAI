@@ -287,6 +287,19 @@ function boxWeightKg(plan: PackingPlan | null): number {
   return planWeightKg(plan)
 }
 
+/** Điểm đến: địa chỉ đã sửa gửi hãng, nếu không có thì địa chỉ người nhận trên đơn. */
+function rowDestination(row: QueueRow, vi: boolean): string {
+  if (row.kind === 'packed') return vi ? 'Chưa tạo vận đơn' : 'No shipment yet'
+  const { toLocation, recipientAddress, carrierName, carrierCode } = row.shipment
+  const edited = [toLocation?.street, toLocation?.wardName, toLocation?.provinceName]
+    .filter(Boolean)
+    .join(', ')
+  if (edited) return edited
+  if (recipientAddress) return recipientAddress
+  if (carrierName || carrierCode) return carrierName ?? carrierCode ?? '—'
+  return vi ? 'Shop tự giao' : 'Own fleet'
+}
+
 function rowGroupId(row: QueueRow): string {
   return row.kind === 'packed' ? row.group.id : row.shipment.orderGroupId
 }
@@ -296,6 +309,12 @@ export function ShippingPage() {
   const { session } = useAuth()
   const vi = locale === 'vi'
   const isAdmin = session?.role === UserRole.ADMIN
+  // Khớp @Roles của GET /documents/packing-slip — Điều phối không có quyền.
+  const canPrintPackingSlip =
+    session?.role === UserRole.ADMIN ||
+    session?.role === UserRole.STORE_OWNER ||
+    session?.role === UserRole.WAREHOUSE_STAFF ||
+    session?.role === UserRole.PACKAGING_STAFF
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [tab, setTab] = useState<QueueTab>('packed')
@@ -999,6 +1018,23 @@ export function ShippingPage() {
       : selected
         ? shortId(selected.group.id)
         : '—'
+
+  const selectedCarrierName =
+    selected?.kind === 'shipment'
+      ? (selected.shipment.carrierName ?? selected.shipment.carrierCode ?? null)
+      : null
+  const deliveryNote =
+    selected?.kind !== 'shipment'
+      ? vi
+        ? 'Chưa tạo vận đơn'
+        : 'No shipment yet'
+      : selectedCarrierName
+        ? vi
+          ? `Giao qua ${selectedCarrierName} — không lưu chữ ký tài xế`
+          : `Delivered by ${selectedCarrierName} — no driver signature stored`
+        : vi
+          ? 'Shop tự giao — không có chữ ký tài xế 3PL'
+          : 'Own fleet — no 3PL driver signature'
 
   const chosenCarrier = marketplacePickup
     ? null
@@ -1901,8 +1937,11 @@ export function ShippingPage() {
                               <td className="py-3 px-3.5">
                                 <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
                                   <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                                  <span className="truncate">
-                                    {vi ? 'Shop tự giao' : 'Own fleet'}
+                                  <span
+                                    className="max-w-[14rem] truncate"
+                                    title={rowDestination(row, vi)}
+                                  >
+                                    {rowDestination(row, vi)}
                                   </span>
                                 </div>
                               </td>
@@ -2103,7 +2142,10 @@ export function ShippingPage() {
                       {vi ? 'Thể tích ước tính' : 'Estimated volume'}
                     </span>
                     <p className="mt-1.5 font-mono text-3xl font-extrabold leading-none tracking-tight tabular-nums text-slate-900 dark:text-[var(--ls-ink)]">
-                      {sessionVolume.toFixed(2)}
+                      {sessionVolume.toLocaleString(vi ? 'vi-VN' : 'en-US', {
+                        minimumFractionDigits: 4,
+                        maximumFractionDigits: 4,
+                      })}
                       <span className="ml-1 text-sm font-bold text-slate-500 dark:text-[var(--ls-muted)]">
                         CBM
                       </span>
@@ -2340,9 +2382,7 @@ export function ShippingPage() {
                   <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200/60 bg-white px-3 py-2.5 text-center dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]">
                     <StylusSignatureGraphic />
                     <p className="mt-1 text-[10.5px] text-slate-500 dark:text-[var(--ls-muted)]">
-                      {vi
-                        ? 'Shop tự giao — không có chữ ký tài xế 3PL'
-                        : 'Own fleet — no 3PL driver signature'}
+                      {deliveryNote}
                     </p>
                   </div>
                 </div>
@@ -2381,20 +2421,22 @@ export function ShippingPage() {
               <KbdHint>Ctrl+P</KbdHint>
             </button>
 
-            <button
-              type="button"
-              disabled={!documentGroupId || actionBusy}
-              onClick={() => {
-                if (!documentGroupId) return
-                void openShippingDocument(
-                  `/documents/packing-slip/${encodeURIComponent(documentGroupId)}`,
-                ).catch((err: unknown) => showToast(formatApiError(err)))
-              }}
-              className="ship-foot-btn"
-            >
-              <Printer className="h-3.5 w-3.5 shrink-0" />
-              {vi ? 'Phiếu đóng gói' : 'Packing slip'}
-            </button>
+            {canPrintPackingSlip ? (
+              <button
+                type="button"
+                disabled={!documentGroupId || actionBusy}
+                onClick={() => {
+                  if (!documentGroupId) return
+                  void openShippingDocument(
+                    `/documents/packing-slip/${encodeURIComponent(documentGroupId)}`,
+                  ).catch((err: unknown) => showToast(formatApiError(err)))
+                }}
+                className="ship-foot-btn"
+              >
+                <Printer className="h-3.5 w-3.5 shrink-0" />
+                {vi ? 'Phiếu đóng gói' : 'Packing slip'}
+              </button>
+            ) : null}
             <button
               type="button"
               disabled={!documentGroupId || actionBusy}

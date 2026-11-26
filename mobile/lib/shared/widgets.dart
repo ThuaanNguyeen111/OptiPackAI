@@ -252,6 +252,7 @@ Future<bool> confirmDialog(
   required String title,
   required String message,
   String confirmLabel = 'Xác nhận',
+  bool danger = false,
 }) async {
   final ok = await showDialog<bool>(
     context: context,
@@ -261,7 +262,8 @@ Future<bool> confirmDialog(
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
         FilledButton(
-          style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+          style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 44), backgroundColor: danger ? AppColors.danger : null),
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(confirmLabel),
         ),
@@ -283,7 +285,9 @@ void showToast(BuildContext context, String message, {bool error = false}) {
 }
 
 /// `dd/MM HH:mm`.
-String formatDateTime(DateTime t) {
+String formatDateTime(DateTime time) {
+  // BE trả giờ UTC: phải đổi sang giờ máy trước khi hiển thị.
+  final t = time.toLocal();
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(t.day)}/${two(t.month)} ${two(t.hour)}:${two(t.minute)}';
 }

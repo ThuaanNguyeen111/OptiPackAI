@@ -32,7 +32,8 @@ export type PartnerStatus =
   | 'returned'
   // 22/10/2026 — hành động của NGƯỜI BÁN (không phải mốc giao hàng):
   | 'short_shipped' // kho giao thiếu một số đơn vị (kèm items[])
-  | 'canceled_by_seller'; // người bán hủy đơn trước khi giao
+  | 'canceled_by_seller' // người bán hủy đơn trước khi giao
+  | 'backordered'; // 27/11/2026 — một số SKU tạm hết, shop đang bổ sung (kèm missing_items[])
 
 export const PARTNER_STATUSES: readonly PartnerStatus[] = [
   'processing',
@@ -46,6 +47,7 @@ export const PARTNER_STATUSES: readonly PartnerStatus[] = [
   'returned',
   'short_shipped',
   'canceled_by_seller',
+  'backordered',
 ];
 
 /** Nhãn tiếng Việt hiện cho khách trong hành trình đơn. */
@@ -62,6 +64,7 @@ export const PARTNER_STATUS_LABELS: Record<PartnerStatus, string> = {
   returned: 'Người bán đã nhận lại hàng',
   short_shipped: 'Người bán giao thiếu hàng',
   canceled_by_seller: 'Người bán đã hủy đơn',
+  backordered: 'Một số sản phẩm tạm hết — shop đang bổ sung hàng',
 };
 
 export function isPartnerStatus(value: unknown): value is PartnerStatus {
@@ -83,6 +86,10 @@ export interface StatusUpdateInput {
   idempotencyKey: string;
   /** 22/10/2026 — chỉ `short_shipped`: số đơn vị kho GIAO ĐƯỢC theo SKU (SKU không có = giao đủ). */
   items?: { sku: string; shipped_quantity: number }[];
+  /** 27/11/2026 — `short_shipped`: có = shop CHỜ khách đồng ý / hủy tới mốc này rồi mới đóng gói. */
+  confirmDeadline?: Date | null;
+  /** 27/11/2026 — chỉ `backordered`: SKU tạm hết và số thiếu. */
+  missingItems?: { sku: string; missing_quantity: number }[];
 }
 
 export interface StatusUpdateResult {
@@ -118,7 +125,7 @@ export interface StatusUpdateCollections {
 }
 
 /** Mốc giao hàng thật (đổi `fulfillment_status`) — khác 2 hành động người bán. */
-const SELLER_ACTIONS: readonly PartnerStatus[] = ['short_shipped', 'canceled_by_seller'];
+const SELLER_ACTIONS: readonly PartnerStatus[] = ['short_shipped', 'canceled_by_seller', 'backordered'];
 
 /** Trạng thái nghĩa là hàng đã rời kho OptiPack — trừ hẳn phần giữ chỗ trên website. */
 const LEFT_WAREHOUSE: readonly PartnerStatus[] = [
@@ -203,7 +210,9 @@ export async function applyPartnerStatusUpdate(
   if (SELLER_ACTIONS.includes(input.status)) {
     const applied = input.status === 'canceled_by_seller'
       ? await applySellerCancel(cols, order, input)
-      : await applyShortShipped(cols, order, input);
+      : input.status === 'backordered'
+        ? await applyBackordered(cols, order, input)
+        : await applyShortShipped(cols, order, input);
     return { order_id: input.publicOrderId, status: input.status, updated_at: new Date().toISOString(), applied };
   }
 
@@ -231,6 +240,14 @@ export async function applyPartnerStatusUpdate(
   if (input.status === 'delivered') {
     set.status = 'completed';
     set.payment_status = 'paid';
+  }
+  // 27/11/2026 — đơn đã đi tiếp (đóng gói / giao): hết "chờ bổ sung hàng"; đề nghị giao thiếu khách
+  // chưa trả lời coi như đã chấp nhận (shop giao phần có sẵn sau khi hết hạn).
+  if (input.status !== 'processing') set.backorder = null;
+  const confirmation = order.short_ship_confirmation as { status?: string } | null | undefined;
+  if (input.status !== 'processing' && confirmation?.status === 'pending') {
+    set['short_ship_confirmation.status'] = 'auto_accepted';
+    set['short_ship_confirmation.decided_at'] = input.eventTime;
   }
   await cols.orders.updateOne({ _id: order._id }, { $set: set });
 
@@ -353,10 +370,42 @@ async function applyShortShipped(cols: StatusUpdateCollections, order: Doc, inpu
   }
   await cols.orders.updateOne(
     { _id: order._id },
-    { $set: { short_refund_amount: shortAmount, updated_at: new Date() } },
+    {
+      $set: {
+        short_refund_amount: shortAmount,
+        backorder: null,
+        // 27/11/2026 — có hạn = shop chờ khách đồng ý / hủy rồi mới đóng gói.
+        ...(input.confirmDeadline && !allShort
+          ? { short_ship_confirmation: { status: 'pending', deadline_at: input.confirmDeadline, decided_at: null } }
+          : {}),
+        updated_at: new Date(),
+      },
+    },
   );
   if (allShort) {
     await applySellerCancel(cols, { ...order, stock_state: 'released' }, { ...input, reason: input.reason ?? 'Kho không còn hàng cho đơn này' });
   }
+  return true;
+}
+
+/**
+ * 27/11/2026 — Kho lấy lại mà tồn không đủ: ghi `backorder` (SKU tạm hết) để trang đơn hiện khung
+ * "shop đang bổ sung hàng" + nút hủy. Chỉ khi đơn chưa hủy và chưa đóng gói. Gửi lại thì ghi đè.
+ */
+async function applyBackordered(cols: StatusUpdateCollections, order: Doc, input: StatusUpdateInput): Promise<boolean> {
+  if (!input.missingItems?.length || order.status === 'cancelled') return false;
+  if (!CANCELLABLE_FULFILLMENT.includes(order.fulfillment_status as string)) return false;
+  await cols.orders.updateOne(
+    { _id: order._id },
+    {
+      $set: {
+        backorder: {
+          items: input.missingItems.map((i) => ({ sku: i.sku, missing_quantity: Math.max(1, Math.floor(i.missing_quantity)) })),
+          since: input.eventTime,
+        },
+        updated_at: new Date(),
+      },
+    },
+  );
   return true;
 }

@@ -195,7 +195,9 @@ export class StockReservationService {
     await this.reservationModel.updateOne(
       { order_group_id: new Types.ObjectId(groupId), stock_key: stockKey },
       [{ $set: { quantity_picked: { $max: [0, { $subtract: ['$quantity_picked', quantity] }] } } }],
-      { session },
+      // 26/11/2026 — Mongoose 9 chặn update dạng pipeline (mảng) nếu không bật cờ này → "Lấy lại"
+      // (decide-partial approve=false) từng lỗi 500 "Cannot pass an array to query updates".
+      { session, updatePipeline: true },
     );
   }
 

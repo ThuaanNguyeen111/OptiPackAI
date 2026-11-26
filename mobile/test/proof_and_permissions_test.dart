@@ -19,15 +19,15 @@ void main() {
 
     test('mặc định giữ đúng các tab cũ', () {
       expect(tabLabelsFor(UserRole.warehouseStaff, defaultFeaturesFor(UserRole.warehouseStaff)),
-          ['Việc của tôi', 'Kho', 'Hoàn hàng', 'Thông báo']);
+          ['Lấy hàng', 'Kho', 'Hoàn hàng', 'Lịch sử', 'Thông báo']);
       expect(tabLabelsFor(UserRole.packagingStaff, defaultFeaturesFor(UserRole.packagingStaff)),
-          ['Đóng gói', 'Thông báo']);
+          ['Đóng gói', 'Lịch sử', 'Thông báo']);
       expect(tabLabelsFor(UserRole.shippingCoordinator, defaultFeaturesFor(UserRole.shippingCoordinator)),
-          ['Giao hàng', 'Thông báo']);
+          ['Giao hàng', 'Lịch sử', 'Thông báo']);
       expect(tabLabelsFor(UserRole.storeOwner, defaultFeaturesFor(UserRole.storeOwner)),
-          ['Tổng quan', 'Duyệt hoàn', 'Thông báo']);
+          ['Tổng quan', 'Duyệt hoàn', 'Lịch sử', 'Thêm', 'Thông báo']);
       expect(tabLabelsFor(UserRole.admin, allFeatures),
-          ['Tổng quan', 'Việc của tôi', 'Đóng gói', 'Giao hàng', 'Thông báo']);
+          ['Tổng quan', 'Lấy hàng', 'Đóng gói', 'Thêm', 'Thông báo']);
     });
 
     test('Admin tắt trang thì tab biến mất, bật thêm thì tab hiện', () {

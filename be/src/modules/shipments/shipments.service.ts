@@ -281,9 +281,9 @@ export class ShipmentsService {
     if (!this.orderModel || ids.length === 0) return out;
     const orders = await this.orderModel
       .find({ consolidated_group_id: { $in: ids }, status: { $nin: notPackableStatuses() } })
-      .select('consolidated_group_id platform payment_method total_amount recipient')
+      .select('consolidated_group_id platform payment_method total_amount short_shipped_amount recipient')
       .sort({ created_at: 1 })
-      .lean<(Pick<Order, 'platform' | 'total_amount' | 'recipient'> & { consolidated_group_id?: Types.ObjectId | null; payment_method?: string | null })[]>();
+      .lean<(Pick<Order, 'platform' | 'total_amount' | 'short_shipped_amount' | 'recipient'> & { consolidated_group_id?: Types.ObjectId | null; payment_method?: string | null })[]>();
     for (const order of orders) {
       const key = order.consolidated_group_id?.toString();
       if (!key) continue;

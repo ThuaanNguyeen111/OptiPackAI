@@ -5,8 +5,6 @@ import 'package:optipack_mobile/features/notifications/api_notifications_reposit
 import 'package:optipack_mobile/features/notifications/notifications_repository.dart';
 import 'package:optipack_mobile/features/overview/api_overview_repository.dart';
 import 'package:optipack_mobile/features/overview/overview_repository.dart';
-import 'package:optipack_mobile/features/packing/api_packing_repository.dart';
-import 'package:optipack_mobile/features/packing/packing_repository.dart';
 import 'package:optipack_mobile/features/returns/api_returns_repository.dart';
 import 'package:optipack_mobile/features/returns/returns_repository.dart';
 import 'package:optipack_mobile/features/shipping/api_shipping_repository.dart';
@@ -68,48 +66,6 @@ void main() {
     expect(r.isFailedDelivery, isTrue);
     expect(r.items.single.quantity, 2);
     expect(r.orderCode, '1227a7eeeca4'.substring(2));
-  });
-
-  test('đóng gói: mm → cm, đếm món đã quét, bỏ kiện đã huỷ', () {
-    final g = parsePackingGroup({
-      'orderGroupId': 'g1',
-      'status': 'packing',
-      'version': 7,
-      'parcels': [
-        {
-          'parcelNo': 1,
-          'status': 'pending',
-          'box': {
-            'code': 'BOX-M',
-            'name': 'Thùng M',
-            'innerMm': {'lengthMm': 350, 'widthMm': 250, 'heightMm': 150},
-            'cutFromInnerHeightMm': 200,
-          },
-          'placements': [
-            {'itemKey': 'A#1', 'sku': 'A', 'x': 0, 'y': 0, 'z': 0, 'dx': 300, 'dy': 200, 'dz': 50},
-            {'itemKey': 'A#2', 'sku': 'A', 'x': 0, 'y': 0, 'z': 50, 'dx': 300, 'dy': 200, 'dz': 50},
-          ],
-          'estimatedWeightG': 1180,
-          'scans': [
-            {'itemKey': 'A#1', 'sku': 'A'},
-          ],
-          'actualWeightKg': null,
-        },
-        {'parcelNo': 2, 'status': 'voided', 'box': {}, 'placements': []},
-      ],
-    }, {
-      'platform': 'aurelle',
-      'orderPriority': 'express',
-    });
-    expect(g.stage, PackingStage.packing);
-    expect(g.isExpress, isTrue);
-    expect(g.parcels, hasLength(1));
-    final p = g.parcels.single;
-    expect(p.innerL, 35);
-    expect(p.cutFromH, 20);
-    expect(p.expectedWeightKg, closeTo(1.18, 1e-9));
-    expect(p.scanned, {'A': 1});
-    expect(p.allScanned, isFalse);
   });
 
   test('giao hàng: vận đơn shop tự giao / hãng GHN, báo giá', () {

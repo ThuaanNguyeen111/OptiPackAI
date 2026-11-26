@@ -17,6 +17,21 @@ describe('OrderGroupPickingService.allocateShortage (22/10/2026)', () => {
   });
 });
 
+describe('OrderGroupPickingService.shortAmountOf (26/11/2026)', () => {
+  it('đặt 3 giao 2 → tiền 1 cái; bỏ dòng đã hủy; giao đủ → 0', () => {
+    const items = [
+      { sku: 'QUAN-006-TRANG-L', unit_price: 200000, status: 'canceled' },
+      { sku: 'QUAN-006-TRANG-L', unit_price: 200000 },
+      { sku: 'AO-001-DEN-M', unit_price: 150000 },
+    ];
+    expect(OrderGroupPickingService.shortAmountOf(items, [
+      { sku: 'QUAN-006-TRANG-L', ordered: 3, shipped: 2 },
+      { sku: 'AO-001-DEN-M', ordered: 1, shipped: 1 },
+    ])).toBe(200000);
+    expect(OrderGroupPickingService.shortAmountOf(items, [{ sku: 'AO-001-DEN-M', ordered: 2, shipped: 0 }])).toBe(300000);
+  });
+});
+
 describe('parseMasterSkuCode (22/10/2026)', () => {
   it('tách đúng quy tắc', () => {
     expect(parseMasterSkuCode('athun-005-den-m')).toEqual({ category_code: 'ATHUN', model_no: 5, color_code: 'DEN', size: 'M' });

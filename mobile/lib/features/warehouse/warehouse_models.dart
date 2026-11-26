@@ -1,13 +1,42 @@
 import '../../core/json.dart';
 
-/// Trạng thái nhóm đơn mà Warehouse Staff còn phải lấy hàng. Khớp `WAREHOUSE_PICKABLE_STATUSES`
-/// của web: BE chỉ lọc được **một** `fulfillment_status` mỗi lần gọi nên app lọc lại phía máy.
+/// Trạng thái nhóm đơn còn ở bước lấy hàng. Khớp `WAREHOUSE_PICKABLE_STATUSES` của web:
+/// BE chỉ lọc được **một** `fulfillment_status` mỗi lần gọi nên app lọc lại phía máy.
+/// BE chỉ cho quét / hoàn tất khi `picking`; báo thiếu được ở cả hai trạng thái này.
 const pickableStatuses = <String>{
   'awaiting_packaging',
-  'pending_approval',
-  'approved_for_packing',
   'picking',
 };
+
+/// Tên trạng thái nhóm đơn, giống web.
+String fulfillmentLabel(String status) => switch (status) {
+      'awaiting_packaging' => 'Chờ bắt đầu lấy',
+      'picking' => 'Đang lấy hàng',
+      'picked' => 'Đã lấy xong',
+      'partial_needs_review' => 'Thiếu hàng — chờ quyết định',
+      'pending_approval' => 'Chờ chấp nhận kế hoạch',
+      'approved_for_packing' => 'Đang đóng gói',
+      'packed' => 'Đã đóng gói',
+      'shipped' => 'Đã giao vận',
+      'delivered' => 'Đã giao',
+      'returning' => 'Đang chờ duyệt trả hàng',
+      'returned' => 'Hoàn hàng',
+      'canceled' => 'Đã hủy',
+      _ => status,
+    };
+
+/// Một kho đang hoạt động (`GET /warehouse/warehouses`).
+class WarehouseOption {
+  const WarehouseOption({required this.id, this.code = '', this.name = ''});
+  final String id;
+  final String code;
+  final String name;
+
+  String get label {
+    final text = [code, name].where((s) => s.isNotEmpty).join(' · ');
+    return text.isEmpty ? id : text;
+  }
+}
 
 class OrderGroupSummary {
   const OrderGroupSummary({
@@ -25,6 +54,8 @@ class OrderGroupSummary {
     this.warehouseId,
     this.recipientNamesDiffer = false,
     this.createdAt,
+    this.orderIds = const [],
+    this.linkedGroupCount = 0,
   });
 
   final String id;
@@ -46,9 +77,18 @@ class OrderGroupSummary {
   final bool recipientNamesDiffer;
   final DateTime? createdAt;
 
+  /// Thứ tự đơn trong nhóm (chỉ có ở `GET /order-groups/:id`) — dùng đặt chữ cái khay.
+  final List<String> orderIds;
+  final int linkedGroupCount;
+
   String get shortId => id.length > 10 ? id.substring(id.length - 10) : id;
 
   bool get isPickable => pickableStatuses.contains(fulfillmentStatus);
+
+  /// Quét và hoàn tất lấy hàng (BE: chỉ `picking`).
+  bool get canScan => fulfillmentStatus == 'picking';
+
+  bool get canReportMissing => isPickable;
 
   /// Không còn đơn nào để lấy (đã hủy hết).
   bool get isFullyInactive => orderCount > 0 && activeOrderCount == 0;
@@ -75,8 +115,23 @@ class OrderGroupSummary {
       recipientNamesDiffer:
           pickBool(json, ['recipientNamesDiffer', 'recipient_names_differ']),
       createdAt: pickDate(json, ['createdAt', 'created_at']),
+      orderIds: [
+        if (json['orders'] case final List list)
+          for (final o in list)
+            ?pickStringOrNull(asMap(o), ['id', '_id']),
+      ],
+      linkedGroupCount: pickInt(json, ['linkedGroupCount']),
     );
   }
+}
+
+/// Nhân viên kho để phân công (`GET /order-groups/staff/search`).
+class StaffOption {
+  const StaffOption({required this.id, required this.name, this.workload = 0, this.onLeave = false});
+  final String id;
+  final String name;
+  final int workload;
+  final bool onLeave;
 }
 
 class OtherBin {
@@ -85,6 +140,23 @@ class OtherBin {
   final int quantityOnHand;
   /// AOFP-327 — id ô phụ: quét khớp ô này thì gửi id này để BE trừ tồn đúng ô.
   final String? binLocationId;
+}
+
+/// Một dòng hàng chia cho đơn nào trong nhóm.
+class OrderAllocation {
+  const OrderAllocation({required this.orderId, required this.quantity, this.orderCode = '', this.recipientName = ''});
+  final String orderId;
+  final String orderCode;
+  final String recipientName;
+  final int quantity;
+
+  String get label {
+    final code = orderCode.isNotEmpty
+        ? orderCode
+        : (orderId.length > 6 ? orderId.substring(orderId.length - 6) : orderId);
+    final who = recipientName.isEmpty ? '' : ' · $recipientName';
+    return 'Đơn $code$who × $quantity';
+  }
 }
 
 class PickLine {
@@ -98,6 +170,7 @@ class PickLine {
     this.masterSku,
     this.otherBins = const [],
     this.oldestLotCode,
+    this.allocations = const [],
     this.isFragile = false,
     this.lengthCm = 0,
     this.widthCm = 0,
@@ -118,6 +191,7 @@ class PickLine {
   final String? masterSku;
   final List<OtherBin> otherBins;
   final String? oldestLotCode;
+  final List<OrderAllocation> allocations;
   final bool isFragile;
   final double lengthCm;
   final double widthCm;
@@ -137,6 +211,7 @@ class PickLine {
         masterSku: masterSku,
         otherBins: otherBins,
         oldestLotCode: oldestLotCode,
+        allocations: allocations,
         isFragile: isFragile,
         lengthCm: lengthCm,
         widthCm: widthCm,
@@ -147,6 +222,7 @@ class PickLine {
   factory PickLine.fromJson(Map<String, dynamic> json) {
     final bins = json['other_bins'];
     final lot = asMap(json['oldest_lot']);
+    final allocations = json['order_allocations'];
     return PickLine(
       sku: pickString(json, ['sku']),
       quantity: pickInt(json, ['quantity']),
@@ -167,6 +243,17 @@ class PickLine {
             ]
           : const [],
       oldestLotCode: pickStringOrNull(lot, ['lot_code']),
+      allocations: [
+        if (allocations is List)
+          for (final row in allocations)
+            if (asMap(row) case final m?)
+              OrderAllocation(
+                orderId: pickString(m, ['order_id']),
+                orderCode: pickString(m, ['platform_order_id']),
+                recipientName: pickString(m, ['recipient_name']),
+                quantity: pickInt(m, ['quantity']),
+              ),
+      ],
       isFragile: pickBool(json, ['is_fragile']),
       lengthCm: pickDouble(json, ['length_cm']),
       widthCm: pickDouble(json, ['width_cm']),

@@ -1,5 +1,6 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
+  AlertTriangle,
   BarChart3,
   Box,
   Boxes,
@@ -17,6 +18,7 @@ import {
   Truck,
   Users,
   X,
+  Zap,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { fetchMyProfile } from '../../api/users.api'
@@ -53,10 +55,26 @@ const navItems = [
   },
   {
     to: '/app/order-groups',
-    end: false,
-    labelVi: 'Nhóm đơn & Hỏa tốc',
-    labelEn: 'Groups & Express',
+    end: true,
+    labelVi: 'Nhóm đơn',
+    labelEn: 'Order groups',
     icon: ClipboardList,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/order-groups/express',
+    end: false,
+    labelVi: 'Đơn hỏa tốc',
+    labelEn: 'Express orders',
+    icon: Zap,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/order-groups/shortage',
+    end: false,
+    labelVi: 'Thiếu hàng',
+    labelEn: 'Stock shortage',
+    icon: AlertTriangle,
     section: 'store' as NavSection,
   },
   {

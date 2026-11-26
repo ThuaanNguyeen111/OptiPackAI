@@ -39,7 +39,7 @@ export const FEATURE_PATHS: Record<Feature, string> = {
 export const FEATURE_LABELS: Record<Feature, { vi: string; en: string }> = {
   dashboard: { vi: 'Tổng quan', en: 'Dashboard' },
   orders: { vi: 'Đơn đa kênh', en: 'Omnichannel orders' },
-  order_groups: { vi: 'Nhóm đơn & Hỏa tốc', en: 'Groups & Express' },
+  order_groups: { vi: 'Nhóm đơn, Hỏa tốc, Thiếu hàng', en: 'Groups, Express, Shortage' },
   returns: { vi: 'Trả hàng', en: 'Returns' },
   order_sync: { vi: 'Đồng bộ đơn', en: 'Order sync' },
   picking: { vi: 'Lấy hàng trong kho', en: 'Warehouse picking' },

@@ -90,11 +90,15 @@ export function ProfilePage() {
   const { logout, session } = useAuth()
   const vi = locale === 'vi'
   const isAdmin = session?.role === UserRole.ADMIN
+  // Khớp @Roles của GET /marketplace/:platform/shops.
+  const canViewShops = isAdmin || session?.role === UserRole.STORE_OWNER
   // Tab nằm trên URL để link ngoài mở thẳng được, kể cả khi đang đứng ở trang này
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
   const tab: ProfileTab =
-    tabParam === 'marketplaces' || tabParam === 'preferences' ? tabParam : 'personal'
+    tabParam === 'preferences' || (tabParam === 'marketplaces' && canViewShops)
+      ? tabParam
+      : 'personal'
   const setTab = (next: ProfileTab): void => {
     setSearchParams(next === 'personal' ? {} : { tab: next }, { replace: true })
   }
@@ -305,11 +309,15 @@ export function ProfilePage() {
       label: vi ? 'Hồ sơ & Bảo mật' : 'Personal Info & Security',
       icon: Shield,
     },
-    {
-      key: 'marketplaces',
-      label: vi ? 'Sàn đã kết nối' : 'Connected Marketplaces',
-      icon: Store,
-    },
+    ...(canViewShops
+      ? [
+          {
+            key: 'marketplaces' as const,
+            label: vi ? 'Sàn đã kết nối' : 'Connected Marketplaces',
+            icon: Store,
+          },
+        ]
+      : []),
     {
       key: 'preferences',
       label: vi ? 'Tùy chọn hệ thống' : 'System Preferences',
