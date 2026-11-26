@@ -138,7 +138,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                           context: context,
                           isScrollControlled: true,
                           showDragHandle: true,
-                          builder: (_) => _StockActionSheet(item: item, binCode: bin.binCode),
+                          builder: (_) => StockActionSheet(item: item, binCode: bin.binCode),
                         );
                         if (changed == true) await _reload();
                       },
@@ -179,17 +179,21 @@ class _StockScreenState extends ConsumerState<StockScreen> {
 
 enum _StockAction { restock, adjust, transfer }
 
-class _StockActionSheet extends ConsumerStatefulWidget {
-  const _StockActionSheet({required this.item, required this.binCode});
+/// Nhập thêm / kiểm kê / chuyển ô cho một dòng tồn. Trả `true` khi đã ghi (hoặc đã lưu chờ gửi).
+class StockActionSheet extends ConsumerStatefulWidget {
+  const StockActionSheet({super.key, required this.item, required this.binCode, this.repository});
 
   final StockItem item;
   final String binCode;
 
+  /// Truyền vào khi thao tác trên kho đang chọn; bỏ trống thì dùng kho mặc định.
+  final StockRepository? repository;
+
   @override
-  ConsumerState<_StockActionSheet> createState() => _StockActionSheetState();
+  ConsumerState<StockActionSheet> createState() => _StockActionSheetState();
 }
 
-class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
+class _StockActionSheetState extends ConsumerState<StockActionSheet> {
   _StockAction _action = _StockAction.restock;
   final _qty = TextEditingController(text: '1');
   final _target = TextEditingController();
@@ -222,7 +226,7 @@ class _StockActionSheetState extends ConsumerState<_StockActionSheet> {
       return;
     }
     final item = widget.item;
-    final repo = ref.read(stockRepositoryProvider);
+    final StockRepository repo = widget.repository ?? ref.read(stockRepositoryProvider);
 
     final message = switch (_action) {
       _StockAction.restock => 'Nhập thêm $qty cái ${item.sku} vào ô ${widget.binCode}?',

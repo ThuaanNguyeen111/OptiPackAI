@@ -217,8 +217,8 @@ export class StorefrontOrder {
   @Prop({ default: '' }) customer_note!: string;
   @Prop({ type: Date, default: null }) placed_at!: Date | null;
   /**
-   * 29/10/2026 — cách giao khách chọn lúc đặt: `standard` (GHN, 30.000đ) | `express` (shop tự giao 3 giờ).
-   * 22/11/2026 — đã gỡ hỏa tốc, đơn mới luôn `standard`; `express` chỉ còn ở đơn cũ.
+   * 29/10/2026 — cách giao khách chọn lúc đặt: `standard` (GHN, 30.000đ) | `express` (shop tự giao
+   * trong 3 giờ, 45.000đ; chỉ phường trong danh sách + 8:00–14:00 thứ 2–7 — express-delivery.policy.ts).
    * Đơn cũ không có field = standard.
    */
   @Prop({ type: String, enum: ['standard', 'express'], default: 'standard' }) delivery_option!: 'standard' | 'express';
@@ -243,6 +243,21 @@ StorefrontOrderSchema.index(
 );
 // Phục vụ Open API GetOrders (update_after) — mock aurelle-mock-server.ts
 StorefrontOrderSchema.index({ updated_at: 1 });
+
+/**
+ * 29/10/2026 — Cấu hình website do Admin AURELLE chỉnh (1 document / khóa). Hiện có:
+ * `_id = 'express_delivery'` → `express_wards` (phường được giao hỏa tốc). Chưa có document →
+ * dùng danh sách mặc định `DEFAULT_EXPRESS_WARDS`.
+ */
+@Schema({ collection: 'storefront_settings', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
+export class StorefrontSetting {
+  @Prop({ type: String, required: true }) _id!: string;
+  @Prop({ type: [String], default: undefined }) express_wards?: string[];
+  created_at?: Date;
+  updated_at?: Date;
+}
+export type StorefrontSettingDocument = HydratedDocument<StorefrontSetting>;
+export const StorefrontSettingSchema = SchemaFactory.createForClass(StorefrontSetting);
 
 /** Bộ đếm tăng dần (atomic $inc) — hiện chỉ dùng cấp public_order_id. */
 @Schema({ collection: 'storefront_counters', versionKey: false })

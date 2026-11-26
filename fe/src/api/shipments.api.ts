@@ -92,6 +92,7 @@ export function mapShipment(raw: unknown): Shipment | null {
           : null,
     tripCode: pickString(row.tripCode, row.trip_code) || null,
     pickupAt: toIso(row.pickupAt) ?? toIso(row.pickup_at),
+    recipientAddress: pickString(row.recipientAddress, row.recipient_address) || null,
     toLocation: mapToLocation(row.toLocation ?? row.to_location),
     carrierParcels: mapCarrierParcels(row.carrierParcels ?? row.carrier_parcels),
     version: pickNumber(row.version, row.__v),
