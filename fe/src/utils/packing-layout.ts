@@ -299,21 +299,6 @@ export function workAreaFor(outer: PackingMm, inner: PackingMm, mailer: boolean)
   }
 }
 
-/** Bước thao tác ngay tại khu chuẩn bị: camera lại gần khu đó. */
-export function isWorkAreaStep(kind: PackStepKind | undefined): boolean {
-  return (
-    kind === 'fold' ||
-    kind === 'halfFold' ||
-    kind === 'zip' ||
-    kind === 'zipFold' ||
-    kind === 'bagPrep' ||
-    kind === 'shoeBox' ||
-    kind === 'caseIn' ||
-    kind === 'wrap' ||
-    kind === 'tape'
-  )
-}
-
 /** Màu theo thứ tự đơn trong kiện gộp, cùng tông với chip người nhận. */
 const ORDER_COLORS = ['#0ea5e9', '#f59e0b', '#10b981', '#8b5cf6', '#f43f5e', '#14b8a6']
 

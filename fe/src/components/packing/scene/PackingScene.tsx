@@ -18,7 +18,7 @@ import {
   type Vec3,
   type WorkArea,
 } from '../../../utils/packing-layout'
-import { foldPoseAt } from '../../../utils/fold-pose'
+import { foldPoseAt, stagedSpread } from '../../../utils/fold-pose'
 import { MAILER_MODEL, boxModelFor, categoryColor, itemModelFor, type ItemModel } from '../product-models'
 import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock } from './model-rigs'
 import { BubbleSleeve, CloseMaterials, PrepareTray, WrapAnimation } from './MaterialsScene'
@@ -432,6 +432,9 @@ function PlacedItem({
   const model = itemModelFor(profile?.productCategory)
   const color = tint ?? categoryColor(profile?.productCategory)
   const initial = role === 'placed' ? center : staged
+  // AOFP-350: ModelBody nằm TRONG khối đã trải (pose.scale) — khu chuẩn bị nó thấy phải chia cho hệ số trải,
+  // nếu không áo/quần trải phẳng ở bước gấp to gấp 2–4 lần, tràn khỏi tấm thảm.
+  const localArea = area.size / stagedSpread(foldPoseAt(steps, index, item, size, 0))
 
   return (
     <group ref={motionRef} position={initial} visible={role !== 'hidden'}>
@@ -446,7 +449,7 @@ function PlacedItem({
                 role={role}
                 kind={kind}
                 index={index}
-                areaSize={area.size}
+                areaSize={localArea}
                 bend={bend}
               />
             </Suspense>

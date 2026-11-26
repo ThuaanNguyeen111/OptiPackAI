@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PackingItemProfile, PackingPlacement } from '../types/packing-plan'
-import { foldPoseAt, type FoldPose } from './fold-pose'
+import { foldPoseAt, stagedSpread, type FoldPose } from './fold-pose'
 import { buildPackSteps, type PackStep, type Vec3 } from './packing-layout'
 
 /**
@@ -77,4 +77,18 @@ describe('foldPoseAt — dáng gập giữ liên tục qua các bước', () => 
     const steps = buildPackSteps([placement(false)], [{ ...profile(false), zipBagCode: null }])
     steps.forEach((_, i) => expect(foldPoseAt(steps, i, 0, SIZE, 1).bend).toBeNull())
   })
+
+  it.each(CASES)('%s: khu chuẩn bị của mô hình × hệ số trải = đúng tấm thảm ở mọi bước (AOFP-350, quần không phình)', (_, p, prof) => {
+    const steps = buildPackSteps([p], [prof])
+    const AREA = 0.5
+    steps.forEach((step, i) => {
+      const pose = foldPoseAt(steps, i, 0, SIZE, 0)
+      const spread = stagedSpread(pose)
+      // Gói trải trên sàn lớn nhất = hệ số trải; vùng mô hình được co vào nhân lại phải đúng bằng tấm thảm.
+      expect(spread).toBeGreaterThanOrEqual(Math.max(pose.scale[0], pose.scale[2]))
+      expect((AREA / spread) * Math.max(pose.scale[0], pose.scale[2])).toBeLessThanOrEqual(AREA + 1e-12)
+      if (step.kind === 'fold') expect(spread, 'bước gấp còn các lần gập phía sau → gói đang trải').toBeGreaterThan(1)
+    })
+  })
 })
+
