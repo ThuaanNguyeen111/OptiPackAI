@@ -286,6 +286,11 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 /* 22/10/2026 — người bán hủy / giao thiếu, danh mục Admin */
 .order-seller-notice { margin:18px 0; padding:14px 16px; border:1px solid #e0b79c; background:#fbefe6; color:#6b3a20; font-size:13px; line-height:1.6; }
 .order-seller-notice p { margin:4px 0 0; }
+/* 27/11/2026 — giao thiếu chờ khách xác nhận + chờ bổ sung hàng */
+.order-short-confirm { border-color:#c9a27a; background:#fff7ec; }
+.order-short-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.order-short-actions .button { min-height:40px; padding:0 16px; }
+.order-backorder { border-color:#e3c46b; background:#fffbea; color:#5c4a10; }
 .order-item-short { color:#a2482a !important; font-size:12px; }
 .admin-warning { margin:6px 0 0; color:#a2482a; font-size:12px; line-height:1.5; }
 .admin-dim-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }

@@ -54,6 +54,8 @@ export interface StorefrontOrderLike {
   /** 29/10/2026 — `express` = giao hỏa tốc (shop tự giao trong 3 giờ). Đơn cũ không có = standard. */
   delivery_option?: 'standard' | 'express' | null;
   promised_delivery_at?: Date | null;
+  /** 27/11/2026 — đề nghị giao thiếu đang chờ / đã được khách trả lời. */
+  short_ship_confirmation?: { status: string } | null;
 }
 
 export interface StorefrontOrderItemLike {
@@ -174,6 +176,10 @@ export function toOpenApiOrder(order: StorefrontOrderLike, itemCount: number): L
     // 29/10/2026 — phần MỞ RỘNG của AURELLE (Lazada thật không có): cách giao + giờ hẹn giao.
     delivery_option: order.delivery_option ?? 'standard',
     ...(order.promised_delivery_at ? { promised_delivery_time: order.promised_delivery_at.toISOString() } : {}),
+    // 27/11/2026 — phần MỞ RỘNG: khách trả lời đề nghị giao thiếu (OptiPack mở khóa đóng gói khi accepted).
+    ...(order.short_ship_confirmation
+      ? { short_ship_decision: order.short_ship_confirmation.status === 'pending' ? 'pending' : 'accepted' }
+      : {}),
   };
 }
 

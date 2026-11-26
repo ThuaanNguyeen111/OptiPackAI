@@ -458,6 +458,15 @@ export class OrdersService {
               await this.orderModel.updateOne({ _id: freshOrder._id }, { $set: { group_resync_pending: true } });
             });
         }
+        // 27/11/2026 — nhóm đang chờ khách AURELLE xác nhận giao thiếu: đơn vừa đồng bộ có thể mang câu
+        // trả lời (đồng ý / hủy) → mở khóa đóng gói ngay, không chờ cron hết hạn.
+        if (group.customer_confirmation) {
+          await this.orderGroupsService
+            .resolveCustomerConfirmation(group._id.toString())
+            .catch((resolveError: unknown) => {
+              this.logger.warn(`Xét xác nhận giao thiếu của nhóm ${group._id.toString()} lỗi — cron sẽ xét lại.`, resolveError);
+            });
+        }
       }
     } catch (groupError) {
       // KHÔNG fail cả lượt sync chỉ vì 1 đơn tạo group lỗi — cron

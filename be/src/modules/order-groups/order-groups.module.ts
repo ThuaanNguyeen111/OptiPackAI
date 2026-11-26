@@ -55,6 +55,7 @@ import { StaffAssignmentService } from './staff-assignment.service';
 import { StaffAssignmentController } from './staff-assignment.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
+import { CustomerConfirmationScheduler } from './customer-confirmation.scheduler';
 
 @Module({
   imports: [
@@ -92,6 +93,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
     StaffAssignmentService,
     ExpressOrderSlaScheduler,
     StockReservationService,
+    CustomerConfirmationScheduler, // 27/11/2026 — hạn khách xác nhận giao thiếu
   ],
   exports: [OrderGroupsService, StaffAssignmentService, StockReservationService], // 21/10/2026 — đẩy tồn sang AURELLE
 })

@@ -147,6 +147,10 @@ export interface MarketplaceAdapter {
       idempotencyKey: string;
       /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU. */
       items?: { sku: string; shipped_quantity: number }[];
+      /** 27/11/2026 — `short_shipped`: hạn khách trả lời (đồng ý / hủy) trước khi shop đóng gói. */
+      confirmDeadline?: Date;
+      /** 27/11/2026 — chỉ `backordered`: SKU đang tạm hết và số thiếu. */
+      missingItems?: { sku: string; missing_quantity: number }[];
     },
   ): Promise<void>;
   updateSellableQuantity?(

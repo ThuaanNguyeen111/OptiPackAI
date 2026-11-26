@@ -48,6 +48,8 @@ export interface OrderGroupResponse {
   // 13/10/2026 — liên kết tay (null = không có). Liên kết tự động xem linkedGroupCount.
   manualLink: { linkId: string; linkedBy: string | null; linkedAt: Date | null; note: string | null } | null;
   stockShortage: boolean; // K5
+  /** 27/11/2026 — giao thiếu đơn AURELLE chờ khách xác nhận (đóng gói bị khóa tới khi khách trả lời / quá hạn). */
+  customerConfirmation: { orderIds: string[]; requestedAt: Date; deadlineAt: Date } | null;
   /**
    * 22/10/2026 — nhóm đã lấy xong nhưng kẹt đóng gói vì SKU chưa đo (null = không kẹt).
    * reason: needs_measurement (có hồ sơ, chưa đo) | missing_product_master (chưa có hồ sơ).
@@ -146,6 +148,14 @@ export function toResponse(
         }
       : null,
     stockShortage: group.stock_shortage === true, // K5
+    // 27/11/2026 — giao thiếu đơn AURELLE đang chờ khách xác nhận trên website (null = không chờ).
+    customerConfirmation: group.customer_confirmation
+      ? {
+          orderIds: group.customer_confirmation.order_ids.map((id) => id.toString()),
+          requestedAt: group.customer_confirmation.requested_at,
+          deadlineAt: group.customer_confirmation.deadline_at,
+        }
+      : null,
     packingBlocked: group.packing_blocked_reason
       ? {
           reason: group.packing_blocked_reason,

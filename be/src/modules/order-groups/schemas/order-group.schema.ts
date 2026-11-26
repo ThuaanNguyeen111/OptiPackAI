@@ -223,6 +223,23 @@ export class OrderGroup {
     shortage: number;
   }[];
 
+  /**
+   * 27/11/2026 — kho chọn "Giao phần có sẵn" cho nhóm có đơn AURELLE bị thiếu: nhóm ĐỨNG ở
+   * partial_needs_review chờ khách xác nhận trên website (đồng ý / hủy) tới `deadline_at` (24 giờ).
+   * Mọi đơn trong `order_ids` đã trả lời (hoặc quá hạn = tự đồng ý) → nhóm sang picked để đóng gói.
+   * null = không chờ ai.
+   */
+  @Prop({
+    type: {
+      _id: false,
+      order_ids: { type: [SchemaTypes.ObjectId], default: [] },
+      requested_at: { type: Date, required: true },
+      deadline_at: { type: Date, required: true },
+    },
+    default: null,
+  })
+  customer_confirmation?: { order_ids: Types.ObjectId[]; requested_at: Date; deadline_at: Date } | null;
+
   /** AOFP-329 — báo thiếu hàng gần nhất; ghi đè mỗi lần báo. null/vắng = chưa từng báo. */
   @Prop({ type: MissingReportSchema, default: null })
   missing_report?: MissingReport | null;

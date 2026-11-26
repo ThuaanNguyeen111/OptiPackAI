@@ -1663,6 +1663,77 @@ export class OrderGroupsService {
   }
 
   /**
+   * 27/11/2026 — nhóm đang chờ khách AURELLE xác nhận giao thiếu (`customer_confirmation`): mọi đơn
+   * cần hỏi đã trả lời (đồng ý = `short_ship_decision: accepted`, hủy = đơn `canceled`) HOẶC quá hạn
+   * (= tự đồng ý) → sang picked để đóng gói phần có sẵn. Gọi sau mỗi lần đồng bộ đơn của nhóm và từ
+   * cron. Trả true khi vừa mở khóa. Nhóm đã bị hủy hết đơn thì luồng hủy nhóm lo, không làm gì.
+   */
+  async resolveCustomerConfirmation(groupId: string, now = new Date()): Promise<boolean> {
+    const group = await this.orderGroupModel.findById(groupId);
+    const pending = group?.customer_confirmation;
+    if (!group || !pending || group.fulfillment_status !== GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW) return false;
+    const expired = pending.deadline_at.getTime() <= now.getTime();
+    const orders = await this.orderModel
+      .find({ _id: { $in: pending.order_ids } })
+      .select('_id status short_ship_decision')
+      .lean();
+    const waiting = orders.filter((o) => o.status !== OrderStatus.CANCELED && o.short_ship_decision !== 'accepted');
+    if (waiting.length > 0 && !expired) return false;
+    const stillPackable = await this.orderModel.exists({
+      consolidated_group_id: group._id,
+      status: { $nin: notPackableStatuses() },
+    });
+    if (!stillPackable) return false;
+    try {
+      await this.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.PICKED, group.__v);
+    } catch (error: unknown) {
+      // Có thao tác khác vừa đổi nhóm (VD kho bấm Lấy lại) — lượt cron sau xét lại.
+      this.logger.warn(`Mở khóa nhóm ${groupId} sau xác nhận của khách chưa được: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+    await this.orderGroupModel.updateOne({ _id: group._id }, { $set: { customer_confirmation: null } });
+    const canceled = orders.filter((o) => o.status === OrderStatus.CANCELED).length;
+    const accepted = orders.length - canceled - waiting.length;
+    await recordActivity(this.activityLogModel, {
+      category: 'picking',
+      action: 'order_group.customer_confirmation_resolved',
+      summary: waiting.length > 0
+        ? `Quá ${String(Math.round((pending.deadline_at.getTime() - pending.requested_at.getTime()) / 3_600_000))} giờ khách chưa trả lời — tự giao phần có sẵn (${String(waiting.length)} đơn)`
+        : `Khách đã trả lời đề nghị giao thiếu: ${String(accepted)} đồng ý, ${String(canceled)} hủy — chuyển sang đóng gói`,
+      orderGroupId: group._id,
+      entityType: 'order_group',
+      entityId: group._id,
+      fromStatus: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+      toStatus: GroupFulfillmentStatus.PICKED,
+    });
+    // Đơn chưa trả lời mà quá hạn → coi như đồng ý (để màn đơn không còn "chờ khách").
+    if (waiting.length > 0) {
+      await this.orderModel.updateMany(
+        { _id: { $in: waiting.map((o) => o._id) } },
+        { $set: { short_ship_decision: 'accepted' } },
+      );
+    }
+    return true;
+  }
+
+  /** 27/11/2026 — cron: nhóm chờ khách xác nhận đã quá hạn → tự giao phần có sẵn. */
+  async resolveExpiredCustomerConfirmations(now = new Date()): Promise<number> {
+    const due = await this.orderGroupModel
+      .find({
+        fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+        'customer_confirmation.deadline_at': { $lte: now },
+      })
+      .select('_id')
+      .limit(100)
+      .lean();
+    let resolved = 0;
+    for (const g of due) {
+      if (await this.resolveCustomerConfirmation(g._id.toString(), now)) resolved += 1;
+    }
+    return resolved;
+  }
+
+  /**
    * MỚI (30/09/2026) — điểm vào DUY NHẤT khi 1 đơn trong nhóm chuyển sang
    * trạng thái không fulfill được: hủy cả nhóm nếu hết đơn (N1), còn đơn
    * khác thì vô hiệu phương án đóng gói đang có (nếu có) vì nó vẫn chứa

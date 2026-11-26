@@ -435,6 +435,8 @@ export class MarketplaceWritebackService {
       reason: row.reason ?? undefined,
       idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
       items: row.shipped_items?.length ? row.shipped_items.map((i) => ({ sku: i.sku, shipped_quantity: i.shipped_quantity })) : undefined,
+      confirmDeadline: row.confirm_deadline_at ?? undefined,
+      missingItems: row.missing_items?.length ? row.missing_items.map((i) => ({ sku: i.sku, missing_quantity: i.missing_quantity })) : undefined,
     });
     await this.markDone(row, 'sent', null);
     return 'sent';

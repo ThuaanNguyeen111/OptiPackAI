@@ -109,6 +109,11 @@ export async function getOrder(id: string) {
   return request<StorefrontOrderDetail>(`/storefront/orders/${encodeURIComponent(id)}`)
 }
 
+/** 27/11/2026 — đồng ý nhận phần có sẵn khi kho giao thiếu. */
+export async function acceptShortShipment(id: string) {
+  return request<StorefrontOrder>(`/storefront/orders/${encodeURIComponent(id)}/short-ship/accept`, { method: 'POST' })
+}
+
 export async function cancelOrder(id: string, reason?: string) {
   return request<StorefrontOrder>(`/storefront/orders/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason?.trim() || undefined }) })
 }

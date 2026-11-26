@@ -39,6 +39,17 @@ export class MarketplaceStatusOutbox {
   })
   shipped_items?: { sku: string; shipped_quantity: number }[];
 
+  /** 27/11/2026 — `short_shipped`: hạn khách trả lời trên website (24 giờ). */
+  @Prop({ type: Date, default: null })
+  confirm_deadline_at?: Date | null;
+
+  /** 27/11/2026 — chỉ `backordered`: SKU tạm hết hàng và số thiếu. */
+  @Prop({
+    type: [{ _id: false, sku: { type: String, required: true }, missing_quantity: { type: Number, required: true, min: 1 } }],
+    default: undefined,
+  })
+  missing_items?: { sku: string; missing_quantity: number }[];
+
   /** Phiếu trả hàng gây ra sự kiện (chỉ `kind = return_status`). */
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   return_request_id!: Types.ObjectId | null;
