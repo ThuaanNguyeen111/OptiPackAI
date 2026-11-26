@@ -9,6 +9,7 @@ import {
 } from '@/lib/api-client'
 import { siteConfig } from '@/lib/site-config'
 import { CategoryManager } from '@/components/admin/category-manager'
+import { ExpressManager } from '@/components/admin/express-manager'
 import type { AdminCategory, AdminProduct, SaveAdminProduct, SkuOptions } from '@/types/storefront'
 
 const statusLabels = { active: 'Đang bán', draft: 'Bản nháp', hidden: 'Đã ẩn' }
@@ -285,6 +286,7 @@ export default function AdminPage() {
           {!visible.length && <tr><td colSpan={5} className="empty">{products.length ? 'Không tìm thấy sản phẩm phù hợp.' : 'Chưa có sản phẩm. Bấm Thêm sản phẩm để bắt đầu.'}</td></tr>}
         </tbody></table></div>}
         <CategoryManager categories={categories} skuOptions={skuOptions} onChanged={setCategories} onUnauthorized={() => router.replace('/admin/login')} />
+        <ExpressManager onUnauthorized={() => router.replace('/admin/login')} />
       </>}
     </main>
   </>
