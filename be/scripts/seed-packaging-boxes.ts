@@ -30,7 +30,7 @@ import { PackagingBoxService } from '../src/modules/packaging/packaging-box.serv
  */
 
 const SAMPLE_BOXES = [
-  { code: 'BOX-S', name: 'Thùng mẫu S (số giả lập)', inner: [200, 150, 100], outer: [206, 156, 106], tare_g: 90, max_load_g: 5000, price_vnd: 2500 },
+  { code: 'BOX-S', name: 'Thùng mẫu S (số giả lập)', inner: [310, 230, 120], outer: [316, 236, 126], tare_g: 140, max_load_g: 5000, price_vnd: 3200 }, // AOFP-343: vừa khuôn gấp 30×22
   { code: 'BOX-M', name: 'Thùng mẫu M (số giả lập)', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
   { code: 'BOX-L', name: 'Thùng mẫu L (số giả lập)', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
   { code: 'BOX-LT', name: 'Thùng mẫu L thấp (số giả lập)', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000 },

@@ -66,6 +66,10 @@ _Tránh_: reject (trong UI), huỷ kế hoạch
 Trọng lượng vải của một lớp, tính bằng g/m²; hệ thống dùng nó để tính độ dày gói quần áo khi kho không đo độ dày.
 _Tránh_: định lượng vải (trong UI), độ dày vải
 
+**Khuôn gấp**:
+Dài × rộng chuẩn mà mọi món quần áo cùng loại được gấp về trước khi cho vào túi zip, dùng chung cho mọi size; size chỉ đổi cân nặng.
+_Tránh_: số đo áo, kích thước theo size
+
 **Độ dày gói**:
 Cạnh mỏng nhất của gói quần áo sau khi gấp và cho vào túi zip; bằng số lớp × độ dày một lớp vải, tối thiểu 0,3 cm.
 _Tránh_: chiều cao áo, độ cao gói

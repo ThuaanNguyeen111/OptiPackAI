@@ -113,7 +113,7 @@ Quy tắc xếp trong cùng một thùng:
 - **Hàng mềm luôn nằm trên hàng cứng**, không bao giờ đặt dưới hộp giày/túi xách.
 - Món có `max_stack_load_kg = null` (vd. túi xách form cứng) không bị đặt gì lên trên — luật có sẵn. Riêng quần áo (loại nằm phẳng) để trống thì coi như chịu được 5 kg (`SOFT_DEFAULT_STACK_LOAD_G`, 13/11/2026).
 - Mục tiêu lấp đầy 80% (`FILL_TARGET`, 13/11/2026) chỉ dùng để **cảnh báo**, không phải ràng buộc. Kiện lấp đầy dưới 80% được ghi thêm một câu vào `explanation` nêu lý do: kho chưa có túi niêm phong cho hàng mềm, hoặc nêu cỡ khối bao của chồng hàng để gợi ý nhập thùng sát hơn. Lý do có thể là kho chưa có túi niêm phong cho hàng mềm, hoặc là cỡ khối bao của chồng hàng (gợi ý nhập thùng sát hơn). Túi niêm phong không bị xét.
-- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 10 cm). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
+- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 12 cm theo BOX-S từ 26/11/2026). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
 - Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập đôi thêm đúng 1 lần nếu bật `can_fold_in_half`. Số đo hồ sơ là của gói sau khi đã gập túi.
 - Quần áo luôn nằm phẳng — luật có sẵn (`FLAT_CATEGORIES`).
 
@@ -152,6 +152,12 @@ Hồ sơ cũ đo dày bất thường được sửa bằng `be/scripts/migrate-
 Túi zip theo khuôn: chọn túi nhỏ nhất vừa gói bằng `suggestBag` có sẵn (lỗi `PM_ZIP_BAG_TOO_SMALL` gợi ý túi khác).
 
 Engine vẫn được thử **gập đôi thêm** (biến thể `foldUnit` có sẵn) nếu SKU bật `can_fold_in_half` và việc gập giúp vào túi/thùng nhỏ hơn.
+
+### 5.3. Khuôn gấp và thông số chuẩn (AOFP-343, 26/11/2026, user chốt)
+
+Quần áo gấp về **khuôn gấp** của loại: mọi size chung dài × rộng, độ dày tính theo 5.2, size chỉ đổi cân nặng. Khuôn lớn **30 × 22 cm** (áo thun, sơ mi, áo khoác, đầm, váy, quần dài) vừa túi ZIP-S. Khuôn nhỏ **22 × 15 cm** (quần short) bằng nửa khuôn lớn. BOX-S đổi lòng sang **31 × 23 × 12 cm** để vừa khuôn lớn và mũ lưỡi trai.
+
+Thông số 39 SKU của shop Lazada `201182096267` được nạp bằng `be/scripts/apply-standard-packing-specs.ts`. Script này cũng là bảng thông số gốc. Đã chạy thử 1.364 tổ hợp đơn 1–4 món: tất cả đều vừa 1 kiện (issue #211). Cân nặng và kích thước mũ, dép là ước lượng, kho đo lại thì xác nhận lại hồ sơ.
 
 ## 6. Đơn có cả hàng mềm và hàng cứng
 
