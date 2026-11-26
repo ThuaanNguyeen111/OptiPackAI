@@ -2046,6 +2046,42 @@ function readSizeCmAsMm(
   return { lengthMm, widthMm, heightMm }
 }
 
+/** AOFP-346: ô nhập kiểu FEFCO + số lớp giấy của thùng (dùng chung form thêm/sửa). */
+function CartonSpecFields({ vi, fefco, ply }: { vi: boolean; fefco: string; ply: number | null }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <Field label={tx(vi, 'Kiểu thùng (mã FEFCO)', 'Box style (FEFCO code)')}>
+        <Input
+          name="fefco"
+          className={fieldClass}
+          defaultValue={fefco}
+          inputMode="numeric"
+          pattern="\d{4}"
+          maxLength={4}
+          placeholder="0201"
+          title={tx(vi, '4 chữ số, VD 0201 = thùng nắp gập', '4 digits, e.g. 0201 = regular slotted box')}
+        />
+      </Field>
+      <Field label={tx(vi, 'Số lớp giấy', 'Ply')}>
+        <select name="ply" className={fieldClass} defaultValue={ply === null ? '' : String(ply)}>
+          <option value="">{tx(vi, 'Chưa khai', 'Not set')}</option>
+          <option value="3">{tx(vi, '3 lớp', '3-ply')}</option>
+          <option value="5">{tx(vi, '5 lớp', '5-ply')}</option>
+          <option value="7">{tx(vi, '7 lớp', '7-ply')}</option>
+        </select>
+      </Field>
+    </div>
+  )
+}
+
+/** Đọc 2 ô FEFCO / số lớp; chuỗi rỗng = null (xoá giá trị cũ khi sửa). */
+function readCartonSpec(data: FormData): { fefcoCode: string | null; ply: number | null } | null {
+  const fefco = String(data.get('fefco') ?? '').trim()
+  const plyRaw = String(data.get('ply') ?? '')
+  if (fefco !== '' && !/^\d{4}$/.test(fefco)) return null
+  return { fefcoCode: fefco || null, ply: plyRaw === '' ? null : Number(plyRaw) }
+}
+
 function BoxForm({
   vi,
   onClose,
@@ -2067,6 +2103,11 @@ function BoxForm({
     const load = kgInputToG(String(data.get('load') ?? ''))
     const priceRaw = String(data.get('price') ?? '').trim()
     const price = priceRaw === '' ? null : nonNegativeInt(priceRaw)
+    const spec = readCartonSpec(data)
+    if (!spec) {
+      setError(tx(vi, 'Mã FEFCO là 4 chữ số, VD 0201.', 'FEFCO code is 4 digits, e.g. 0201.'))
+      return
+    }
     if (!inner || !outer || tare === null || load === null || load <= 0 || (priceRaw !== '' && price === null)) {
       setError(
         tx(
@@ -2088,6 +2129,7 @@ function BoxForm({
       priceVnd: price,
       reorderLevel: positiveInt(String(data.get('reorder') ?? '')) ?? undefined,
       storageLocation: String(data.get('location') ?? ''),
+      ...spec,
     })
       .then(() => onDone(tx(vi, 'Đã thêm thùng.', 'Box added.')))
       .catch((err: unknown) => setError(formatApiError(err)))
@@ -2106,6 +2148,7 @@ function BoxForm({
         </Field>
         {sizeFieldsCm('in', tx(vi, 'Kích thước trong (cm)', 'Inner size (cm)'))}
         {sizeFieldsCm('out', tx(vi, 'Kích thước ngoài (cm)', 'Outer size (cm)'))}
+        <CartonSpecFields vi={vi} fefco="0201" ply={null} />
         <div className="grid grid-cols-2 gap-2">
           <Field label={tx(vi, 'Khối lượng thùng rỗng (kg)', 'Empty box weight (kg)')}>
             <Input name="tare" className={fieldClass} inputMode="decimal" defaultValue="0" />
@@ -2155,8 +2198,14 @@ function BoxEditForm({
       setError(tx(vi, 'Giá hoặc ngưỡng chưa hợp lệ.', 'Price or reorder level is invalid.'))
       return
     }
+    const spec = readCartonSpec(data)
+    if (!spec) {
+      setError(tx(vi, 'Mã FEFCO là 4 chữ số, VD 0201.', 'FEFCO code is 4 digits, e.g. 0201.'))
+      return
+    }
     setBusy(true)
     void updatePackagingBox(item.id, {
+      ...spec,
       name: String(data.get('name') ?? ''),
       priceVnd: price,
       reorderLevel: reorder,
@@ -2175,6 +2224,7 @@ function BoxEditForm({
         <Field label={tx(vi, 'Tên', 'Name')}>
           <Input name="name" className={fieldClass} defaultValue={item.name} required />
         </Field>
+        <CartonSpecFields vi={vi} fefco={item.fefcoCode ?? ''} ply={item.ply} />
         <Field label={tx(vi, 'Giá (đ)', 'Price')}>
           <Input name="price" className={fieldClass} defaultValue={item.priceVnd ?? ''} />
         </Field>

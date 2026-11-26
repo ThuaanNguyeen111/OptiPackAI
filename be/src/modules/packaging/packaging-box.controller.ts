@@ -39,6 +39,9 @@ export interface PackagingBoxResponse {
   available: number;
   reorderLevel: number;
   storageLocation: string | null;
+  /** AOFP-346: kiểu FEFCO (VD 0201) và số lớp giấy; null = chưa khai. */
+  fefcoCode: string | null;
+  ply: number | null;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
 }
 
@@ -98,6 +101,8 @@ function toBoxResponse(doc: PackagingMaterialDocument, stock?: BoxAvailability):
     available,
     reorderLevel: doc.reorder_level,
     storageLocation: doc.storage_location,
+    fefcoCode: doc.fefco_code ?? null,
+    ply: doc.ply ?? null,
     stockStatus: available === 0 ? 'out_of_stock' : available <= doc.reorder_level ? 'low_stock' : 'in_stock',
   };
 }
