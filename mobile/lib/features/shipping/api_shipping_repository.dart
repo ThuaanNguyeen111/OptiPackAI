@@ -35,6 +35,34 @@ ShipmentView? parseShipment(Object? raw) {
     selfDelivery: carrierCode == null,
     managedByCarrier: pickBool(m, ['carrierManaged']),
     version: pickInt(m, ['version']),
+    shipperId: pickStringOrNull(m, ['shipperId']),
+    shipperName: shipper,
+    tripCode: pickStringOrNull(m, ['tripCode']),
+    overdueFlag: pickBool(m, ['isOverdue']),
+  );
+}
+
+/// `?street=&ward_name=…` cho báo giá và so chi phí thùng.
+Map<String, dynamic> locationQuery(ShipLocation? location) => {...?location?.toBody()};
+
+/// Dòng đầu tiên dựng được địa chỉ; không có thì lấy lỗi để người dùng nhập tay (giống web).
+RecipientDraft parseRecipientDraft(Object? raw) {
+  final rows = [
+    if (asMap(raw)?['recipients'] case final List list)
+      for (final r in list) ?asMap(r),
+  ];
+  final ok = rows.where((r) => pickString(r, ['errorCode']).isEmpty).firstOrNull;
+  final shown = ok ?? rows.firstOrNull;
+  if (shown == null) return const RecipientDraft();
+  return RecipientDraft(
+    isDemo: pickBool(shown, ['isDemo']),
+    error: ok != null ? null : pickStringOrNull(shown, ['errorMessage']),
+    location: ShipLocation(
+      street: pickString(ok, ['street']),
+      wardName: pickString(ok, ['wardName']),
+      provinceName: pickString(ok, ['provinceName']),
+      phone: pickString(ok, ['phone']),
+    ),
   );
 }
 
@@ -124,17 +152,34 @@ class ApiShippingRepository implements ShippingRepository {
       });
 
   @override
-  Future<List<CarrierQuote>> quote(String groupId) => _guard(() async {
+  Future<RecipientDraft> recipient(String groupId) => _guard(() async =>
+      parseRecipientDraft(await api.get('/shipping/recipients/${Uri.encodeComponent(groupId)}')));
+
+  @override
+  Future<List<ShipperOption>> shippers() => _guard(() async {
+        final raw = await api.get('/shipments/shippers');
+        return [
+          if (raw is List)
+            for (final r in raw)
+              if (asMap(r) case final m?)
+                if (pickStringOrNull(m, ['id']) case final id?)
+                  ShipperOption(id: id, name: pickString(m, ['name'], id), phone: pickStringOrNull(m, ['phone'])),
+        ];
+      });
+
+  @override
+  Future<List<CarrierQuote>> quote(String groupId, {ShipLocation? location}) => _guard(() async {
         const self = CarrierQuote(
           code: selfDeliveryQuoteCode,
-          name: 'Shop tự giao',
-          service: 'Bạn đi giao',
+          name: 'Giao của shop',
+          service: 'Shop tự giao',
           feeVnd: 0,
           eta: 'Theo hẹn với khách',
         );
         // Đơn Hỏa Tốc: BE chặn chọn hãng, chỉ shop tự giao.
         if (_groups[groupId]?.requiresSelfDelivery ?? false) return const [self];
-        final raw = asMap(await api.get('/shipping/quote/${Uri.encodeComponent(groupId)}'));
+        final raw = asMap(await api.get('/shipping/quote/${Uri.encodeComponent(groupId)}',
+            query: locationQuery(location)));
         final quotes = [
           for (final q in (raw?['quotes'] as List? ?? const [])) ?parseQuote(q),
         ];
@@ -142,14 +187,18 @@ class ApiShippingRepository implements ShippingRepository {
       });
 
   @override
-  Future<ShipmentView> create(String groupId, String carrierCode) => _guard(() async {
+  Future<ShipmentView> create(String groupId, String carrierCode,
+          {String? note, ShipLocation? location, String? shipperId}) =>
+      _guard(() async {
+        // Giống web: đơn hỏa tốc chỉ gửi shipper; đi hãng thì gửi hãng + địa chỉ; còn lại chỉ gửi nhóm.
         final parts = carrierCode.split('|');
-        final self = carrierCode == selfDeliveryQuoteCode;
-        final me = currentUserId();
+        final toCarrier = shipperId == null && parts.length == 2;
         return _keep(await api.post('/shipments', body: {
           'order_group_id': groupId,
-          if (!self && parts.length == 2) ...{'carrier_code': parts[0], 'service_code': parts[1]},
-          if (self && me != null) 'shipper_id': me,
+          if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+          'shipper_id': ?shipperId,
+          if (toCarrier) ...{'carrier_code': parts[0], 'service_code': parts[1]},
+          if (toCarrier && location != null && !location.isEmpty) 'to_location': location.toBody(),
         }));
       });
 

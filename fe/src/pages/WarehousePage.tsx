@@ -39,6 +39,7 @@ import {
   getOrderGroupById,
   getOrderGroupPickingList,
   listLinkedOrderGroups,
+  listOrderGroups,
   listWarehouseStaffQueue,
   pickOrderGroupItem,
   reportMissingOrderGroupItem,
@@ -73,6 +74,7 @@ import {
   isFullyInactiveGroup,
   isPartiallyCanceledGroup,
   isWarehousePickableStatus,
+  WAREHOUSE_HANDOFF_STATUSES,
   type OrderGroup,
   type PackableItem,
   type ScanMethod,
@@ -89,6 +91,7 @@ type QueueTab =
   | 'review'
   | 'picked'
   | 'packed'
+  | 'shipped'
   | 'returns'
   | 'canceled'
 
@@ -167,21 +170,34 @@ const QUEUE_TABS: Array<{ id: QueueTab; labelVi: string; labelEn: string }> = [
   { id: 'review', labelVi: 'Thiếu hàng', labelEn: 'Missing' },
   { id: 'picked', labelVi: 'Đã lấy — giao gói', labelEn: 'Picked — to pack' },
   { id: 'packed', labelVi: 'Đã đóng', labelEn: 'Packed' },
+  { id: 'shipped', labelVi: 'Đã giao vận', labelEn: 'Shipped' },
   { id: 'returns', labelVi: 'Hoàn hàng', labelEn: 'Returns' },
   { id: 'canceled', labelVi: 'Đã hủy', labelEn: 'Canceled' },
 ]
 
+function isHandoffStatus(status: string): boolean {
+  return (WAREHOUSE_HANDOFF_STATUSES as readonly string[]).includes(status)
+}
+
 function matchesTab(row: OrderGroup, tab: QueueTab): boolean {
   const status = row.fulfillmentStatus
   if (tab === 'canceled') {
-    return isWarehousePickableStatus(status) && isFullyInactiveGroup(row)
+    return (
+      (isWarehousePickableStatus(status) ||
+        status === 'pending_approval' ||
+        status === 'approved_for_packing') &&
+      isFullyInactiveGroup(row)
+    )
   }
   if (tab === 'to_pick') {
     return isWarehousePickableStatus(status) && hasPackableOrders(row)
   }
   if (tab === 'review') return status === 'partial_needs_review'
-  if (tab === 'picked') return status === 'picked'
+  if (tab === 'picked') {
+    return status === 'picked' || (isHandoffStatus(status) && hasPackableOrders(row))
+  }
   if (tab === 'packed') return status === 'packed'
+  if (tab === 'shipped') return status === 'shipped' || status === 'delivered'
   return false
 }
 
@@ -541,11 +557,11 @@ function SkuThumb({ sku }: { sku: string }) {
 }
 
 function canPickItems(status: string): boolean {
-  return isWarehousePickableStatus(status)
+  return status === 'picking'
 }
 
 function canCompletePick(status: string): boolean {
-  return isWarehousePickableStatus(status)
+  return status === 'picking'
 }
 
 function canReturn(status: string): boolean {
@@ -561,6 +577,19 @@ function bePickGateMessage(vi: boolean, action: 'complete' | 'missing'): string 
   return vi
     ? 'Nhóm này chưa ở bước lấy hàng nên chưa hoàn tất được. Tải lại rồi thử lại.'
     : 'This group is not in picking yet, so it cannot be completed. Refresh and try again.'
+}
+
+/**
+ * Kho của nhóm đơn nếu còn dùng được. Danh sách rỗng (chưa tải / không có quyền)
+ * thì tin kho của nhóm; đã có danh sách thì kho phải nằm trong đó (chỉ gồm kho hoạt động).
+ */
+function usableWarehouseId(
+  id: string | null | undefined,
+  active: WarehouseRecord[],
+): string {
+  if (!id) return ''
+  if (active.length === 0) return id
+  return active.some((row) => row.id === id) ? id : ''
 }
 
 export function WarehousePage() {
@@ -694,6 +723,7 @@ export function WarehousePage() {
       review: 0,
       picked: 0,
       packed: 0,
+      shipped: 0,
       returns: 0,
       canceled: 0,
     }
@@ -703,6 +733,7 @@ export function WarehousePage() {
       else if (matchesTab(row, 'review')) next.review += 1
       else if (matchesTab(row, 'picked')) next.picked += 1
       else if (matchesTab(row, 'packed')) next.packed += 1
+      else if (matchesTab(row, 'shipped')) next.shipped += 1
     }
     next.returns = returnQueueCount
     return next
@@ -757,6 +788,58 @@ export function WarehousePage() {
       return hay.includes(q)
     })
   }, [tabGroups, groupSearch])
+
+  const [remoteMatches, setRemoteMatches] = useState<{
+    q: string
+    rows: OrderGroup[]
+  }>({ q: '', rows: [] })
+
+  const searchText = groupSearch.trim()
+
+  useEffect(() => {
+    if (searchText.length < 4) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      listOrderGroups({ q: searchText }, { signal: controller.signal })
+        .then((rows) => setRemoteMatches({ q: searchText, rows }))
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setRemoteMatches({ q: searchText, rows: [] })
+          }
+        })
+    }, 350)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [searchText])
+
+  const searchingElsewhere =
+    searchText.length >= 4 && remoteMatches.q !== searchText
+
+  /** Kết quả BE không nằm trong danh sách đang lọc, và có tab để mở. */
+  const elsewhereGroups = useMemo(() => {
+    if (searchText.length < 4 || remoteMatches.q !== searchText) return []
+    const shown = new Set(filteredTabGroups.map((row) => row.id))
+    return remoteMatches.rows.filter(
+      (row) =>
+        !shown.has(row.id) &&
+        QUEUE_TABS.some((item) => matchesTab(row, item.id)),
+    )
+  }, [searchText, remoteMatches, filteredTabGroups])
+
+  const openGroupElsewhere = (row: OrderGroup): void => {
+    const target = QUEUE_TABS.find((item) => matchesTab(row, item.id))
+    if (!target) return
+    setGroups((prev) =>
+      prev.some((item) => item.id === row.id) ? prev : [row, ...prev],
+    )
+    setQueueFilter('all')
+    setTab(target.id)
+    setGroupPickerOpen(false)
+    setGroupSearch('')
+    navigate(`/app/warehouse?groupId=${row.id}`)
+  }
 
   const selectedGroupLabel = useMemo(() => {
     const row = tabGroups.find((g) => g.id === selectedId)
@@ -839,11 +922,14 @@ export function WarehousePage() {
           setTrayCounts({})
         }
         const progressFor = (groupId: string): PickProgress => readProgress(groupId)
-        const pickWarehouseId = latest.warehouseId || currentWarehouseId
-        if (latest.warehouseId && latest.warehouseId !== currentWarehouseId) {
-          setWarehouseId(latest.warehouseId)
-          setWarehouseDraft(latest.warehouseId)
-          writeStoredWarehouseId(latest.warehouseId)
+        // Kho của nhóm đã tắt (không còn trong danh sách) thì giữ kho người dùng chọn;
+        // BE chuyển nhóm sang kho đó ở lần quét đầu nếu lượt này chưa quét món nào.
+        const homeWarehouseId = usableWarehouseId(latest.warehouseId, warehouses)
+        const pickWarehouseId = homeWarehouseId || currentWarehouseId
+        if (homeWarehouseId && homeWarehouseId !== currentWarehouseId) {
+          setWarehouseId(homeWarehouseId)
+          setWarehouseDraft(homeWarehouseId)
+          writeStoredWarehouseId(homeWarehouseId)
         }
         if (together && together.length >= 2) {
           if (!pickWarehouseId) {
@@ -904,7 +990,7 @@ export function WarehousePage() {
         setDetailLoading(false)
       }
     },
-    [vi],
+    [vi, warehouses],
   )
 
   useEffect(() => {
@@ -1095,7 +1181,8 @@ export function WarehousePage() {
     setActionError(null)
     try {
       const linked = await listLinkedOrderGroups(group.id)
-      const homeWarehouse = group.warehouseId ?? warehouseId
+      const homeWarehouse =
+        usableWarehouseId(group.warehouseId, warehouses) || warehouseId
       const eligible = [group, ...linked].filter((row) => {
         if (!COMBINED_PICKABLE.has(row.fulfillmentStatus)) return false
         if (!row.warehouseId || !homeWarehouse) return true
@@ -1240,9 +1327,18 @@ export function WarehousePage() {
           )
           if (group) await loadDetail(group.id, warehouseId)
         } else if (group?.warehouseId) {
-          setWarehouseId(group.warehouseId)
-          setWarehouseDraft(group.warehouseId)
-          writeStoredWarehouseId(group.warehouseId)
+          const home = usableWarehouseId(group.warehouseId, warehouses)
+          if (home) {
+            setWarehouseId(home)
+            setWarehouseDraft(home)
+            writeStoredWarehouseId(home)
+          } else {
+            setActionError(
+              vi
+                ? 'Lượt này đã quét ở kho hiện đã tắt. Nhờ Admin bật lại kho đó để quét tiếp.'
+                : 'This round was scanned in a warehouse that is now inactive. Ask an Admin to reactivate it.',
+            )
+          }
         }
       } else {
         setActionError(formatApiError(err))
@@ -1561,7 +1657,7 @@ export function WarehousePage() {
               <div className="relative min-w-[14rem] max-w-[28rem] flex-1" ref={groupPickerRef}>
                 <button
                   type="button"
-                  disabled={tabGroups.length === 0}
+                  disabled={groups.length === 0}
                   onClick={() => setGroupPickerOpen((open) => !open)}
                   className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-left shadow-2xs disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-surface-2"
                 >
@@ -1584,7 +1680,7 @@ export function WarehousePage() {
                   />
                 </button>
 
-                {groupPickerOpen && tabGroups.length > 0 ? (
+                {groupPickerOpen && groups.length > 0 ? (
                   <div className="absolute top-[calc(100%+6px)] left-0 z-40 w-[min(100vw-2rem,22rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-surface-1">
                     <div className="border-b border-slate-100 p-2 dark:border-slate-800">
                       <label className="relative block">
@@ -1595,8 +1691,8 @@ export function WarehousePage() {
                           onChange={(e) => setGroupSearch(e.target.value)}
                           placeholder={
                             vi
-                              ? 'Tìm mã nhóm, sàn, số đơn…'
-                              : 'Search group id, platform…'
+                              ? 'Tìm mã nhóm, mã đơn sàn, sàn…'
+                              : 'Search group id, order code…'
                           }
                           className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pr-3 pl-8 font-mono text-xs text-slate-800 outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
                         />
@@ -1609,9 +1705,17 @@ export function WarehousePage() {
         </div>
                     <ul className="max-h-64 overflow-y-auto p-1">
                       {filteredTabGroups.length === 0 ? (
-                        <li className="px-3 py-4 text-center text-xs text-slate-500">
-                          {vi ? 'Không khớp từ khóa' : 'No matches'}
-                        </li>
+                        elsewhereGroups.length > 0 ? null : (
+                          <li className="px-3 py-4 text-center text-xs text-slate-500">
+                            {searchingElsewhere
+                              ? vi
+                                ? 'Đang tìm ở các tab khác…'
+                                : 'Searching other tabs…'
+                              : vi
+                                ? 'Không khớp từ khóa'
+                                : 'No matches'}
+                          </li>
+                        )
                       ) : (
                         filteredTabGroups.map((row) => {
                           const active = row.id === selectedId
@@ -1688,6 +1792,30 @@ export function WarehousePage() {
                           )
                         })
                       )}
+                    {elsewhereGroups.map((row) => {
+                        const target = QUEUE_TABS.find((item) =>
+                          matchesTab(row, item.id),
+                        )
+                        return (
+                          <li key={`elsewhere-${row.id}`}>
+                            <button
+                              type="button"
+                              onClick={() => openGroupElsewhere(row)}
+                              className="flex w-full cursor-pointer flex-col rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
+                            >
+                              <span className="block truncate font-mono text-xs font-bold text-slate-800 dark:text-slate-100">
+                                {shortId(row.id)}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] text-slate-500 dark:text-slate-400">
+                                {platformLabel(row.platform)} ·{' '}
+                                {statusLabel(row.fulfillmentStatus, vi)} ·{' '}
+                                {vi ? 'ở tab ' : 'in tab '}
+                                {vi ? target?.labelVi : target?.labelEn}
+                              </span>
+                            </button>
+                          </li>
+                        )
+                      })}
                     </ul>
       </div>
         ) : null}
@@ -1765,6 +1893,18 @@ export function WarehousePage() {
                   ? 'Chưa chọn kho: vẫn xem SKU, nhưng quét trừ tồn / báo thiếu cần warehouse_id.'
                   : 'No warehouse selected: you can view SKUs, but pick/report-missing need warehouse_id.'}
             </p>
+          ) : null}
+
+          {tab !== 'returns' &&
+          group?.warehouseId &&
+          warehouses.length > 0 &&
+          !usableWarehouseId(group.warehouseId, warehouses) &&
+          canPickItems(group.fulfillmentStatus) ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              {vi
+                ? 'Kho gắn với nhóm đơn này đã tắt. Đang dùng kho bạn chọn; nhóm chuyển sang kho đó khi quét món đầu tiên. Nếu đã quét dở ở kho cũ, nhờ Admin bật lại kho cũ.'
+                : 'The warehouse linked to this group is inactive. Your selected warehouse is used; the group moves to it on the first scan. If scanning already started there, ask an Admin to reactivate it.'}
+            </div>
           ) : null}
 
           {tab === 'returns' ? (
@@ -1879,7 +2019,7 @@ export function WarehousePage() {
                           ? ' · Chưa có vị trí kệ'
                           : ' · No bin route yet'}
                     </p>
-                    {status === 'picked' ? (
+                    {isHandoffStatus(status) ? (
                       <p className="flex items-start gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
                         <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         {vi
@@ -1902,13 +2042,12 @@ export function WarehousePage() {
                           : `${group?.linkedGroupCount ?? 0} linked groups — you can pick them in one warehouse walk.`}
                       </p>
                     ) : null}
-                    {canPickItems(status) &&
-                    (status === 'awaiting_packaging' || status === 'pending_approval') ? (
+                    {status === 'awaiting_packaging' ? (
                       <p className="flex items-start gap-1.5 text-xs text-sky-800 dark:text-sky-200">
                         <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         {vi
-                          ? 'Đơn mới: quét SKU/mã kệ để trừ tồn ngay.'
-                          : 'New group: scan SKU/bin to decrement stock now.'}
+                          ? 'Đang chờ bắt đầu lấy nên chưa quét được. Hệ thống tự chuyển sang «Đang lấy hàng», tải lại sau ít phút.'
+                          : 'Waiting for picking to start, so scanning is off. It switches to Picking automatically; reload in a few minutes.'}
                       </p>
                     ) : null}
                     {status === 'partial_needs_review' ? (
@@ -1960,7 +2099,7 @@ export function WarehousePage() {
                           ? 'Nhận việc'
                           : 'Claim'}
                     </button>
-                    {linkedHint && canPickItems(status) ? (
+                    {linkedHint && isWarehousePickableStatus(status) ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -1984,7 +2123,7 @@ export function WarehousePage() {
                             : 'Pick linked groups together'}
                       </button>
                     ) : null}
-                    {canPickItems(status) ? (
+                    {isWarehousePickableStatus(status) ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -2095,7 +2234,7 @@ export function WarehousePage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {vi ? 'Đang tải danh sách lấy hàng…' : 'Loading picking list…'}
                 </div>
-              ) : lines.length === 0 ? (
+              ) : lines.length === 0 && detailError ? null : lines.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center dark:border-slate-700 dark:bg-surface-1">
                   <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
                     <PackageOpen className="h-7 w-7" strokeWidth={1.75} />

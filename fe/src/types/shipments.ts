@@ -61,6 +61,8 @@ export type Shipment = {
   estimatedCostVnd?: number | null
   tripCode?: string | null
   pickupAt?: string | null
+  /** Người nhận của nhóm đơn (BE tự đọc từ đơn); null khi không đọc được. */
+  recipientAddress?: string | null
   toLocation?: {
     street: string | null
     wardName: string | null
