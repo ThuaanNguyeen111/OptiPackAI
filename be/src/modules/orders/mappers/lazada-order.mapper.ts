@@ -192,6 +192,8 @@ export interface MappedOrderFields {
   /** 29/10/2026 — chỉ AURELLE: giao hỏa tốc + giờ hẹn giao (Lazada thật không có → standard/null). */
   delivery_option: 'standard' | 'express';
   promised_delivery_at: Date | null;
+  /** 27/11/2026 — chỉ AURELLE: khách trả lời đề nghị giao thiếu. Vắng = không ghi đè. */
+  short_ship_decision?: 'pending' | 'accepted' | null;
   /** 31/10/2026 — chỉ Tiki (mapper riêng `tiki-order.mapper.ts`). Lazada/AURELLE không gửi field này. */
   marketplace_meta?: {
     fulfillment_type: string | null;
@@ -291,6 +293,9 @@ export function mapLazadaOrder(
     total_amount: parseMoneyString(raw.price, 'price'),
     payment_method: raw.payment_method?.trim() ? raw.payment_method.trim() : null,
     ...deliveryOptionOf(raw),
+    ...(raw.short_ship_decision === 'pending' || raw.short_ship_decision === 'accepted'
+      ? { short_ship_decision: raw.short_ship_decision }
+      : {}),
     currency: 'VND',
     synced_at: new Date(),
   };

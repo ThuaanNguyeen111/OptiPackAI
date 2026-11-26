@@ -102,6 +102,8 @@ export interface LazadaOrderRaw {
    */
   delivery_option?: string;
   promised_delivery_time?: string;
+  /** 27/11/2026 — CHỈ AURELLE: khách trả lời đề nghị giao thiếu (`pending` | `accepted`). */
+  short_ship_decision?: string;
 }
 
 interface LazadaGetOrdersResponse {

@@ -51,6 +51,9 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { OrderGroupsService } from './order-groups.service';
 
+/** 27/11/2026 — giao thiếu đơn AURELLE: chờ khách xác nhận tối đa ngần này giờ, quá hạn = tự giao phần có sẵn. */
+export const CUSTOMER_CONFIRM_HOURS = 24;
+
 /**
  * 13/11/2026 — tách từ OrderGroupsService: lấy hàng theo lượt (quét món, báo thiếu,
  * quyết định thiếu hàng, xác nhận lấy xong) và danh sách món cần lấy.
@@ -800,9 +803,79 @@ export class OrderGroupPickingService {
     return Math.round(amount);
   }
 
-  private async enqueueShortShipments(
-    group: OrderGroupDocument,
-  ): Promise<void> {
+  /**
+   * 27/11/2026 — sau "Lấy lại": nhóm vẫn thiếu tồn (stock_shortage) → gửi `backordered` cho từng đơn
+   * AURELLE có SKU đang thiếu (chia phần thiếu cho đơn MỚI nhất trước — đơn cũ được giữ hàng trước).
+   */
+  static allocateBackorder(
+    orders: { _id: unknown; items: { sku: string; quantity: number; status?: string }[] }[],
+    shortages: { sku: string; shortage: number }[],
+  ): { orderId: string; items: { sku: string; missing_quantity: number }[] }[] {
+    const left = new Map(shortages.filter((s) => s.shortage > 0).map((s) => [s.sku, s.shortage]));
+    const out = new Map<string, Map<string, number>>();
+    for (const order of [...orders].reverse()) {
+      for (const item of order.items) {
+        if (item.status === OrderStatus.CANCELED) continue;
+        const need = left.get(item.sku) ?? 0;
+        if (need <= 0) continue;
+        const take = Math.min(item.quantity, need);
+        left.set(item.sku, need - take);
+        const perOrder = out.get(String(order._id)) ?? new Map<string, number>();
+        perOrder.set(item.sku, (perOrder.get(item.sku) ?? 0) + take);
+        out.set(String(order._id), perOrder);
+      }
+    }
+    return [...out].map(([orderId, items]) => ({
+      orderId,
+      items: [...items].map(([sku, missing_quantity]) => ({ sku, missing_quantity })),
+    }));
+  }
+
+  private async notifyBackorder(groupId: string, round: number): Promise<number> {
+    if (!this.statusOutboxModel) return 0;
+    const group = await this.orderGroupModel
+      .findById(groupId)
+      .select('_id stock_shortage stock_shortage_items')
+      .lean();
+    if (!group?.stock_shortage || !group.stock_shortage_items?.length) return 0;
+    const orders = await this.orderModel
+      .find({ consolidated_group_id: group._id, status: { $nin: notPackableStatuses() } })
+      .sort({ created_at: 1, _id: 1 })
+      .select('_id items platform origin')
+      .lean();
+    let sent = 0;
+    for (const back of OrderGroupPickingService.allocateBackorder(orders, group.stock_shortage_items)) {
+      const order = orders.find((o) => String(o._id) === back.orderId);
+      if (order?.platform !== MarketplacePlatform.AURELLE || order.origin === 'replacement') continue;
+      await enqueueStatusPush(this.statusOutboxModel, {
+        orderGroupId: group._id,
+        orderId: order._id,
+        status: 'backordered',
+        reason: 'Một số sản phẩm tạm hết — shop đang bổ sung hàng',
+        missingItems: back.items,
+        discriminator: `round${String(round)}`,
+      });
+      await recordActivity(this.activityLogModel, {
+        category: 'orders',
+        action: 'order.backordered',
+        summary: `Báo khách chờ bổ sung hàng đơn ${String(order._id).slice(-8)}: ${back.items.map((i) => `${i.sku} thiếu ${String(i.missing_quantity)}`).join(', ')}`,
+        orderGroupId: group._id,
+        entityType: 'order',
+        entityId: order._id,
+        skus: back.items.map((i) => i.sku),
+      });
+      sent += 1;
+    }
+    return sent;
+  }
+
+  /** 27/11/2026 — các đơn AURELLE (không tính đơn thay thế) bị thiếu nếu giao phần đã lấy. */
+  private async aurelleShortages(group: OrderGroupDocument): Promise<
+    {
+      order: { _id: Types.ObjectId; items: { sku: string; unit_price: number; quantity: number; status?: string }[] };
+      short: { orderId: string; items: { sku: string; ordered: number; shipped: number }[] };
+    }[]
+  > {
     const orders = await this.orderModel
       .find({
         consolidated_group_id: group._id,
@@ -812,14 +885,20 @@ export class OrderGroupPickingService {
       .select('_id items platform origin')
       .lean();
     const picked = await this.core.getPickedSkuQuantities(group);
-    const shortages = OrderGroupPickingService.allocateShortage(orders, picked);
-    for (const short of shortages) {
+    const out: Awaited<ReturnType<OrderGroupPickingService['aurelleShortages']>> = [];
+    for (const short of OrderGroupPickingService.allocateShortage(orders, picked)) {
       const order = orders.find((o) => String(o._id) === short.orderId);
-      if (
-        order?.platform !== MarketplacePlatform.AURELLE ||
-        order.origin === 'replacement'
-      )
-        continue;
+      if (order?.platform !== MarketplacePlatform.AURELLE || order.origin === 'replacement') continue;
+      out.push({ order, short });
+    }
+    return out;
+  }
+
+  private async enqueueShortShipments(
+    group: OrderGroupDocument,
+    confirmDeadline: Date | null = null,
+  ): Promise<void> {
+    for (const { order, short } of await this.aurelleShortages(group)) {
       await recordActivity(this.activityLogModel, {
         category: 'orders',
         action: 'order.short_shipped',
@@ -836,7 +915,13 @@ export class OrderGroupPickingService {
       // (shipping/utils/cod.util.ts). Đặt tuyệt đối → chạy lại không trừ 2 lần.
       await this.orderModel.updateOne(
         { _id: order._id },
-        { $set: { short_shipped_amount: OrderGroupPickingService.shortAmountOf(order.items, short.items) } },
+        {
+          $set: {
+            short_shipped_amount: OrderGroupPickingService.shortAmountOf(order.items, short.items),
+            // 27/11/2026 — chờ khách trả lời trên website; lượt đồng bộ đơn sau sẽ ghi đè bằng giá trị website.
+            ...(confirmDeadline ? { short_ship_decision: 'pending' as const } : {}),
+          },
+        },
       );
       if (!this.statusOutboxModel) continue;
       await enqueueStatusPush(this.statusOutboxModel, {
@@ -848,9 +933,45 @@ export class OrderGroupPickingService {
           sku: i.sku,
           shipped_quantity: i.shipped,
         })),
+        confirmDeadlineAt: confirmDeadline,
         discriminator: `round${String(group.pick_round)}`,
       });
     }
+  }
+
+  /**
+   * 27/11/2026 — "Giao phần có sẵn" khi nhóm có đơn AURELLE bị thiếu: nhóm VẪN ở partial_needs_review,
+   * ghi `customer_confirmation` (hạn 24 giờ), báo website giao thiếu kèm hạn → khách bấm Đồng ý / Hủy.
+   */
+  private async holdForCustomerConfirmation(
+    group: OrderGroupDocument,
+    orderIds: Types.ObjectId[],
+    expectedVersion: number,
+    actorId: string | null,
+  ): Promise<OrderGroupDocument> {
+    const now = new Date();
+    const deadline = new Date(now.getTime() + CUSTOMER_CONFIRM_HOURS * 60 * 60 * 1000);
+    const held = await this.orderGroupModel.findOneAndUpdate(
+      { _id: group._id, __v: expectedVersion, fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW },
+      { $set: { customer_confirmation: { order_ids: orderIds, requested_at: now, deadline_at: deadline } }, $inc: { __v: 1 } },
+      { returnDocument: 'after' },
+    );
+    if (!held) throw this.core.versionConflict(group._id.toString(), expectedVersion);
+    await recordActivity(this.activityLogModel, {
+      category: 'picking',
+      action: 'order_group.partial_awaiting_customer',
+      summary: `Thiếu hàng — chọn GIAO PHẦN CÓ SẴN, chờ khách xác nhận trên website tới ${deadline.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} (${String(orderIds.length)} đơn AURELLE)`,
+      actorId,
+      orderGroupId: held._id,
+      entityType: 'order_group',
+      entityId: held._id,
+    });
+    await this.enqueueShortShipments(held, deadline).catch((error: unknown) => {
+      this.logger.error(
+        `Báo giao thiếu (chờ khách xác nhận) cho nhóm ${held._id.toString()} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return held;
   }
 
   /**
@@ -865,6 +986,22 @@ export class OrderGroupPickingService {
     actorId: string | null = null,
   ): Promise<OrderGroupDocument> {
     if (approve) {
+      // 27/11/2026 — có đơn AURELLE bị thiếu → CHƯA cho đóng gói: báo khách (email + website) và chờ
+      // khách đồng ý / hủy tối đa 24 giờ (quá hạn = tự giao phần có sẵn). Xem resolveCustomerConfirmation.
+      const current = await this.core.loadGroupOrThrow(groupId);
+      if (current.__v !== expectedVersion) throw this.core.versionConflict(groupId, expectedVersion);
+      if (current.customer_confirmation) {
+        throw new AppException(
+          ORD_GROUP_ERROR_CODES.INVALID_TRANSITION,
+          `Đang chờ khách xác nhận giao thiếu (hạn ${current.customer_confirmation.deadline_at.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}). Khách trả lời hoặc quá hạn thì nhóm tự sang đóng gói.`,
+          HttpStatus.CONFLICT,
+          { groupId, deadlineAt: current.customer_confirmation.deadline_at },
+        );
+      }
+      if (current.fulfillment_status === GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW) {
+        const shortages = await this.aurelleShortages(current);
+        if (shortages.length > 0) return this.holdForCustomerConfirmation(current, shortages.map((s) => s.order._id), expectedVersion, actorId);
+      }
       const picked = await this.core.transitionFulfillmentStatus(
         groupId,
         GroupFulfillmentStatus.PICKED,
@@ -925,7 +1062,8 @@ export class OrderGroupPickingService {
         const doc = await this.orderGroupModel.findOneAndUpdate(
           { _id: group._id, __v: expectedVersion },
           {
-            $set: { fulfillment_status: GroupFulfillmentStatus.PICKING },
+            // 27/11/2026 — lấy lại thì bỏ đề nghị giao thiếu đang chờ khách (nếu có).
+            $set: { fulfillment_status: GroupFulfillmentStatus.PICKING, customer_confirmation: null },
             $inc: { __v: 1, pick_round: 1 },
           },
           { returnDocument: 'after', session },
@@ -950,6 +1088,13 @@ export class OrderGroupPickingService {
     }
     // K5 (main) — lượt mới cần giữ chỗ lại phần đã tiêu ở lượt bị hủy.
     await this.core.reconcileReservation(groupId);
+    // 27/11/2026 — tồn THẬT SỰ không đủ (giữ chỗ lại vẫn thiếu) → báo khách AURELLE "đang chờ bổ
+    // sung hàng"; còn hàng ở ô khác (lấy nhầm) thì không làm phiền khách.
+    await this.notifyBackorder(groupId, result.pick_round).catch((error: unknown) => {
+      this.logger.error(
+        `Báo chờ bổ sung hàng cho nhóm ${groupId} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
     await recordActivity(this.activityLogModel, {
       actorId,
       category: 'picking',

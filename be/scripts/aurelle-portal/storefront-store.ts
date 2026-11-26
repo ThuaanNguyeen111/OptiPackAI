@@ -34,7 +34,7 @@ import type {
   LazadaOrderItemRaw,
   LazadaOrderRaw,
 } from '../../src/modules/marketplace-integration/adapters/lazada-protocol.client';
-import { sendShortShippedEmail } from './short-shipped-mailer';
+import { sendBackorderEmail, sendShortShippedEmail } from './short-shipped-mailer';
 
 /**
  * Lớp đọc dữ liệu THẬT của website AURELLE cho mock Open API (cổng 4000).
@@ -256,6 +256,10 @@ export async function applyStatusUpdate(input: StatusUpdateInput): Promise<Statu
   // 26/11/2026 — giao thiếu được ghi lần đầu → email cho khách (không chờ, lỗi chỉ log).
   if (result?.applied && input.status === 'short_shipped') {
     void sendShortShippedEmail(db(), input.publicOrderId);
+  }
+  // 27/11/2026 — đơn chờ shop bổ sung hàng → email cho khách (kèm hướng dẫn hủy miễn phí).
+  if (result?.applied && input.status === 'backordered') {
+    void sendBackorderEmail(db(), input.publicOrderId);
   }
   return result;
 }

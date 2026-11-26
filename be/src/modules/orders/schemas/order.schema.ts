@@ -260,6 +260,11 @@ export class Order {
   @Prop({ type: Number, default: 0, min: 0 })
   short_shipped_amount?: number;
 
+  // 27/11/2026 — chỉ AURELLE: khách trả lời đề nghị giao thiếu trên website. pending = chưa trả lời,
+  // accepted = đồng ý nhận phần có sẵn (hủy đơn thì status = canceled như mọi đơn hủy). null = không có đề nghị.
+  @Prop({ type: String, enum: ['pending', 'accepted', null], default: null })
+  short_ship_decision?: 'pending' | 'accepted' | null;
+
   @Prop({ type: String, required: true, default: 'VND' })
   currency!: string;
 

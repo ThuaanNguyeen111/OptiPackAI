@@ -197,6 +197,31 @@ export class StorefrontOrder {
   /** 22/10/2026 — tiền giảm trừ do kho giao thiếu (đơn vị × đơn giá) và tổng tiền đã hoàn qua phiếu trả. */
   @Prop({ type: Number, min: 0, default: 0 }) short_refund_amount!: number;
   @Prop({ type: Number, min: 0, default: 0 }) refunded_amount!: number;
+  /**
+   * 27/11/2026 — kho đề nghị giao thiếu và CHỜ khách trả lời trước khi đóng gói: pending (chưa trả
+   * lời, hạn `deadline_at`), accepted (khách đồng ý), auto_accepted (quá hạn / shop đã đóng gói).
+   * Khách hủy thì đơn `cancelled` như thường. null = không có đề nghị.
+   */
+  @Prop({
+    type: {
+      _id: false,
+      status: { type: String, enum: ['pending', 'accepted', 'auto_accepted'], required: true },
+      deadline_at: { type: Date, default: null },
+      decided_at: { type: Date, default: null },
+    },
+    default: null,
+  })
+  short_ship_confirmation!: { status: 'pending' | 'accepted' | 'auto_accepted'; deadline_at: Date | null; decided_at: Date | null } | null;
+  /** 27/11/2026 — kho lấy lại mà tồn không đủ: SKU đang chờ bổ sung. Tự xoá khi đơn đóng gói / giao thiếu / hủy. */
+  @Prop({
+    type: {
+      _id: false,
+      items: [{ _id: false, sku: { type: String, required: true }, missing_quantity: { type: Number, required: true } }],
+      since: { type: Date, required: true },
+    },
+    default: null,
+  })
+  backorder!: { items: { sku: string; missing_quantity: number }[]; since: Date } | null;
   @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
   // 20/10/2026 — thời điểm sự kiện giao hàng mới nhất đối tác báo (chống sự kiện cũ kéo trạng thái lùi).
   @Prop({ type: Date, default: null }) fulfillment_updated_at!: Date | null;

@@ -21,6 +21,22 @@ export interface ShortShippedMailInput {
   /** Thiếu toàn bộ → website đã hủy đơn. */
   cancelled: boolean;
   orderUrl: string;
+  /** 27/11/2026 — có = shop chờ khách đồng ý / hủy tới mốc này rồi mới đóng gói. */
+  confirmDeadline?: Date | null;
+}
+
+/** 27/11/2026 — giờ Việt Nam dạng "14:30 ngày 27/11". */
+export function formatVnDeadline(at: Date): string {
+  const parts = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    hour12: false,
+  }).formatToParts(at);
+  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('hour')}:${get('minute')} ngày ${get('day')}/${get('month')}`;
 }
 
 export function formatVnd(value: number): string {
@@ -64,9 +80,15 @@ export function buildShortShippedEmail(input: ShortShippedMailInput): { subject:
 </table>
 <p style="margin:0 0 16px;color:#555;font-size:13px">Phí vận chuyển giữ nguyên vì đơn vẫn được giao trong một kiện.</p>`;
 
+  const waiting = !input.cancelled && input.confirmDeadline ? input.confirmDeadline : null;
   const intro = input.cancelled
     ? `Rất tiếc, kho không còn hàng cho đơn <strong>${order}</strong> nên đơn đã được hủy.`
-    : `Kho không đủ hàng cho một số sản phẩm trong đơn <strong>${order}</strong>. Chúng tôi sẽ giao phần có sẵn và không tính tiền phần thiếu.`;
+    : waiting
+      ? `Kho không đủ hàng cho một số sản phẩm trong đơn <strong>${order}</strong>. Shop có thể giao phần có sẵn và không tính tiền phần thiếu — nhưng cần bạn xác nhận trước.`
+      : `Kho không đủ hàng cho một số sản phẩm trong đơn <strong>${order}</strong>. Chúng tôi sẽ giao phần có sẵn và không tính tiền phần thiếu.`;
+  const ask = waiting
+    ? `<p style="margin:0 0 16px;padding:12px;border:1px solid #222">Vui lòng mở trang đơn hàng và chọn <strong>Đồng ý nhận phần có sẵn</strong> hoặc <strong>Hủy đơn</strong> trước <strong>${formatVnDeadline(waiting)}</strong>. Nếu không nhận được phản hồi, shop sẽ giao phần có sẵn; bạn vẫn có thể từ chối nhận khi shipper giao mà không mất phí.</p>`
+    : '';
 
   const html = `<!doctype html>
 <html lang="vi"><body style="margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#222">
@@ -79,8 +101,43 @@ export function buildShortShippedEmail(input: ShortShippedMailInput): { subject:
     ${rows}
   </table>
   ${money}
-  <p style="margin:0 0 24px"><a href="${escapeHtml(input.orderUrl)}" style="color:#222">Xem chi tiết đơn hàng</a></p>
+  ${ask}
+  <p style="margin:0 0 24px"><a href="${escapeHtml(input.orderUrl)}" style="color:#222">${waiting ? 'Xác nhận trên trang đơn hàng' : 'Xem chi tiết đơn hàng'}</a></p>
   <p style="margin:0;color:#777;font-size:13px">Xin lỗi vì sự bất tiện này. Nếu cần hỗ trợ, bạn chỉ cần trả lời email này.</p>
+</div>
+</body></html>`;
+  return { subject, html };
+}
+
+export interface BackorderMailInput {
+  customerName: string;
+  orderNumber: string;
+  lines: { productName: string; variant: string; missing: number }[];
+  orderUrl: string;
+}
+
+/** 27/11/2026 — kho lấy lại mà tồn không đủ: báo khách đơn đang chờ bổ sung hàng, có thể hủy miễn phí. */
+export function buildBackorderEmail(input: BackorderMailInput): { subject: string; html: string } {
+  const order = escapeHtml(input.orderNumber);
+  const rows = input.lines
+    .map(
+      (l) => `<tr>
+  <td style="padding:8px 0;border-bottom:1px solid #eee">${escapeHtml(l.productName)}<br><span style="color:#777;font-size:13px">${escapeHtml(l.variant)}</span></td>
+  <td style="padding:8px 0;border-bottom:1px solid #eee;text-align:right">thiếu ${String(l.missing)}</td>
+</tr>`,
+    )
+    .join('');
+  const subject = `Đơn ${input.orderNumber} đang chờ shop bổ sung hàng`;
+  const html = `<!doctype html>
+<html lang="vi"><body style="margin:0;background:#fff;font-family:Arial,Helvetica,sans-serif;color:#222">
+<div style="max-width:560px;margin:0 auto;padding:24px 16px">
+  <p style="font-size:18px;letter-spacing:2px;margin:0 0 24px"><strong>AURELLE</strong></p>
+  <p style="margin:0 0 12px">Chào ${escapeHtml(input.customerName)},</p>
+  <p style="margin:0 0 16px">Một số sản phẩm trong đơn <strong>${order}</strong> hiện tạm hết hàng. Shop đang bổ sung và sẽ giao ngay khi có đủ hàng.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:16px">${rows}</table>
+  <p style="margin:0 0 16px">Nếu không muốn chờ, bạn có thể <strong>hủy đơn miễn phí</strong> trên trang đơn hàng. Đơn thanh toán khi nhận hàng (COD) nên bạn chưa bị trừ tiền.</p>
+  <p style="margin:0 0 24px"><a href="${escapeHtml(input.orderUrl)}" style="color:#222">Xem đơn hàng</a></p>
+  <p style="margin:0;color:#777;font-size:13px">Xin lỗi vì sự chậm trễ này. Nếu cần hỗ trợ, bạn chỉ cần trả lời email này.</p>
 </div>
 </body></html>`;
   return { subject, html };

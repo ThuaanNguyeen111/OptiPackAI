@@ -13,6 +13,7 @@ export const SF_ERROR_CODES = {
   CART_EMPTY: 'SF_CART_EMPTY', // 400
   ORDER_NOT_FOUND: 'SF_ORDER_NOT_FOUND', // 404 (cả khi id sai định dạng)
   ORDER_NOT_CANCELLABLE: 'SF_ORDER_NOT_CANCELLABLE', // 409 đơn đã đóng gói/giao/đã hủy — không tự hủy được nữa
+  SHORT_SHIP_NOT_PENDING: 'SF_SHORT_SHIP_NOT_PENDING', // 409 (27/11/2026) không có đề nghị giao thiếu đang chờ trả lời
   RETURN_NOT_FOUND: 'SF_RETURN_NOT_FOUND', // 404
   RETURN_ORDER_NOT_DELIVERED: 'SF_RETURN_ORDER_NOT_DELIVERED', // 409 chỉ trả hàng sau khi đã nhận hàng
   RETURN_WINDOW_EXPIRED: 'SF_RETURN_WINDOW_EXPIRED', // 409 quá hạn trả hàng

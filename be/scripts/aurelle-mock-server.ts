@@ -309,6 +309,23 @@ function parseShippedItems(raw: unknown): { sku: string; shipped_quantity: numbe
     .map((i) => ({ sku: i.sku, shipped_quantity: Number(i.shipped_quantity) || 0 }));
 }
 
+/** 27/11/2026 — `missing_items` của `backordered`: [{ sku, missing_quantity }] (chuỗi JSON hoặc mảng). */
+function parseMissingItems(raw: unknown): { sku: string; missing_quantity: number }[] | undefined {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .filter((i): i is { sku: string; missing_quantity: unknown } => typeof (i as { sku?: unknown }).sku === 'string')
+    .map((i) => ({ sku: i.sku, missing_quantity: Number(i.missing_quantity) || 0 }))
+    .filter((i) => i.missing_quantity > 0);
+}
+
 app.post('/rest/order/status/update', async (req: Request, res: Response) => {
   if (!requireValidSignature(req, res)) return;
   if (!requireValidAccessToken(req, res)) return;
@@ -342,6 +359,9 @@ app.post('/rest/order/status/update', async (req: Request, res: Response) => {
       reason: typeof body.reason === 'string' ? body.reason : null,
       idempotencyKey,
       items: parseShippedItems(body.items),
+      // 27/11/2026 — giao thiếu chờ khách xác nhận / chờ bổ sung hàng
+      confirmDeadline: typeof body.confirm_deadline === 'string' && !Number.isNaN(Date.parse(body.confirm_deadline)) ? new Date(body.confirm_deadline) : null,
+      missingItems: parseMissingItems(body.missing_items),
     });
     if (!result) {
       res.status(404).json(errorEnvelope('ResourceNotFound', `Không có đơn "${String(orderId)}".`));

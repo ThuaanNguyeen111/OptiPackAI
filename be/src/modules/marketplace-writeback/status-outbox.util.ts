@@ -21,7 +21,9 @@ export type AurelleWritebackStatus =
   | 'returned'
   // 22/10/2026 — hành động người bán ở mức 1 đơn (outbox có `order_id`)
   | 'short_shipped'
-  | 'canceled_by_seller';
+  | 'canceled_by_seller'
+  // 27/11/2026 — kho lấy lại mà tồn không đủ: đơn chờ shop bổ sung hàng (khách có thể hủy)
+  | 'backordered';
 
 /** Nhóm đơn đổi trạng thái → trạng thái gửi sàn (chỉ mức nhóm cần gửi: đóng gói xong). */
 export function writebackStatusForGroup(status: GroupFulfillmentStatus): AurelleWritebackStatus | null {
@@ -82,6 +84,10 @@ export interface EnqueueStatusPushInput {
   orderId?: Types.ObjectId | string | null;
   /** 22/10/2026 — chỉ `short_shipped`. */
   shippedItems?: { sku: string; shipped_quantity: number }[];
+  /** 27/11/2026 — `short_shipped`: hạn khách trả lời. */
+  confirmDeadlineAt?: Date | null;
+  /** 27/11/2026 — chỉ `backordered`. */
+  missingItems?: { sku: string; missing_quantity: number }[];
   /** Có giá trị = sự kiện của phiếu trả hàng (kind = return_status), nếu không là trạng thái đơn. */
   returnRequestId?: Types.ObjectId | string | null;
   /** Trạng thái đơn (AurelleWritebackStatus) hoặc trạng thái phiếu trả hàng (approved|rejected|received|closed|canceled). */
@@ -124,6 +130,8 @@ export async function enqueueStatusPush(
         return_request_id: input.returnRequestId ?? null,
         order_id: input.orderId ?? null,
         ...(input.shippedItems && { shipped_items: input.shippedItems }),
+        ...(input.confirmDeadlineAt && { confirm_deadline_at: input.confirmDeadlineAt }),
+        ...(input.missingItems && { missing_items: input.missingItems }),
         note: input.note ?? null,
         shipment_id: input.shipmentId ?? null,
         status: input.status,

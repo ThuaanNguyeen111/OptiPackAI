@@ -289,6 +289,45 @@ export class StorefrontOrdersService {
     return this.toResponse(cancelled);
   }
 
+  /**
+   * 27/11/2026 — Khách ĐỒNG Ý nhận phần có sẵn khi kho giao thiếu. Chỉ khi đề nghị còn chờ và đơn
+   * chưa đóng gói. Báo OptiPack (webhook → đồng bộ đơn thấy `short_ship_decision = accepted` →
+   * mở khóa đóng gói ngay). Không đồng ý thì khách dùng nút Hủy đơn (luồng `cancel`).
+   */
+  async acceptShortShipment(customerId: string, id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
+    }
+    const filter = { _id: new Types.ObjectId(id), customer_id: new Types.ObjectId(customerId) };
+    const now = new Date();
+    const accepted = await this.orderModel.findOneAndUpdate(
+      { ...filter, status: 'pending', fulfillment_status: 'awaiting_packaging', 'short_ship_confirmation.status': 'pending' },
+      { $set: { 'short_ship_confirmation.status': 'accepted', 'short_ship_confirmation.decided_at': now } },
+      { returnDocument: 'after' },
+    );
+    if (!accepted) {
+      const exists = await this.orderModel.exists(filter);
+      if (!exists) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
+      throw new ConflictException(
+        sfError(SF_ERROR_CODES.SHORT_SHIP_NOT_PENDING, 'Đơn này không còn chờ bạn xác nhận giao thiếu (đã xác nhận, đã hủy hoặc shop đã đóng gói).'),
+      );
+    }
+    await this.eventModel.create({
+      order_id: accepted._id,
+      public_order_id: accepted.public_order_id,
+      status: 'short_ship_accepted',
+      label: 'Bạn đã đồng ý nhận phần hàng có sẵn',
+      reason: null,
+      occurred_at: now,
+      source: 'customer',
+      idempotency_key: null,
+    });
+    if (accepted.public_order_id !== null) {
+      this.webhookPublisher.notifyOrderChanged(accepted.public_order_id, toOpenApiStatus(accepted));
+    }
+    return this.toResponse(accepted);
+  }
+
   private toResponse(order: StorefrontOrderDocument, activeReturn: { id: string; status: string; statusLabel: string } | null = null) {
     return {
       activeReturn,
@@ -310,6 +349,15 @@ export class StorefrontOrdersService {
       // `as` — đơn cũ chưa có field (schema có default nhưng document cũ thì không)
       shortRefundAmount: (order.short_refund_amount as number | undefined) ?? 0,
       refundedAmount: (order.refunded_amount as number | undefined) ?? 0,
+      // 27/11/2026 — đề nghị giao thiếu chờ khách trả lời / SKU tạm hết đang chờ bổ sung.
+      shortShipConfirmation: order.short_ship_confirmation
+        ? {
+            status: order.short_ship_confirmation.status,
+            deadlineAt: order.short_ship_confirmation.deadline_at,
+            decidedAt: order.short_ship_confirmation.decided_at,
+          }
+        : null,
+      backorder: order.backorder ? { items: order.backorder.items, since: order.backorder.since } : null,
       // 23/10/2026 — chặng chi tiết + nhãn trạng thái DUY NHẤT cho cả danh sách lẫn chi tiết đơn.
       trackingStage: (order.tracking_stage as string | null | undefined) ?? null,
       displayStatus: orderDisplayStatus(this.progressInput(order)),
