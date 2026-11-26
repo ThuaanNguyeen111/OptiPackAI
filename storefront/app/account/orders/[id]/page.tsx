@@ -112,7 +112,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           </div>}
           {order.cancelSource !== 'seller' && shortUnits > 0 && <div className="order-seller-notice" role="status">
             <strong>Kho giao thiếu {shortUnits} sản phẩm</strong>
-            <p>Những sản phẩm thiếu không được tính tiền{shortRefund ? ` — giảm trừ ${formatVnd(shortRefund)}` : ''}.</p>
+            <p>Những sản phẩm thiếu không được tính tiền{shortRefund ? ` — giảm trừ ${formatVnd(shortRefund)}` : ''}. Phí vận chuyển giữ nguyên.</p>
+            {shortRefund > 0 && order.status !== 'cancelled' && <p>Số tiền cần trả khi nhận hàng: <strong>{formatVnd(Math.max(0, order.totalAmount - shortRefund))}</strong>.</p>}
           </div>}
 
           {/* 29/10/2026 — hỏa tốc: giờ hẹn giao, shipper của shop, cảnh báo khi trễ hẹn */}
@@ -160,6 +161,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <div className="order-cost-line"><span>Phí vận chuyển</span><strong>{shippingFee ? formatVnd(shippingFee) : 'Miễn phí'}</strong></div>
               <div className="order-cost-total"><span>Tổng thanh toán</span><strong>{formatVnd(order.totalAmount)}</strong></div>
               {shortRefund > 0 && <div className="order-cost-line"><span>Giảm trừ do giao thiếu</span><strong>− {formatVnd(shortRefund)}</strong></div>}
+              {/* 26/11/2026 — giao thiếu: số khách thật sự trả khi nhận (COD), phí ship giữ nguyên */}
+              {shortRefund > 0 && order.status !== 'cancelled' && <div className="order-cost-total"><span>{order.paymentStatus === 'paid' ? 'Đã thanh toán' : 'Cần trả khi nhận hàng'}</span><strong>{formatVnd(Math.max(0, order.totalAmount - shortRefund))}</strong></div>}
               {refunded > 0 && <div className="order-cost-line"><span>Đã hoàn tiền</span><strong>{formatVnd(refunded)}</strong></div>}
             </aside>
           </div>

@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -28,6 +28,36 @@ import {
 import type { LazadaProductRaw } from '../marketplace-integration/adapters/lazada.adapter';
 import { formatDimsCm, formatFlatMmAsCm } from '../../common/utils/measure-format.util';
 import { describeError } from '../../common/utils/log-error.util';
+import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import { normalizeSellerSku } from '../master-skus/seller-sku.util';
+
+/**
+ * 27/11/2026 — các field HỒ SƠ KHO (số đo sau gấp/bọc + quy tắc đóng gói). Cùng 1 hàng thật bán
+ * ở nhiều sàn/shop thì dùng chung 1 hồ sơ: đo 1 lần, mọi dòng product_master của hàng đó đều có.
+ */
+const SHARED_PROFILE_FIELDS = [
+  'dimension',
+  'fabric_gsm',
+  'is_fragile',
+  'orientation_rule',
+  'max_stack_load_kg',
+  'product_category',
+  'zip_bag_code',
+  'zip_bag_folded',
+  'can_fold_in_half',
+  'outer_requirement',
+  'packaging_profile_status',
+  'profile_confirmed_by',
+  'profile_confirmed_at',
+] as const;
+
+type SkuRef = Pick<ProductMaster, 'platform' | 'shop_id' | 'seller_sku'>;
+
+function sharedProfileOf(source: ProductMaster): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const field of SHARED_PROFILE_FIELDS) out[field] = source[field] ?? null;
+  return out;
+}
 
 // Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi (AURELLE
 // dùng cùng giới hạn, xem AURELLE_MARKETPLACE_DESIGN.md Mục 7.5).
@@ -65,7 +95,7 @@ export interface ConfirmProfileResult {
 }
 
 @Injectable()
-export class ProductMasterService {
+export class ProductMasterService implements OnModuleInit {
   private readonly logger = new Logger(ProductMasterService.name);
 
   constructor(
@@ -83,7 +113,105 @@ export class ProductMasterService {
     @Optional() @InjectModel(PackingPlan.name) private readonly packingPlanModel?: Model<PackingPlanDocument>,
     // 22/10/2026 — SKU sàn trùng mã SKU nội bộ → tự nối khi vừa đồng bộ về. @Optional: test cũ.
     @Optional() private readonly masterSkusService?: MasterSkusService,
+    // 27/11/2026 — tìm các dòng cùng 1 hàng thật (cùng SKU nội bộ) để dùng chung hồ sơ kho.
+    @Optional() @InjectModel(MarketplaceSkuMapping.name) private readonly mappingModel?: Model<MarketplaceSkuMappingDocument>,
   ) {}
+
+  /** 27/11/2026 — dòng đã có từ trước (chưa đo nhưng hàng cùng loại đã đo ở sàn khác) nhận hồ sơ ngay khi khởi động. */
+  onModuleInit(): void {
+    void this.inheritSharedProfiles({}).catch((error: unknown) => {
+      this.logger.warn(`Chép hồ sơ kho dùng chung lúc khởi động thất bại: ${describeError(error)}`);
+    });
+  }
+
+  /**
+   * 27/11/2026 — các dòng product_master KHÁC cùng 1 hàng thật với `product`:
+   *  - cùng SKU nội bộ (marketplace_sku_mappings) — kể cả mã sàn khác nhau; hoặc
+   *  - chưa nối SKU nội bộ nhưng mã SKU sàn trùng (không phân biệt hoa/thường).
+   * Dòng đã nối sang SKU nội bộ KHÁC thì không tính (khác hàng dù trùng mã).
+   */
+  async findSameProductRows(product: SkuRef & { _id: Types.ObjectId }): Promise<ProductMaster[]> {
+    const norm = normalizeSellerSku(product.seller_sku);
+    const refKey = (r: { platform: string; shop_id: string; seller_sku: string }): string =>
+      `${r.platform}|${r.shop_id}|${normalizeSellerSku(r.seller_sku)}`;
+    const own = this.mappingModel
+      ? await this.mappingModel
+        .findOne({ platform: product.platform, shop_id: product.shop_id, seller_sku_normalized: norm })
+        .select('master_sku')
+        .lean()
+      : null;
+    const master = own?.master_sku ?? null;
+    const sameMaster = master && this.mappingModel
+      ? await this.mappingModel.find({ master_sku: master }).select('platform shop_id seller_sku').lean()
+      : [];
+    const codes = [...new Set([product.seller_sku.trim(), norm, ...(master ? [master] : []), ...sameMaster.map((m) => m.seller_sku.trim())])];
+    const candidates = await this.productMasterModel
+      .find({ _id: { $ne: product._id }, seller_sku: { $in: codes } })
+      .lean<(ProductMaster & { _id: Types.ObjectId })[]>();
+    if (candidates.length === 0) return [];
+    const sameMasterKeys = new Set(sameMaster.map(refKey));
+    const candidateMappings = this.mappingModel
+      ? await this.mappingModel
+        .find({ $or: candidates.map((c) => ({ platform: c.platform, shop_id: c.shop_id, seller_sku_normalized: normalizeSellerSku(c.seller_sku) })) })
+        .select('platform shop_id seller_sku master_sku')
+        .lean()
+      : [];
+    const masterOf = new Map(candidateMappings.map((m) => [refKey(m), m.master_sku]));
+    return candidates.filter((c) => {
+      if (sameMasterKeys.has(refKey(c))) return true;
+      const cMaster = masterOf.get(refKey(c));
+      if (cMaster) return master !== null && cMaster === master;
+      // Dòng chưa nối: cùng mã SKU sàn, hoặc mã trùng đúng SKU nội bộ của dòng gốc.
+      const cNorm = normalizeSellerSku(c.seller_sku);
+      return cNorm === norm || (master !== null && cNorm === normalizeSellerSku(master));
+    });
+  }
+
+  /** 27/11/2026 — vừa xác nhận số đo 1 dòng → chép hồ sơ sang mọi dòng cùng hàng (best-effort). */
+  private async shareProfileToSameProduct(source: ProductMasterDocument): Promise<number> {
+    try {
+      const rows = await this.findSameProductRows(source);
+      if (rows.length === 0) return 0;
+      await this.productMasterModel.updateMany(
+        { _id: { $in: rows.map((r) => (r as ProductMaster & { _id: Types.ObjectId })._id) } },
+        { $set: sharedProfileOf(source) },
+      );
+      for (const row of rows) await this.releasePackingBlocks(row);
+      this.logger.log(
+        `Hồ sơ kho SKU ${source.seller_sku} dùng chung cho ${String(rows.length)} dòng cùng hàng: ${rows.map((r) => `${r.platform}/${r.shop_id}/${r.seller_sku}`).join(', ')}.`,
+      );
+      return rows.length;
+    } catch (error: unknown) {
+      this.logger.warn(`Chép hồ sơ kho SKU ${source.seller_sku} sang dòng cùng hàng thất bại: ${describeError(error)}`);
+      return 0;
+    }
+  }
+
+  /**
+   * 27/11/2026 — dòng CHƯA ĐO mà hàng cùng loại đã đo ở sàn/shop khác → nhận hồ sơ mới nhất.
+   * Gọi sau mỗi lần đồng bộ catalog (SKU mới kéo về) và lúc khởi động. Trả số dòng đã nhận.
+   */
+  async inheritSharedProfiles(filter: Record<string, unknown>): Promise<number> {
+    const pending = await this.productMasterModel
+      .find({ ...filter, packaging_profile_status: 'needs_measurement', retired: { $ne: true } })
+      .select('_id platform shop_id seller_sku')
+      .lean<(SkuRef & { _id: Types.ObjectId })[]>();
+    let inherited = 0;
+    for (const row of pending) {
+      const source = (await this.findSameProductRows(row))
+        .filter((r) => r.packaging_profile_status === 'ready')
+        .sort((a, b) => (b.profile_confirmed_at?.getTime() ?? 0) - (a.profile_confirmed_at?.getTime() ?? 0))[0];
+      if (!source) continue;
+      await this.productMasterModel.updateOne(
+        { _id: row._id, packaging_profile_status: 'needs_measurement' },
+        { $set: sharedProfileOf(source) },
+      );
+      await this.releasePackingBlocks(row);
+      inherited += 1;
+    }
+    if (inherited > 0) this.logger.log(`Đã chép hồ sơ kho dùng chung cho ${String(inherited)} SKU chưa đo (cùng hàng đã đo ở sàn/shop khác).`);
+    return inherited;
+  }
 
   /**
    * Convenience wrapper (2026-09-09) — lấy danh sách SKU CẦN đồng bộ
@@ -229,6 +357,10 @@ export class ProductMasterService {
         }
       }
     }
+    // 27/11/2026 — bắt cả SKU vừa được nối tay vào SKU nội bộ đã đo (đồng bộ tăng dần không chạm tới).
+    await this.inheritSharedProfiles({}).catch((error: unknown) => {
+      this.logger.warn(`Chép hồ sơ kho dùng chung sau đồng bộ catalog thất bại: ${describeError(error)}`);
+    });
     return results;
   }
 
@@ -277,6 +409,10 @@ export class ProductMasterService {
       await this.autoCreateMasters(rawProducts);
     }
     await this.autoMap(platform, shopId, skus.filter((sku) => sku.Status !== 'inactive').map((sku) => sku.SellerSku));
+    // 27/11/2026 — SKU vừa kéo về mà hàng cùng loại đã đo ở sàn khác → nhận luôn số đo, không bắt đo lại.
+    await this.inheritSharedProfiles({ platform, shop_id: shopId, seller_sku: { $in: skus.map((sku) => sku.SellerSku) } }).catch((error: unknown) => {
+      this.logger.warn(`Chép hồ sơ kho dùng chung shop ${shopId} (${platform}) thất bại: ${describeError(error)}`);
+    });
     return result.upsertedCount + result.modifiedCount;
   }
 
@@ -468,6 +604,8 @@ export class ProductMasterService {
     }
     this.logger.log(`Xác nhận hồ sơ đóng gói SKU ${updated.seller_sku} (shop ${updated.shop_id}).`);
     await this.releasePackingBlocks(updated);
+    // 27/11/2026 — cùng 1 hàng ở sàn/shop khác dùng chung số đo vừa xác nhận.
+    await this.shareProfileToSameProduct(updated);
     // Chỉ cảnh báo khi kho tự nhập độ dày; bỏ trống (kể cả null) thì độ dày vừa tính từ GSM.
     const warning = measuredCm === null ? null : thicknessWarning(dto.product_category, fabricGsm, measuredCm);
     return { product: updated, warnings: warning === null ? [] : [warning] };
@@ -479,7 +617,7 @@ export class ProductMasterService {
    * Nhóm còn SKU khác chưa đo sẽ kẹt lại với danh sách SKU mới. Best-effort: lỗi chỉ log,
    * KHÔNG làm hỏng việc lưu số đo.
    */
-  private async releasePackingBlocks(product: ProductMasterDocument): Promise<number> {
+  private async releasePackingBlocks(product: SkuRef): Promise<number> {
     if (!this.orderGroupModel || !this.packingPlanModel) return 0;
     try {
       const groups = await this.orderGroupModel

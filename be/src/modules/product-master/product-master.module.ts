@@ -10,6 +10,7 @@ import { ProductMasterSyncScheduler } from './product-master-sync.scheduler';
 import { ProductMasterController } from './product-master.controller';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { MasterSkusModule } from '../master-skus/master-skus.module';
+import { MarketplaceSkuMapping, MarketplaceSkuMappingSchema } from '../master-skus/schemas/marketplace-sku-mapping.schema';
 
 @Module({
   imports: [
@@ -23,6 +24,8 @@ import { MasterSkusModule } from '../master-skus/master-skus.module';
       // (chỉ cập nhật 2 collection, không import OrderGroupsModule/PackingModule).
       { name: OrderGroup.name, schema: OrderGroupSchema },
       { name: PackingPlan.name, schema: PackingPlanSchema },
+      // 27/11/2026 — chỉ đọc: tìm dòng cùng SKU nội bộ để dùng chung hồ sơ kho.
+      { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema },
     ]),
     MarketplaceIntegrationModule,
     MasterSkusModule, // 22/10/2026 — tự nối SKU sàn trùng mã SKU nội bộ (MasterSkusModule không import ngược)

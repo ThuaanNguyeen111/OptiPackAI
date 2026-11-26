@@ -18,6 +18,13 @@ describe('cod.util', () => {
     expect(codAmountOf({ platform: 'aurelle', payment_method: null, total_amount: 200000 })).toBe(200000);
   });
 
+  it('26/11/2026 — giao thiếu: thu tổng − phần thiếu (phí ship giữ nguyên), không âm', () => {
+    expect(codAmountOf({ platform: 'aurelle', total_amount: 630000, short_shipped_amount: 200000 })).toBe(430000);
+    expect(codAmountOf({ platform: 'aurelle', total_amount: 100000, short_shipped_amount: 150000 })).toBe(0);
+    expect(codAmountOf({ platform: 'aurelle', total_amount: 630000, short_shipped_amount: null })).toBe(630000);
+    expect(codAmountOf({ platform: 'aurelle', payment_method: 'PREPAID', total_amount: 630000, short_shipped_amount: 200000 })).toBe(0);
+  });
+
   it('2 đơn A, B thành 2 kiện → mỗi đơn thu ở kiện đầu của đơn đó (AC1)', () => {
     expect(codOrderIdsPerParcel([
       { parcelNo: 1, orderIds: ['A'] },

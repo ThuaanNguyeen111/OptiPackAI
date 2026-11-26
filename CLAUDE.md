@@ -4935,6 +4935,30 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **5. Còn lại / lưu ý gì?** Vẫn còn tranh chấp: 2 yêu cầu cùng đọc 1 refresh token chưa thu hồi trước khi bên kia lưu `is_revoked` → cả 2 cùng đổi được (không còn lỗi 500). Chặn hẳn cần đổi `findOne` + `save` thành 1 lệnh `findOneAndUpdate({ token_hash, is_revoked: false })`; bên thua thì hoặc coi là dùng lại (thu hồi mọi phiên → 2 tab cùng bị đăng xuất) hoặc cho khoảng ân hạn vài giây — **chưa chốt**, cần người dùng quyết. Chạy jest phải đứng trong `be/` (`jest.config.js` gốc trỏ `be/jest.config.js` không tồn tại; `npm test` ở gốc vẫn chạy qua `test:be`).
 
+## 💸 Nhật ký 26/11/2026 — Giao thiếu đơn AURELLE: thu hộ đúng số tiền + email báo khách
+
+1. **Vấn đề gì?** Kho chọn "Giao phần có sẵn" (VD đặt 3 giao 2): website AURELLE đã ghi `short_quantity` + `short_refund_amount`, nhưng OptiPack vẫn gửi GHN thu hộ (COD) bằng **toàn bộ** `total_amount` → shipper thu tiền cả món không giao; dashboard "doanh thu đã giao" cũng tính đủ; khách không được báo, phải tự mở đơn mới thấy.
+2. **Quyết định (user chốt 26/11)?** Phí ship **giữ nguyên** (vẫn 1 kiện) — chỉ trừ tiền món thiếu. Có **gửi email** cho khách.
+3. **Đã làm gì?** `Order.short_shipped_amount` (mặc định 0). `enqueueShortShipments` (decide-partial approve) ghi giá trị này cho đơn AURELLE bị thiếu = Σ `unit_price` × (đặt − giao) qua `OrderGroupPickingService.shortAmountOf()` — cùng công thức website (đơn giá dòng × số thiếu). `codAmountOf()` + `amountAfterShortage()` (`shipping/utils/cod.util.ts`) trừ phần thiếu; select ở `shipments.service.ts` + dashboard doanh thu đã giao dùng số sau trừ. Website: mock server `applyStatusUpdate` → lần đầu nhận `short_shipped` gọi `sendShortShippedEmail()` (`scripts/aurelle-portal/short-shipped-mailer.ts`, SMTP `MAIL_*` dùng chung BE; nội dung dựng bởi hàm thuần `storefront/aurelle-short-shipped-mail.ts`; thiếu toàn bộ → email "đơn đã hủy"). Trang chi tiết đơn storefront thêm dòng "Cần trả khi nhận hàng" (= tổng − giảm trừ). Env mới `STOREFRONT_URL` (link trong email).
+4. **Không làm / giới hạn?** Chỉ đơn AURELLE (Lazada không có kênh báo giao thiếu). "Lấy lại (trả hàng về kệ)" KHÔNG báo website — đơn vẫn đủ món, chỉ mở lượt lấy mới. Doanh thu "đặt hàng" giữ nguyên tổng ban đầu. Vận đơn GHN đã tạo TRƯỚC khi chọn giao thiếu không tự sửa COD (thực tế không xảy ra: giao thiếu chọn ở bước lấy hàng, trước đóng gói/tạo vận đơn).
+5. **Kiểm chứng?** Test mới: `cod.util.spec` (630k − 200k = 430k, không âm, trả trước = 0), `shortAmountOf` (đặt 3 giao 2, bỏ dòng hủy), `aurelle-short-shipped-mail.spec` (tiêu đề, số cần trả, escape HTML, case hủy). `tsc` BE + storefront 0 lỗi, `jest` 195 suite / 1821 test pass.
+
+## 🐞 Nhật ký 26/11/2026 — "Lấy lại (trả hàng đã lấy về kệ)" lỗi 500
+
+1. **Lỗi gì?** `POST /order-groups/:id/fulfillment/decide-partial` với `approve=false` → 500 `MongooseError: Cannot pass an array to query updates unless the updatePipeline option is set` tại `StockReservationService.unconsume()`.
+2. **Nguyên nhân?** Mongoose 9 chặn update dạng pipeline (mảng `[{ $set: … }]`) nếu không bật `updatePipeline: true`. Test cũ đều mock `unconsume` nên không bắt được.
+3. **Sửa gì?** Thêm `updatePipeline: true` vào options của `unconsume()`. Đã rà: chỉ chỗ này dùng pipeline qua Mongoose Model; `storefront-stock.util.ts` cũng dùng pipeline nhưng chạy bằng collection thô của driver (mock server) nên không bị.
+4. **Quy tắc rút ra:** update dạng mảng qua Mongoose Model LUÔN kèm `updatePipeline: true`.
+5. **Kiểm chứng:** `stock-reservation.service.unconsume.spec.ts` dùng Model thật (chặn `exec`) — fail khi chưa sửa, pass sau khi sửa; `tsc` 0 lỗi.
+
+## 📐 Nhật ký 27/11/2026 — Hồ sơ kho (số đo) dùng chung giữa các sàn
+
+1. **Vấn đề gì?** `product_master` khóa theo `{platform, shop_id, seller_sku}` → cùng 1 hàng bán ở Lazada + AURELLE là 2 dòng. Đo dòng Lazada xong, dòng AURELLE kéo về sau vẫn "Chưa đo" → kho phải đo lại cùng 1 món (user báo 27/11, VD `QUANDAI-006-TRANG-M`, `AOTHUN-001-*`).
+2. **Thế nào là "cùng hàng"?** `ProductMasterService.findSameProductRows()`: cùng SKU nội bộ qua `marketplace_sku_mappings` (kể cả mã sàn khác nhau); hoặc dòng CHƯA NỐI mà mã SKU sàn trùng (không phân biệt hoa/thường) / trùng đúng SKU nội bộ. Đã nối sang SKU nội bộ KHÁC thì không tính dù trùng mã.
+3. **Đã làm gì?** Hồ sơ kho = 13 field (`SHARED_PROFILE_FIELDS`: số đo, GSM, dễ vỡ, hướng xếp, tải chồng, loại hàng, túi zip, gập đôi, lớp ngoài, trạng thái, người/lúc xác nhận). (a) `confirmPackagingProfile` → chép sang mọi dòng cùng hàng (đo lại thì ghi đè: cùng 1 món thật) + gỡ kẹt đóng gói của chúng. (b) `inheritSharedProfiles()` — dòng `needs_measurement` (không tính SKU ngừng dùng) nhận hồ sơ MỚI NHẤT của dòng cùng hàng đã đo: chạy sau mỗi `upsertProducts`, cuối `syncCatalogAllShops` (bắt cả SKU vừa nối tay) và lúc khởi động (`onModuleInit`, dữ liệu cũ). Module đăng ký thêm model `MarketplaceSkuMapping` (chỉ đọc).
+4. **Không đổi API.** FE nên hiện cột Sàn để phân biệt 2 dòng cùng mã — `FE_UPDATE_CHECKLIST.md` mục 22.
+5. **Kiểm chứng?** `product-master.shared-profile.spec.ts` (trùng mã 2 sàn → nhận số đo; mã khác nhưng cùng SKU nội bộ; trùng mã nhưng khác SKU nội bộ → không; SKU ngừng dùng → không). `tsc` 0 lỗi, `jest` 197 suite / 1827 test pass.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.

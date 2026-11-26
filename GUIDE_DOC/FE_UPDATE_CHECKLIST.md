@@ -570,6 +570,15 @@ Spec: `docs/specs/anh-bang-chung-niem-phong.md`. Ảnh chỉ để người xem,
 - Ảnh hiện ở: kiện đã niêm phong, Lịch sử thao tác, dòng thời gian nhóm đơn (`photoUrls` của mốc `packing.parcel_sealed` / `packing.unseal`), màn kiểm hàng hoàn.
 - App mobile: chưa làm — nếu app có niêm phong kiện thì gửi thêm `photo_urls` như web.
 
+## 22. 🆕 27/11/2026 — Hồ sơ kho dùng chung giữa các sàn (Cấu hình kho → Product Master)
+
+BE đã đổi (không đổi API): cùng 1 hàng bán ở Lazada + AURELLE có 2 dòng product_master; giờ đo/xác nhận 1 dòng thì mọi dòng cùng SKU nội bộ (hoặc trùng mã khi chưa nối) tự nhận số đo, SKU mới kéo về cũng tự nhận.
+
+| # | Màn | Việc FE |
+| --- | --- | --- |
+| 22.1 | Bảng SKU (cột SKU / Hồ sơ / cm / kg) | Thêm cột hoặc nhãn **Sàn** (`platform`: Lazada / AURELLE / Tiki) + `shopId` rút gọn — hiện 2 dòng cùng mã nhìn y hệt nhau, người dùng tưởng trùng lặp |
+| 22.2 | Nút **Xác nhận số đo** | Sau khi lưu thành công, tải lại danh sách (dòng cùng hàng ở sàn khác cũng chuyển "Đã đo"); có thể hiện toast "Áp dụng cho N dòng cùng hàng" — đếm lại từ danh sách, BE chưa trả số này |
+
 ## Phụ lục ✅ — đã hoàn thành
 
 Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại chi tiết request/response và cách làm cũ.

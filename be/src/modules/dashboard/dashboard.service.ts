@@ -24,6 +24,7 @@ import {
 } from '../packaging-materials/schemas/packaging-material.schema';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { DASHBOARD_ERROR_CODES } from './dashboard.errors';
+import { amountAfterShortage } from '../shipping/utils/cod.util';
 import {
   average,
   changeRate,
@@ -78,7 +79,7 @@ export interface SalesTotals {
   revenuePlacedVnd: number;
   /** Đơn thuộc vận đơn giao thành công trong kỳ (theo `delivered_at`). */
   ordersDelivered: number;
-  /** Tổng `total_amount` của các đơn đó ("doanh thu đã giao"). */
+  /** Tổng `total_amount` của các đơn đó ("doanh thu đã giao"); 26/11/2026 — trừ phần kho giao thiếu. */
   revenueDeliveredVnd: number;
   /** revenuePlaced / số đơn còn tính doanh thu. */
   avgOrderValueVnd: number | null;
@@ -199,6 +200,7 @@ interface OrderRow {
   platform: string;
   status: OrderStatus;
   total_amount: number;
+  short_shipped_amount?: number | null;
   created_at?: Date;
   consolidated_group_id?: Types.ObjectId | null;
 }
@@ -393,11 +395,11 @@ export class DashboardService {
     for (const { order, deliveredAt } of delivered) {
       const row = platformRow(order.platform);
       row.ordersDelivered += 1;
-      row.revenueDeliveredVnd += order.total_amount;
+      row.revenueDeliveredVnd += amountAfterShortage(order);
       const day = days.get(vnDayKey(deliveredAt));
       if (day) {
         day.ordersDelivered += 1;
-        day.revenueDeliveredVnd += order.total_amount;
+        day.revenueDeliveredVnd += amountAfterShortage(order);
       }
     }
     return {
@@ -456,7 +458,7 @@ export class DashboardService {
         origin: { $ne: 'replacement' },
         ...(platform ? { platform } : {}),
       })
-      .select('_id platform status total_amount consolidated_group_id')
+      .select('_id platform status total_amount short_shipped_amount consolidated_group_id')
       .lean<OrderRow[]>();
     return orders.flatMap((order) => {
       const deliveredAt = deliveredAtByGroup.get(String(order.consolidated_group_id));
@@ -628,7 +630,7 @@ function totals(received: readonly ReceivedBucket[], delivered: readonly OrderRo
     ordersCanceled: canceled,
     revenuePlacedVnd,
     ordersDelivered: delivered.length,
-    revenueDeliveredVnd: delivered.reduce((sum, o) => sum + o.total_amount, 0),
+    revenueDeliveredVnd: delivered.reduce((sum, o) => sum + amountAfterShortage(o), 0),
     avgOrderValueVnd: kept === 0 ? null : Math.round(revenuePlacedVnd / kept),
     cancelRate: ratio(canceled, ordersReceived),
   };
