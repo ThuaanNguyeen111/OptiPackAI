@@ -30,6 +30,16 @@ void main() {
       expect(routeForPush(data, canPick: false), '/');
     });
 
+    test('người đóng gói mở màn đóng gói của nhóm', () {
+      for (final type in ['packing_assigned', 'pending_approval', 'packaging_rejected', 'unpack_required']) {
+        final data = {'type': type, 'related_entity_type': 'order_group', 'related_entity_id': 'g1'};
+        expect(routeForPush(data, canPick: false, canPack: true), '/packing/g1', reason: type);
+        expect(routeForPush(data, canPick: true), '/', reason: 'nhân viên kho không mở màn đóng gói');
+      }
+      final picking = {'type': 'picking_assigned', 'related_entity_type': 'order_group', 'related_entity_id': 'g1'};
+      expect(routeForPush(picking, canPick: false, canPack: true), '/');
+    });
+
     test('loại khác hoặc thiếu mã nhóm về màn chính', () {
       expect(
         routeForPush({'type': 'low_box_stock', 'related_entity_type': 'packaging_box', 'related_entity_id': 'x'}, canPick: true),

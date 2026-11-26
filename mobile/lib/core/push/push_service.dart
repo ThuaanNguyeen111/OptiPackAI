@@ -16,15 +16,31 @@ const pushChannelId = 'optipack_alerts';
 /// Loại thông báo liên quan tới lấy hàng: bấm push thì mở màn lấy hàng của nhóm.
 const _pickingTypes = {'picking_assigned', 'stock_shortage'};
 
-/// Đường dẫn app cần mở khi bấm push. Mở màn lấy hàng chỉ khi người dùng được lấy hàng
-/// ([canPick]) và push có mã nhóm; còn lại về màn chính (chuông thông báo nằm ở đó).
-String routeForPush(Map<String, dynamic> data, {required bool canPick}) {
+/// Loại thông báo về đóng gói: mở màn đóng gói của nhóm.
+const _packingTypes = {
+  'packing_assigned',
+  'pending_approval',
+  'packing_blocked',
+  'packaging_rejected',
+  'packaging_plan_invalidated',
+  'packing_parcel_held',
+  'packing_issue',
+  'unpack_required',
+  'abnormal_package',
+};
+
+/// Đường dẫn app cần mở khi bấm push hoặc "Mở nhóm đơn". Màn lấy hàng cho người được lấy hàng
+/// ([canPick]), màn đóng gói cho người đóng gói ([canPack]), khi có mã nhóm; còn lại về màn chính.
+String routeForPush(Map<String, dynamic> data, {required bool canPick, bool canPack = false}) {
   final type = pickString(data, ['type']);
   final entityType = pickString(data, ['related_entity_type']);
   final entityId = pickString(data, ['related_entity_id']);
   final isGroup = entityType == 'order_group' || entityType == 'orderGroup';
   if (canPick && entityId.isNotEmpty && isGroup && _pickingTypes.contains(type)) {
     return '/pick/$entityId';
+  }
+  if (canPack && entityId.isNotEmpty && isGroup && _packingTypes.contains(type)) {
+    return '/packing/$entityId';
   }
   return '/';
 }
@@ -40,6 +56,7 @@ class PushService {
     required this.api,
     required this.router,
     required this.canPick,
+    this.canPack,
     FirebaseMessaging? messaging,
     FlutterLocalNotificationsPlugin? local,
     this.appVersion = '1.0.0',
@@ -49,6 +66,7 @@ class PushService {
   final ApiClient api;
   final GoRouter router;
   final bool Function() canPick;
+  final bool Function()? canPack;
   final String appVersion;
 
   final FirebaseMessaging? _messaging;
@@ -177,7 +195,10 @@ class PushService {
   }
 
   void _open(Map<String, dynamic> data) {
-    router.go(routeForPush(data, canPick: canPick()));
+    final route = routeForPush(data, canPick: canPick(), canPack: canPack?.call() ?? false);
+    // Đặt màn việc lên trên trang chính để bấm Back quay lại được.
+    router.go('/');
+    if (route != '/') router.push(route);
     final id = pickStringOrNull(data, ['notification_id']);
     if (id != null && id.isNotEmpty) {
       unawaited(api.patch('/notifications/${Uri.encodeComponent(id)}/read').catchError((Object _) => null));

@@ -101,14 +101,19 @@ class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
         rows = await _api.listGroups();
       }
       var summaries = <String, Map<String, dynamic>>{};
+      var withInfo = rows;
       try {
-        summaries = await _api.summaries([for (final r in rows) pickString(r, ['id'])]);
+        final res = await _api.summaries([for (final r in rows) pickString(r, ['id'])]);
+        summaries = res.plans;
+        withInfo = [
+          for (final r in rows) {...r, 'queueInfo': ?res.groups[pickString(r, ['id'])]},
+        ];
       } on ApiException {
         // Không có tóm tắt thì chỉ thiếu số kiện trên thẻ.
       }
       if (!mounted || request != _request) return;
       setState(() {
-        _all = rows;
+        _all = withInfo;
         _summaries = summaries;
         _loading = false;
         if (!_tabChosen) {
@@ -186,21 +191,24 @@ class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
 
     return Column(
       children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-          child: Row(
+        // Xuống hàng thay vì cuộn ngang: cả 6 tab và số đếm đều thấy ngay.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Wrap(
+            spacing: 6,
             children: [
               for (final tab in QueueTab.values)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    showCheckmark: false,
-                    avatar: tab.viewOnly ? const Icon(Icons.visibility_outlined, size: 16) : null,
-                    label: Text('${tab.label} · ${groupsForTab(tab, _all, _blocked).length}'),
-                    selected: tab == _tab,
-                    onSelected: (_) => _selectTab(tab),
-                  ),
+                ChoiceChip(
+                  showCheckmark: false,
+                  visualDensity: VisualDensity.compact,
+                  tooltip: tab.viewOnly ? '${tab.label} (chỉ xem)' : tab.label,
+                  avatar: tab.viewOnly
+                      ? Icon(Icons.visibility_outlined,
+                          size: 16, color: tab == _tab ? AppColors.onPrimary : AppColors.inkSubtle)
+                      : null,
+                  label: Text('${tab.shortLabel} · ${groupsForTab(tab, _all, _blocked).length}'),
+                  selected: tab == _tab,
+                  onSelected: (_) => _selectTab(tab),
                 ),
             ],
           ),
@@ -215,31 +223,37 @@ class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: Text('Hàng đợi · ${visible.length}${_tab.viewOnly ? ' · Chỉ xem' : ''}', style: boldText),
+                      child: TextField(
+                        controller: _search,
+                        textInputAction: TextInputAction.search,
+                        onChanged: _onSearchChanged,
+                        decoration: InputDecoration(
+                          hintText: 'Tìm mã đơn…',
+                          isDense: true,
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: _searching
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                      width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                )
+                              : null,
+                        ),
+                      ),
                     ),
                     IconButton(tooltip: 'Tải lại', onPressed: _refresh, icon: const Icon(Icons.refresh)),
                   ],
                 ),
-                TextField(
-                  controller: _search,
-                  textInputAction: TextInputAction.search,
-                  onChanged: _onSearchChanged,
-                  decoration: InputDecoration(
-                    hintText: 'Tìm mã đơn…',
-                    isDense: true,
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: _searching
-                        ? const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                          )
-                        : null,
+                if (_tab.viewOnly)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text('${_tab.label} — chỉ xem', style: subtle()),
                   ),
-                ),
                 if (isStaff)
                   Padding(
-                    padding: const EdgeInsets.only(top: 10),
+                    padding: const EdgeInsets.only(top: 8),
                     child: SegmentedButton<bool>(
+                      style: const ButtonStyle(visualDensity: VisualDensity.compact),
                       segments: const [
                         ButtonSegment(value: true, label: Text('Việc của tôi')),
                         ButtonSegment(value: false, label: Text('Tất cả')),
@@ -325,6 +339,7 @@ class QueueCard extends StatelessWidget {
     final total = pickInt(group, ['orderCount']);
     final clock = expressClock(group, DateTime.now());
     final skus = blockedSkus(group);
+    final info = queueInfoLines(group);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Card(
@@ -348,6 +363,16 @@ class QueueCard extends StatelessWidget {
                       Text(pickString(group, ['platform']), style: subtle()),
                   ],
                 ),
+                if (info != null) ...[
+                  const SizedBox(height: 6),
+                  if (info.who.isNotEmpty)
+                    Text(info.who,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+                  if (info.items.isNotEmpty)
+                    Text(info.items, maxLines: 1, overflow: TextOverflow.ellipsis, style: subtle()),
+                ],
                 const SizedBox(height: 8),
                 Row(
                   children: [

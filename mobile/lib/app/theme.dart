@@ -97,6 +97,20 @@ ThemeData buildTheme() {
     dialogTheme: DialogThemeData(backgroundColor: AppColors.surface, surfaceTintColor: Colors.transparent),
     bottomSheetTheme: BottomSheetThemeData(backgroundColor: AppColors.surface, surfaceTintColor: Colors.transparent),
     dividerTheme: DividerThemeData(color: AppColors.hairline),
+    // Chip đang chọn tô màu chính: mặc định của Material nhạt hơn cả chip chưa chọn.
+    chipTheme: ChipThemeData(
+      backgroundColor: AppColors.surface,
+      selectedColor: AppColors.primary,
+      checkmarkColor: AppColors.onPrimary,
+      side: BorderSide(color: AppColors.hairlineStrong),
+      labelStyle: TextStyle(
+        fontSize: 13.5,
+        fontWeight: FontWeight.w600,
+        color: WidgetStateColor.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? AppColors.onPrimary : AppColors.ink,
+        ),
+      ),
+    ),
     // Nút to, dễ bấm bằng một tay (docs: nút to ở nửa dưới màn hình).
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(

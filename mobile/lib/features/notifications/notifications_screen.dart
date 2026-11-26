@@ -7,6 +7,12 @@ import '../../app/providers.dart';
 import '../../shared/widgets.dart';
 import 'notifications_repository.dart';
 import '../../app/colors.dart';
+import '../../core/push/push_service.dart';
+import '../auth/auth_models.dart';
+
+/// Mã 24 ký tự trong chữ của BE chỉ giữ 8 ký tự cuối — đúng mã đang hiện ở hàng đợi.
+String shortenIds(String text) =>
+    text.replaceAllMapped(RegExp(r'\b[0-9a-f]{24}\b'), (m) => m[0]!.substring(16));
 
 class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
@@ -50,6 +56,8 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   Widget build(BuildContext context) {
     final ref = this.ref;
     final async = ref.watch(notificationsProvider);
+    // Cùng nguồn với huy hiệu ở chuông: đếm trên BE, không đếm trong 30 dòng đã tải.
+    final serverUnread = ref.watch(unreadCountProvider).valueOrNull;
 
     Future<void> refresh() async {
       setState(() {
@@ -72,6 +80,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               data: (first) {
                 final items = [...first, ..._older];
                 final more = _hasMore && first.length >= notificationsPageSize;
+                final unread = serverUnread ?? items.where((n) => !n.isRead).length;
                 return ListView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.all(16),
@@ -79,12 +88,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
                     Row(
                       children: [
                         Text(
-                          '${items.where((n) => !n.isRead).length} chưa đọc',
+                          '$unread chưa đọc',
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                         const Spacer(),
                         TextButton(
-                          onPressed: items.any((n) => !n.isRead)
+                          onPressed: unread > 0
                               ? () async {
                                   await ref
                                       .read(notificationsRepositoryProvider)
@@ -143,29 +152,30 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   void _showDetail(BuildContext context, AppNotification n) {
     final entityId = n.relatedEntityId ?? '';
     final isGroup = n.relatedEntityType == 'order_group' && entityId.isNotEmpty;
-    // Chỉ người được lấy hàng mới mở được màn lấy hàng (giống khi bấm thông báo đẩy).
-    final canOpenGroup =
-        isGroup && (ref.read(authControllerProvider).user?.isWarehouse ?? false);
+    // Mở đúng màn việc theo vai trò (cùng quy tắc với bấm thông báo đẩy).
+    final user = ref.read(authControllerProvider).user;
+    final target = !isGroup
+        ? '/'
+        : routeForPush(
+            {'type': n.type, 'related_entity_type': n.relatedEntityType, 'related_entity_id': entityId},
+            canPick: user?.isWarehouse ?? false,
+            canPack: user?.role == UserRole.packagingStaff || user?.role == UserRole.admin,
+          );
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         scrollable: true,
-        title: Text(n.title),
+        title: Text(shortenIds(n.title)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(n.message),
+            Text(shortenIds(n.message)),
             const SizedBox(height: 12),
             Text(
               formatDateTime(n.createdAt),
               style: TextStyle(color: AppColors.inkSubtle),
             ),
-            if (n.relatedEntityType != null)
-              Text(
-                'Liên quan: ${n.relatedEntityType} ${n.relatedEntityId ?? ''}',
-                style: TextStyle(color: AppColors.inkSubtle, fontSize: 12),
-              ),
           ],
         ),
         actions: [
@@ -173,11 +183,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Đóng'),
           ),
-          if (canOpenGroup)
+          if (target != '/')
             TextButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                context.push('/pick/$entityId');
+                context.push(target);
               },
               child: const Text('Mở nhóm đơn'),
             ),
@@ -204,7 +214,8 @@ class _NotificationTile extends StatelessWidget {
       NotificationSeverity.info => (AppColors.stagePick, Icons.info_outline),
     };
     return Card(
-      color: item.isRead ? null : color.withValues(alpha: 0.05),
+      // Pha sẵn với màu thẻ: màu trong suốt sẽ ăn theo nền xanh phía sau, thành khối đậm.
+      color: item.isRead ? null : Color.alphaBlend(color.withValues(alpha: 0.05), AppColors.surface),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: onTap,
@@ -220,7 +231,7 @@ class _NotificationTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      item.title,
+                      shortenIds(item.title),
                       style: TextStyle(
                         fontWeight: item.isRead
                             ? FontWeight.w500
@@ -229,7 +240,7 @@ class _NotificationTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      item.message,
+                      shortenIds(item.message),
                       style: TextStyle(color: AppColors.ink, fontSize: 13),
                     ),
                     const SizedBox(height: 4),
@@ -267,14 +278,20 @@ class _PushSettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: ListTile(
-        leading: const Icon(Icons.notifications_active_outlined),
-        title: const Text('Thông báo đẩy'),
-        subtitle: const Text(
-          'Việc gấp và việc được giao báo ngay cả khi app đóng. '
-          'Không thấy thông báo thì bật quyền Thông báo cho OptiPackAI trong Cài đặt của máy.',
-        ),
+    // Thu gọn: chỉ cần đọc khi không thấy push, không nên đẩy danh sách xuống.
+    return const Card(
+      child: ExpansionTile(
+        dense: true,
+        shape: Border(),
+        leading: Icon(Icons.notifications_active_outlined),
+        title: Text('Thông báo đẩy'),
+        childrenPadding: EdgeInsets.fromLTRB(16, 0, 16, 14),
+        children: [
+          Text(
+            'Việc gấp và việc được giao báo ngay cả khi app đóng. '
+            'Không thấy thông báo thì bật quyền Thông báo cho OptiPackAI trong Cài đặt của máy.',
+          ),
+        ],
       ),
     );
   }
