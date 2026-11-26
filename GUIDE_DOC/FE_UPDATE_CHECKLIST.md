@@ -580,6 +580,16 @@ BE đã đổi (không đổi API): cùng 1 hàng bán ở Lazada + AURELLE có 
 | 22.3 | Nút **Ngừng dùng** / **Dùng lại** | Mặc định áp cho MỌI sàn của hàng đó. Muốn ngừng riêng 1 sàn (VD trong Chi tiết): `PATCH /product-master/:id/retire` với `{ retired: true, only_this: true }` và `id` lấy từ `platforms[]` |
 | 22.2 | Nút **Xác nhận số đo** | Sau khi lưu thành công, tải lại danh sách (dòng cùng hàng ở sàn khác cũng chuyển "Đã đo"); có thể hiện toast "Áp dụng cho N dòng cùng hàng" — đếm lại từ danh sách, BE chưa trả số này |
 
+## 23. 🆕 27/11/2026 — Giao thiếu đơn AURELLE chờ khách xác nhận (Đóng gói → tab Thiếu hàng)
+
+BE: bấm **Giao phần có sẵn** mà nhóm có đơn AURELLE bị thiếu → nhóm KHÔNG sang `picked` ngay, vẫn ở `partial_needs_review` và có `customerConfirmation: { orderIds, requestedAt, deadlineAt }` (24 giờ). Khách bấm Đồng ý / Hủy trên website (hoặc quá hạn = tự đồng ý) → nhóm tự sang `picked` rồi tự tính kế hoạch như cũ. Nhóm chỉ có đơn Lazada → như cũ.
+
+| # | Màn | Việc FE |
+| --- | --- | --- |
+| 23.1 | Khung "Kho đã báo thiếu hàng" (`PackagingWorkbench`) | `group.customerConfirmation` khác null → thay 2 nút bằng dòng **"Đang chờ khách xác nhận giao thiếu — hạn HH:mm dd/MM"** (`deadlineAt`); vẫn cho **Lấy lại** (huỷ đề nghị, mở lượt lấy mới). Gọi lại Giao phần có sẵn lúc đang chờ → 409 `ORD_GROUP_INVALID_TRANSITION` (hiện message BE) |
+| 23.2 | Toast sau khi bấm Giao phần có sẵn | Response có `customerConfirmation` → toast "Đã báo khách, chờ xác nhận tối đa 24 giờ" thay cho "Đã giao phần có sẵn" |
+| 23.3 | Lịch sử thao tác | 3 action mới: `order_group.partial_awaiting_customer`, `order_group.customer_confirmation_resolved`, `order.backordered` (khách được báo "chờ bổ sung hàng" sau Lấy lại khi tồn không đủ) — hiện `summary` như các action khác |
+
 ## Phụ lục ✅ — đã hoàn thành
 
 Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại chi tiết request/response và cách làm cũ.
