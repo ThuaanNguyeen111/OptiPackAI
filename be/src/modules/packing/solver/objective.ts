@@ -96,7 +96,10 @@ export function summarizePlacements(
   const itemsWeight = units.reduce((s, u) => s + u.weight_g, 0);
   const itemsVolume = placements.reduce((s, p) => s + p.dx * p.dy * p.dz, 0);
   const fill = itemsVolume / innerVolume(box);
-  const lines = materials ? selectMaterials(units, fill, materials) : [];
+  // Túi niêm phong ôm sát hàng: không chèn gối hơi (luật void_fill chỉ cho thùng).
+  const lines = materials
+    ? selectMaterials(units, fill, materials, box.kind === 'mailer' ? 0 : innerVolume(box))
+    : [];
   const materialsWeight = lines.reduce((s, m) => s + m.weight_g, 0);
   const materialsCost = lines.reduce((s, m) => s + m.cost_vnd, 0);
   const outerCm3 =

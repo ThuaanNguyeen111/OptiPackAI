@@ -97,6 +97,8 @@ function entryToRule(entry: MaterialRuleEntry): MaterialRule {
     ...(entry.void_bands.length > 0 && {
       void_bands: entry.void_bands.map((b) => ({ min_void_ratio: b.min_void_ratio, quantity: b.quantity })),
     }),
+    ...(entry.target_fill_ratio != null && { target_fill_ratio: entry.target_fill_ratio }),
+    ...(entry.unit_fill_ml != null && { unit_fill_ml: entry.unit_fill_ml }),
   };
 }
 
@@ -162,6 +164,8 @@ export class PackagingMaterialService {
                 basis: r.basis,
                 quantity: r.quantity ?? 0,
                 void_bands: r.void_bands ?? [],
+                target_fill_ratio: r.basis === 'void_fill' ? (r.target_fill_ratio ?? null) : null,
+                unit_fill_ml: r.basis === 'void_fill' ? (r.unit_fill_ml ?? null) : null,
               })),
               updated_by: new Types.ObjectId(userId),
               is_active: true,

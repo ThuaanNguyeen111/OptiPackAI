@@ -43,23 +43,14 @@ export const DEFAULT_MATERIAL_RULES: MaterialRule[] = [
     basis: 'per_unit',
     quantity: 1,
   },
-  // AOFP-224 (PACKAGING_STANDARD §7): giấy kraft vò lấp khoảng trống — ưu tiên trước gối hơi.
-  {
-    material_type: 'kraft_paper',
-    applies_to: 'any',
-    basis: 'void_band',
-    void_bands: [
-      { min_void_ratio: 0.3, quantity: 1 },
-      { min_void_ratio: 0.5, quantity: 2 },
-      { min_void_ratio: 0.7, quantity: 3 },
-    ],
-  },
-  // Gối hơi chỉ còn là dự phòng khi thùng trống rất nhiều.
+  // AOFP-344 (26/11/2026, user chốt): khách mở thùng không thấy rỗng — gối hơi lấp đến
+  // khi hàng + chèn kín 90% lòng thùng. 800 ml/gối là giả định, kho đo gối thật rồi sửa luật.
   {
     material_type: 'air_pillow',
     applies_to: 'any',
-    basis: 'void_band',
-    void_bands: [{ min_void_ratio: 0.7, quantity: 2 }],
+    basis: 'void_fill',
+    target_fill_ratio: 0.9,
+    unit_fill_ml: 800,
   },
   // Túi xách: nhồi giấy kraft bên trong giữ form.
   {
@@ -110,6 +101,7 @@ function ruleQuantity(
   rule: MaterialRule,
   scopedCount: number,
   fillRatio: number,
+  innerVolumeMm3: number,
 ): number {
   const minUnits = rule.min_units ?? 1;
   if (scopedCount < minUnits || scopedCount === 0) return 0;
@@ -127,6 +119,14 @@ function ruleQuantity(
         (band) => voidRatio >= band.min_void_ratio,
       );
       return matching.reduce((best, band) => Math.max(best, band.quantity), 0);
+    }
+    case 'void_fill': {
+      const target = rule.target_fill_ratio ?? 0;
+      const unitMm3 = (rule.unit_fill_ml ?? 0) * 1000;
+      if (unitMm3 <= 0) return 0;
+      const missingMm3 = Math.max(0, target - fillRatio) * innerVolumeMm3;
+      // −1e-9: thiếu đúng bằng N đơn vị thì không làm tròn lên N + 1 do sai số dấu phẩy động.
+      return Math.ceil(missingMm3 / unitMm3 - 1e-9);
     }
   }
 }
@@ -146,19 +146,21 @@ function catalogByType(
 
 /**
  * Tính vật tư cho MỘT kiện. `fillRatio` = thể tích hàng / lòng thùng (0..1).
+ * `innerVolumeMm3` = thể tích lòng thùng — luật `void_fill` cần; 0 = bỏ qua luật đó.
  * Cùng loại vật tư do nhiều luật sinh ra được cộng dồn thành 1 dòng.
  */
 export function selectMaterials(
   units: PackingUnit[],
   fillRatio: number,
   planning: MaterialPlanning,
+  innerVolumeMm3 = 0,
 ): MaterialLine[] {
   const specs = catalogByType(planning.catalog);
   const totals = new Map<MaterialType, number>();
   for (const rule of planning.rules) {
     if (!specs.has(rule.material_type)) continue;
     const scopedCount = units.filter((u) => inScope(u, rule.applies_to)).length;
-    const quantity = ruleQuantity(rule, scopedCount, fillRatio);
+    const quantity = ruleQuantity(rule, scopedCount, fillRatio, innerVolumeMm3);
     if (quantity > 0)
       totals.set(
         rule.material_type,

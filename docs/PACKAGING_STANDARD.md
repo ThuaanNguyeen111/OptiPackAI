@@ -113,7 +113,7 @@ Quy tắc xếp trong cùng một thùng:
 - **Hàng mềm luôn nằm trên hàng cứng**, không bao giờ đặt dưới hộp giày/túi xách.
 - Món có `max_stack_load_kg = null` (vd. túi xách form cứng) không bị đặt gì lên trên — luật có sẵn. Riêng quần áo (loại nằm phẳng) để trống thì coi như chịu được 5 kg (`SOFT_DEFAULT_STACK_LOAD_G`, 13/11/2026).
 - Mục tiêu lấp đầy 80% (`FILL_TARGET`, 13/11/2026) chỉ dùng để **cảnh báo**, không phải ràng buộc. Kiện lấp đầy dưới 80% được ghi thêm một câu vào `explanation` nêu lý do: kho chưa có túi niêm phong cho hàng mềm, hoặc nêu cỡ khối bao của chồng hàng để gợi ý nhập thùng sát hơn. Lý do có thể là kho chưa có túi niêm phong cho hàng mềm, hoặc là cỡ khối bao của chồng hàng (gợi ý nhập thùng sát hơn). Túi niêm phong không bị xét.
-- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 12 cm theo BOX-S từ 26/11/2026). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
+- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 10 cm theo BOX-XS từ 26/11/2026). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
 - Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập đôi thêm đúng 1 lần nếu bật `can_fold_in_half`. Số đo hồ sơ là của gói sau khi đã gập túi.
 - Quần áo luôn nằm phẳng — luật có sẵn (`FLAT_CATEGORIES`).
 
@@ -184,12 +184,20 @@ Bổ sung vào `MATERIAL_TYPES`:
 
 | Mã | Dùng khi |
 |---|---|
-| `kraft_paper` (mới) | Lấp khoảng trống trong thùng; nhồi giữ form túi xách; chèn khe quanh hộp giày. Ưu tiên trước túi khí |
+| `kraft_paper` (mới) | Nhồi giữ form túi xách; chèn khe quanh hộp giày |
 | `tissue_paper` (mới) | Lót đầm, bọc túi xách — chống nhăn, chống trầy |
-| `air_pillow` | Dự phòng khi khoảng trống rất lớn (tỉ lệ rỗng ≥ 0,7) hoặc hết giấy |
+| `air_pillow` | Lấp khoảng trống trong thùng tới **độ kín 90%** (luật `void_fill`, xem dưới) |
 | `bubble_wrap`, `foam_corner`, `corrugated_divider`, `fragile_tape` | Giữ như luật hiện tại (dễ vỡ, giày) |
 
 Túi niêm phong **không** dùng vật liệu chèn (trừ `tissue_paper` theo L1 của đầm/túi xách).
+
+**Chèn kín (AOFP-344, 26/11/2026, user chốt).** Mục tiêu là khách mở thùng không thấy rỗng, nên không ép tỉ lệ hàng / thùng. Với 11 mẫu đang bán, kể cả thùng may đo vừa khít khối hàng, chỉ 23% đơn đạt ≥ 70%: quần áo rất mỏng, hàng cứng cao, và luật xếp chồng buộc nhiều món nằm đáy. Thay vào đó, luật `void_fill` đặt đủ gối hơi để **hàng + vật liệu chèn** lấp ≥ 90% lòng thùng:
+
+```
+số gối = làm tròn lên( max(0 ; 0,9 − lấp đầy hàng) × thể tích lòng thùng ÷ 800 ml )
+```
+
+Độ kín 90% và 800 ml/gối nằm trong luật vật tư (màn Vật tư, Admin sửa được). 800 ml là giả định, kho đo gối thật rồi sửa. Ước tính trên 915 tổ hợp đóng thùng: trung vị 9 gối/kiện (~3.600 đ), 90% kiện ≤ 15 gối. Cùng đợt thêm **BOX-XS** lòng 24 × 23 × 10 cm cho đơn nhỏ để bớt khoảng trống phải chèn.
 
 ## 8. Đơn gộp nhiều đơn
 
