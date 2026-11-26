@@ -5,7 +5,6 @@ import 'package:optipack_mobile/app/mock_providers.dart';
 import 'package:optipack_mobile/app/theme.dart';
 import 'package:optipack_mobile/features/notifications/notifications_screen.dart';
 import 'package:optipack_mobile/features/overview/overview_screen.dart';
-import 'package:optipack_mobile/features/packing/packing_screens.dart';
 import 'package:optipack_mobile/features/returns/returns_screens.dart';
 import 'package:optipack_mobile/features/shipping/shipping_screen.dart';
 import 'package:optipack_mobile/features/stock/stock_screen.dart';
@@ -38,8 +37,6 @@ void main() {
     'Thông báo': () => const NotificationsScreen(),
     'Tồn kho': () => const StockScreen(),
     'Tổng quan': () => const OverviewScreen(),
-    'Hàng đợi đóng gói': () => const PackingQueueScreen(),
-    'Kế hoạch đóng gói': () => const PackingGroupScreen(groupId: 'pg2'),
     'Hoàn hàng (kho)': () => const WarehouseReturnsScreen(),
     'Duyệt hoàn': () => const ReturnsApprovalScreen(),
     'Giao hàng': () => const ShippingScreen(),

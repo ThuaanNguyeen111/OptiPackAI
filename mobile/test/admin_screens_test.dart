@@ -22,6 +22,8 @@ import 'package:optipack_mobile/features/admin/shipping_admin_screen.dart';
 import 'package:optipack_mobile/features/admin/users_screen.dart';
 import 'package:optipack_mobile/features/admin/warehouse_config_screen.dart';
 import 'package:optipack_mobile/features/auth/auth_controller.dart';
+import 'package:optipack_mobile/features/auth/auth_models.dart';
+import 'package:optipack_mobile/features/auth/role_permissions.dart';
 import 'package:optipack_mobile/features/profile/profile_screen.dart';
 import 'package:optipack_mobile/features/warehouse/combined_pick_screen.dart';
 import 'package:optipack_mobile/features/warehouse/warehouse_logic.dart';
@@ -236,7 +238,7 @@ class _SignedOut extends AuthController {
   AuthState build() => const AuthState(status: AuthStatus.signedOut);
 }
 
-Future<void> _pump(WidgetTester tester, Widget screen) async {
+Future<void> _pump(WidgetTester tester, Widget screen, {bool owner = false}) async {
   tester.view.physicalSize = const Size(360, 640);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -244,6 +246,8 @@ Future<void> _pump(WidgetTester tester, Widget screen) async {
     overrides: [
       apiClientProvider.overrideWithValue(_FakeApi()),
       authControllerProvider.overrideWith(_SignedOut.new),
+      if (owner) isStoreOwnerProvider.overrideWithValue(true),
+      if (owner) myFeaturesProvider.overrideWith((ref) async => defaultFeaturesFor(UserRole.storeOwner)),
     ],
     child: MaterialApp(theme: buildTheme(), home: Scaffold(body: screen)),
   ));
@@ -270,6 +274,8 @@ void main() {
     'đơn hàng': () => const OrdersScreen(),
     'chi tiết đơn': () => const OrderDetailScreen(orderId: 'o1'),
     'nhóm đơn': () => const OrderGroupsScreen(),
+    'đơn hỏa tốc': () => const OrderGroupsScreen(view: OrderGroupsView.express),
+    'thiếu hàng': () => const OrderGroupsScreen(view: OrderGroupsView.shortage),
     'chi tiết nhóm': () => const OrderGroupDetailScreen(groupId: _longId),
     'đồng bộ đơn': () => const OrderSyncScreen(),
     'trả hàng': () => const ReturnsManageScreen(),
@@ -317,6 +323,66 @@ void main() {
       }
     });
   }
+
+  group('Chủ cửa hàng', () {
+    testWidgets('menu "Thêm" giống thanh bên web, không có trang của Admin', (tester) async {
+      await _pump(tester, const AdminMenuScreen(), owner: true);
+      final seen = <String>{};
+      for (var i = 0; i < 8; i++) {
+        seen.addAll(tester.widgetList<ListTile>(find.byType(ListTile)).map((t) => (t.title! as Text).data!));
+        await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+        await tester.pumpAndSettle();
+      }
+      expect(seen, containsAll([
+        'Đơn đa kênh', 'Nhóm đơn', 'Đơn hỏa tốc', 'Thiếu hàng', 'Trả hàng', 'Đồng bộ đơn',
+        'Cài đặt đóng gói & AI', 'Nhân viên', 'Vật liệu đóng gói', 'Báo cáo', 'Lịch sử thao tác',
+      ]));
+      for (final adminOnly in ['Người dùng', 'Phân quyền', 'Kết nối sàn', 'Cấu hình kho', 'Quản lý vận chuyển']) {
+        expect(seen, isNot(contains(adminOnly)));
+      }
+    });
+
+    test('trang bị Admin tắt thì mất khỏi menu', () {
+      final labels = [
+        for (final list in visibleSections(storeOwnerSections, {'orders'}).values)
+          for (final e in list) e.label,
+      ];
+      expect(labels, ['Đơn đa kênh', 'Hồ sơ & Bảo mật']);
+    });
+
+    for (final entry in <String, Widget Function()>{
+      'nhân viên': () => const UsersScreen(),
+      'đồng bộ đơn': () => const OrderSyncScreen(),
+      'vật liệu': () => const MaterialsScreen(),
+      'chi tiết nhóm': () => const OrderGroupDetailScreen(groupId: _longId),
+      'cài đặt đóng gói': () => const PackingSettingsScreen(),
+      'trả hàng': () => const ReturnsManageScreen(),
+    }.entries) {
+      testWidgets('màn ${entry.key} dựng được và không có nút chỉ dành cho Admin', (tester) async {
+        await _pump(tester, entry.value(), owner: true);
+        expect(find.text('Thử lại'), findsNothing, reason: 'màn tải lỗi');
+        await _scrollThrough(tester);
+        for (final label in ['Liên kết nhóm', 'Nhả giữ chỗ', 'Thêm quy tắc', 'Tạo từ câu mô tả', 'Kết nối AI', 'Thử kết nối AI']) {
+          expect(find.text(label), findsNothing, reason: label);
+        }
+        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('đồng bộ đơn và vật liệu: không thẻ nào có menu thao tác', (tester) async {
+      await _pump(tester, const OrderSyncScreen(), owner: true);
+      expect(find.byTooltip('Thao tác'), findsNothing);
+      await _pump(tester, const MaterialsScreen(), owner: true);
+      expect(find.byTooltip('Thao tác'), findsNothing);
+    });
+
+    testWidgets('cài đặt đóng gói: có "Người gửi trên nhãn"', (tester) async {
+      await _pump(tester, const PackingSettingsScreen(), owner: true);
+      await tester.scrollUntilVisible(find.text('Người gửi trên nhãn'), 200, scrollable: find.byType(Scrollable).first);
+      expect(find.text('Người gửi trên nhãn'), findsOneWidget);
+    });
+  });
 
   test('khay A/B theo thứ tự đơn trong nhóm', () {
     PickLine line(List<String> orders) => PickLine(

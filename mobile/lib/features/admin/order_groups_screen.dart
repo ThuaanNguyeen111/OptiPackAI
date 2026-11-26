@@ -7,6 +7,7 @@ import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
+import '../auth/role_permissions.dart';
 import '../history/history_screen.dart';
 import '../warehouse/warehouse_models.dart';
 import 'marketplace_screen.dart';
@@ -36,9 +37,71 @@ List<Widget> _groupPills(Map<String, dynamic> g) => [
       if (g['packingBlocked'] != null) Pill('Kẹt đóng gói: thiếu số đo', AppColors.warning),
     ];
 
-/// Nhóm đơn & Hỏa tốc.
+/// Ba màn tách riêng như web: toàn bộ nhóm, đơn hỏa tốc, nhóm thiếu hàng.
+enum OrderGroupsView {
+  all('Nhóm đơn', 'Không có nhóm đơn nào khớp.'),
+  express('Đơn hỏa tốc', 'Không có đơn hỏa tốc.'),
+  shortage('Thiếu hàng', 'Không có nhóm nào thiếu hàng.');
+
+  const OrderGroupsView(this.title, this.emptyText);
+
+  final String title;
+  final String emptyText;
+}
+
+const _awaitingReview = 'partial_needs_review';
+
+bool _isShort(Map<String, dynamic> g) =>
+    g['stockShortage'] == true || g['fulfillmentStatus'] == _awaitingReview;
+
+/// BE không lọc được "thiếu tồn HOẶC chờ duyệt" nên màn Thiếu hàng gọi 2 lần rồi gộp.
+Future<List<Map<String, dynamic>>> fetchViewGroups(
+  ApiClient api,
+  OrderGroupsView view, {
+  String status = '',
+  String q = '',
+}) async {
+  Future<List<Map<String, dynamic>>> list(Map<String, dynamic> query) async =>
+      rowsOf(await api.get('/order-groups', query: {...query, 'q': q, 'limit': 100}));
+
+  switch (view) {
+    case OrderGroupsView.all:
+      return list({'fulfillment_status': status});
+    case OrderGroupsView.express:
+      final rows = await list({'fulfillment_status': status, 'order_priority': 'express'});
+      // Quá hạn lên đầu, như web.
+      return [...rows.where((g) => g['isOverdue'] == true), ...rows.where((g) => g['isOverdue'] != true)];
+    case OrderGroupsView.shortage:
+      // Tìm theo mã: BE tìm một lần rồi lọc lại ở đây.
+      if (q.isNotEmpty) return (await list(const {})).where(_isShort).toList();
+      final results = await Future.wait([
+        list({'fulfillment_status': _awaitingReview}),
+        list({'stock_shortage': true}),
+      ]);
+      final seen = {for (final g in results[0]) g['id']};
+      return [...results[0], ...results[1].where((g) => !seen.contains(g['id']))];
+  }
+}
+
+List<String> _viewLines(Map<String, dynamic> g, OrderGroupsView view) {
+  switch (view) {
+    case OrderGroupsView.all:
+      return const [];
+    case OrderGroupsView.express:
+      final deadline = dateTimeText(g['packagingDeadline']);
+      return ['Hạn đóng gói: ${deadline.isEmpty ? '—' : deadline}'];
+    case OrderGroupsView.shortage:
+      return [
+        if (g['fulfillmentStatus'] == _awaitingReview) 'Chờ duyệt lấy thiếu',
+        for (final i in rowsOf(g['stockShortageItems'])) '${pickString(i, ['sku'])} thiếu ${pickInt(i, ['shortage'])}',
+      ];
+  }
+}
+
 class OrderGroupsScreen extends ConsumerStatefulWidget {
-  const OrderGroupsScreen({super.key});
+  const OrderGroupsScreen({super.key, this.view = OrderGroupsView.all});
+
+  final OrderGroupsView view;
 
   @override
   ConsumerState<OrderGroupsScreen> createState() => _OrderGroupsScreenState();
@@ -47,26 +110,21 @@ class OrderGroupsScreen extends ConsumerStatefulWidget {
 class _OrderGroupsScreenState extends ConsumerState<OrderGroupsScreen> {
   final _list = GlobalKey<LoadListState<List<Map<String, dynamic>>>>();
   String _status = '';
-  String _priority = '';
   String _q = '';
 
   @override
   Widget build(BuildContext context) {
+    final view = widget.view;
     void filter(VoidCallback change) {
       setState(change);
       _list.currentState?.reload();
     }
 
     return SubPage(
-      title: 'Nhóm đơn & Hỏa tốc',
+      title: view.title,
       child: LoadList<List<Map<String, dynamic>>>(
         key: _list,
-        load: () async => rowsOf(await ref.read(apiClientProvider).get('/order-groups', query: {
-          'fulfillment_status': _status,
-          'order_priority': _priority,
-          'q': _q,
-          'limit': 100,
-        })),
+        load: () => fetchViewGroups(ref.read(apiClientProvider), view, status: _status, q: _q),
         header: [
           TextField(
             textInputAction: TextInputAction.search,
@@ -75,14 +133,14 @@ class _OrderGroupsScreenState extends ConsumerState<OrderGroupsScreen> {
                 hintText: 'Mã nhóm hoặc mã đơn sàn', prefixIcon: Icon(Icons.search), isDense: true),
           ),
           const SizedBox(height: 8),
-          chipRow<String>(const [('', 'Mọi ưu tiên'), ('express', 'Hỏa tốc'), ('normal', 'Thường')], _priority,
-              (v) => filter(() => _priority = v)),
-          chipRow<String>([('', 'Mọi trạng thái'), for (final s in _groupStatuses) (s, fulfillmentLabel(s))], _status,
-              (v) => filter(() => _status = v)),
+          // Trang Thiếu hàng đã cố định theo tình trạng thiếu nên không lọc thêm trạng thái.
+          if (view != OrderGroupsView.shortage)
+            chipRow<String>([('', 'Mọi trạng thái'), for (final s in _groupStatuses) (s, fulfillmentLabel(s))],
+                _status, (v) => filter(() => _status = v)),
           const SizedBox(height: 8),
         ],
         builder: (context, groups, reload) => [
-          if (groups.isEmpty) emptyNote('Không có nhóm đơn nào khớp.'),
+          if (groups.isEmpty) emptyNote(view.emptyText),
           for (final g in groups)
             RecordCard(
               mono: true,
@@ -90,11 +148,13 @@ class _OrderGroupsScreenState extends ConsumerState<OrderGroupsScreen> {
               lines: [
                 '${platformNames[g['platform']] ?? g['platform']} · '
                     '${pickInt(g, ['activeOrderCount'])}/${pickInt(g, ['orderCount'])} đơn còn hiệu lực',
+                ..._viewLines(g, view),
                 dateTimeText(g['createdAt']),
               ],
               pills: _groupPills(g),
               onTap: () async {
-                await openPage(context, OrderGroupDetailScreen(groupId: pickString(g, ['id'])));
+                await openPage(context,
+                    OrderGroupDetailScreen(groupId: pickString(g, ['id']), canSetExpress: view != OrderGroupsView.shortage));
                 await reload();
               },
             ),
@@ -112,9 +172,12 @@ class _GroupData {
 }
 
 class OrderGroupDetailScreen extends ConsumerStatefulWidget {
-  const OrderGroupDetailScreen({super.key, required this.groupId});
+  const OrderGroupDetailScreen({super.key, required this.groupId, this.canSetExpress = true});
 
   final String groupId;
+
+  /// Mở từ màn Thiếu hàng thì không đặt hỏa tốc (như web).
+  final bool canSetExpress;
 
   @override
   ConsumerState<OrderGroupDetailScreen> createState() => _OrderGroupDetailScreenState();
@@ -224,6 +287,7 @@ class _OrderGroupDetailScreenState extends ConsumerState<OrderGroupDetailScreen>
         key: _list,
         load: _load,
         builder: (context, data, _) {
+          final owner = ref.watch(isStoreOwnerProvider);
           final g = data.group;
           final version = pickInt(g, ['version']);
           final status = pickString(g, ['fulfillmentStatus']);
@@ -245,7 +309,11 @@ class _OrderGroupDetailScreenState extends ConsumerState<OrderGroupDetailScreen>
               Text('${pickString(missing, ['sku'])} thiếu ${pickInt(missing, ['quantity'])} · '
                   '${pickString(missing, ['reporterName'])} ${pickString(missing, ['note'])}'),
             ],
-            if (status == 'partial_needs_review') ...[
+            if (status == 'partial_needs_review' && owner) ...[
+              const SizedBox(height: 10),
+              emptyNote('Nhân viên đóng gói hoặc Admin sẽ quyết định giao phần có sẵn hay lấy lại.'),
+            ],
+            if (status == 'partial_needs_review' && !owner) ...[
               const SizedBox(height: 10),
               FilledButton(onPressed: () => _decidePartial(true, version), child: const Text('Giao phần có sẵn')),
               const SizedBox(height: 8),
@@ -256,12 +324,12 @@ class _OrderGroupDetailScreenState extends ConsumerState<OrderGroupDetailScreen>
             Wrap(
               spacing: 8,
               children: [
-                if (g['requiresSelfDelivery'] != true)
+                if (widget.canSetExpress && g['requiresSelfDelivery'] != true)
                   OutlinedButton(
                       onPressed: () => _setExpress(!express),
                       child: Text(express ? 'Bỏ hỏa tốc' : 'Đánh dấu hỏa tốc')),
-                OutlinedButton(onPressed: _link, child: const Text('Liên kết nhóm')),
-                if (g['manualLink'] != null)
+                if (!owner) OutlinedButton(onPressed: _link, child: const Text('Liên kết nhóm')),
+                if (!owner && g['manualLink'] != null)
                   OutlinedButton(
                       onPressed: () => _act(() => _api.delete('$_base/link'), 'Đã bỏ liên kết.'),
                       child: const Text('Bỏ liên kết')),
@@ -313,9 +381,10 @@ class _OrderGroupDetailScreenState extends ConsumerState<OrderGroupDetailScreen>
                   OutlinedButton(
                       onPressed: () => _act(() => _api.post('$_base/stock-reservation/recheck'), 'Đã tính lại.'),
                       child: const Text('Tính lại giữ chỗ')),
-                  OutlinedButton(
-                      onPressed: () => _act(() => _api.post('$_base/stock-reservation/release'), 'Đã nhả giữ chỗ.'),
-                      child: const Text('Nhả giữ chỗ')),
+                  if (!owner)
+                    OutlinedButton(
+                        onPressed: () => _act(() => _api.post('$_base/stock-reservation/release'), 'Đã nhả giữ chỗ.'),
+                        child: const Text('Nhả giữ chỗ')),
                 ],
               ),
             ],

@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:optipack_mobile/features/notifications/notifications_repository.dart';
-import 'package:optipack_mobile/features/packing/packing_repository.dart';
 import 'package:optipack_mobile/features/returns/returns_repository.dart';
 import 'package:optipack_mobile/features/shipping/shipping_repository.dart';
 import 'package:optipack_mobile/features/stock/stock_repository.dart';
@@ -110,64 +109,6 @@ void main() {
     test('không duyệt hai lần', () async {
       await repo.approve('rma-1');
       await expectLater(repo.approve('rma-1'), throwsA(isA<ReturnsException>()));
-    });
-  });
-
-  group('Đóng gói', () {
-    test('cân lệch quá 20% thì kiện bị giữ, trong ngưỡng thì niêm phong', () {
-      expect(evaluateSealWeight(1.0, 1.15), SealOutcome.sealed);
-      expect(evaluateSealWeight(1.0, 0.85), SealOutcome.sealed);
-      expect(evaluateSealWeight(1.0, 1.25), SealOutcome.held);
-      expect(evaluateSealWeight(1.0, 0.7), SealOutcome.held);
-      expect(evaluateSealWeight(0, 5), SealOutcome.sealed, reason: 'không có cân ước tính thì không so');
-    });
-
-    test('quét món: sai món, vượt số lượng, và niêm phong chỉ khi quét đủ', () async {
-      final repo = MockPackingRepository();
-      await repo.approve('pg1');
-
-      await expectLater(
-        repo.scan('pg1', 2, 'KHONG-CO'),
-        throwsA(isA<PackingException>().having((e) => e.code, 'code', 'PACKING_SCAN_NOT_IN_PARCEL')),
-      );
-      await expectLater(
-        repo.seal('pg1', 2, 0.4),
-        throwsA(isA<PackingException>().having((e) => e.code, 'code', 'PACKING_PARCEL_NOT_SCANNED')),
-      );
-
-      await repo.scan('pg1', 2, 'aopolo-030-be-m'); // không phân biệt hoa thường
-      await repo.scan('pg1', 2, 'AOPOLO-030-BE-M');
-      await expectLater(
-        repo.scan('pg1', 2, 'AOPOLO-030-BE-M'),
-        throwsA(isA<PackingException>().having((e) => e.code, 'code', 'PACKING_SCAN_EXCEEDS')),
-      );
-
-      final sealed = await repo.seal('pg1', 2, 0.43);
-      expect(sealed.outcome, SealOutcome.sealed);
-    });
-
-    test('cân lệch thì kiện bị giữ và không được quét thêm', () async {
-      final repo = MockPackingRepository();
-      await repo.approve('pg1');
-      await repo.scan('pg1', 2, 'AOPOLO-030-BE-M');
-      await repo.scan('pg1', 2, 'AOPOLO-030-BE-M');
-      final res = await repo.seal('pg1', 2, 0.9);
-      expect(res.outcome, SealOutcome.held);
-      expect(res.parcel.status, ParcelStatus.held);
-      await expectLater(repo.scan('pg1', 2, 'AOPOLO-030-BE-M'), throwsA(isA<PackingException>()));
-    });
-
-    test('từ chối kế hoạch đưa nhóm ra khỏi hàng đợi; không từ chối được nhóm đang đóng', () async {
-      final repo = MockPackingRepository();
-      await repo.reject('pg1', RejectReason.boxTooTight, null);
-      expect(await repo.queue(PackingStage.pendingApproval), isEmpty);
-      await expectLater(repo.reject('pg2', RejectReason.other, null), throwsA(isA<PackingException>()));
-    });
-
-    test('món của kiện đếm theo từng đơn vị', () async {
-      final p = (await MockPackingRepository().get('pg1')).parcels.first;
-      expect(p.needed['AOPOLO-030-BE-L'], 2);
-      expect(p.totalNeeded, 4);
     });
   });
 

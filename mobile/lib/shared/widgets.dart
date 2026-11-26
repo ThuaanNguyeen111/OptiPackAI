@@ -252,6 +252,7 @@ Future<bool> confirmDialog(
   required String title,
   required String message,
   String confirmLabel = 'Xác nhận',
+  bool danger = false,
 }) async {
   final ok = await showDialog<bool>(
     context: context,
@@ -261,7 +262,8 @@ Future<bool> confirmDialog(
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
         FilledButton(
-          style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+          style: FilledButton.styleFrom(
+              minimumSize: const Size(0, 44), backgroundColor: danger ? AppColors.danger : null),
           onPressed: () => Navigator.pop(ctx, true),
           child: Text(confirmLabel),
         ),

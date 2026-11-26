@@ -11,7 +11,7 @@ import '../auth/role_permissions.dart';
 const featureLabels = <String, String>{
   'dashboard': 'Tổng quan',
   'orders': 'Đơn đa kênh',
-  'order_groups': 'Nhóm đơn & Hỏa tốc',
+  'order_groups': 'Nhóm đơn, Hỏa tốc, Thiếu hàng',
   'returns': 'Trả hàng',
   'order_sync': 'Đồng bộ đơn',
   'picking': 'Lấy hàng trong kho',

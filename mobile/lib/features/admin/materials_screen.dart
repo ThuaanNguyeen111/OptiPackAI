@@ -8,6 +8,7 @@ import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
+import '../auth/role_permissions.dart';
 import 'intake_sheet.dart';
 
 const materialTypeLabels = {
@@ -59,6 +60,7 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
   _Tab _tab = _Tab.boxes;
 
   ApiClient get _api => ref.read(apiClientProvider);
+  bool get _readOnly => ref.read(isStoreOwnerProvider);
   Future<void> _reload() async => _list.currentState?.reload();
 
   Future<Map<String, dynamic>> _load() async {
@@ -212,12 +214,14 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
         if (active && low) Pill(onHand == 0 ? 'Hết hàng' : 'Sắp hết', onHand == 0 ? AppColors.danger : AppColors.warning),
       ],
       actions: [
-        CardAction('Nhập kho', () => _stockIn('$base/$id/stock-in', '${r['code']}'), icon: Icons.add_box_outlined),
-        CardAction('Sửa', edit, icon: Icons.edit_outlined),
-        CardAction('Sổ xuất nhập', () => _movements('$base/$id/movements', '${r['code']}'), icon: Icons.list_alt),
-        CardAction(active ? 'Tắt' : 'Bật lại',
-            () => _run(() => _api.patch('$base/$id', body: {'is_active': !active}), active ? 'Đã tắt.' : 'Đã bật lại.'),
-            icon: active ? Icons.toggle_off_outlined : Icons.toggle_on_outlined, danger: active),
+        if (!_readOnly) ...[
+          CardAction('Nhập kho', () => _stockIn('$base/$id/stock-in', '${r['code']}'), icon: Icons.add_box_outlined),
+          CardAction('Sửa', edit, icon: Icons.edit_outlined),
+          CardAction('Sổ xuất nhập', () => _movements('$base/$id/movements', '${r['code']}'), icon: Icons.list_alt),
+          CardAction(active ? 'Tắt' : 'Bật lại',
+              () => _run(() => _api.patch('$base/$id', body: {'is_active': !active}), active ? 'Đã tắt.' : 'Đã bật lại.'),
+              icon: active ? Icons.toggle_off_outlined : Icons.toggle_on_outlined, danger: active),
+        ],
       ],
     );
   }
@@ -358,7 +362,7 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
                 'Mức cảnh báo ${pickInt(m, ['reorderLevel'])}',
               ],
               pills: [if (m['isActive'] == false) Pill('Đã tắt', AppColors.inkSubtle)],
-              actions: [
+              actions: _readOnly ? const [] : [
                 CardAction('Mua thêm', () => _reuseForm(m, 'purchase'), icon: Icons.add_box_outlined),
                 CardAction('Xuất dùng nội bộ', () => _reuseForm(m, 'internal'), icon: Icons.outbox_outlined),
                 CardAction('Sửa', () => _editReorder(m), icon: Icons.edit_outlined),
@@ -388,7 +392,7 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
                     '${_ruleBases[rules[i]['basis']] ?? rules[i]['basis']}'
                     '${rules[i]['quantity'] == null ? '' : ' · ${rules[i]['quantity']}'}',
               ],
-              actions: [
+              actions: _readOnly ? const [] : [
                 CardAction('Sửa', () => _editRule(rules, i), icon: Icons.edit_outlined),
                 CardAction(
                     'Xóa',
@@ -400,7 +404,8 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
                     danger: true),
               ],
             ),
-          FilledButton.tonal(onPressed: () => _editRule(rules, null), child: const Text('Thêm quy tắc')),
+          if (!_readOnly)
+            FilledButton.tonal(onPressed: () => _editRule(rules, null), child: const Text('Thêm quy tắc')),
         ];
     }
   }
@@ -410,7 +415,8 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final addable = const {_Tab.boxes, _Tab.bags, _Tab.cushions}.contains(_tab);
+    final addable =
+        !ref.watch(isStoreOwnerProvider) && const {_Tab.boxes, _Tab.bags, _Tab.cushions}.contains(_tab);
     return SubPage(
       title: 'Vật liệu đóng gói',
       floatingAction: addable
