@@ -3,7 +3,7 @@ import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MATERIAL_TYPES, type MaterialType } from '../engine/types';
 
 export const MATERIAL_RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any', 'bag', 'dress_or_bag'] as const;
-export const MATERIAL_RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band'] as const;
+export const MATERIAL_RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band', 'void_fill'] as const;
 
 @Schema({ _id: false })
 export class MaterialVoidBandEntry {
@@ -20,6 +20,9 @@ export class MaterialRuleEntry {
   @Prop({ type: String, enum: MATERIAL_RULE_BASES, required: true }) basis!: (typeof MATERIAL_RULE_BASES)[number];
   @Prop({ type: Number, default: 0, min: 0 }) quantity!: number;
   @Prop({ type: [MaterialVoidBandEntrySchema], default: [] }) void_bands!: MaterialVoidBandEntry[];
+  /** AOFP-344 — chỉ dùng cho basis = void_fill. */
+  @Prop({ type: Number, min: 0, max: 1, default: null }) target_fill_ratio!: number | null;
+  @Prop({ type: Number, min: 1, default: null }) unit_fill_ml!: number | null;
 }
 export const MaterialRuleEntrySchema = SchemaFactory.createForClass(MaterialRuleEntry);
 

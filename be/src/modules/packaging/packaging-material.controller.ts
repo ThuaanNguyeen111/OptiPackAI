@@ -61,6 +61,8 @@ export interface MaterialRulesResponse {
     basis: string;
     quantity: number;
     voidBands: { minVoidRatio: number; quantity: number }[];
+    targetFillRatio: number | null;
+    unitFillMl: number | null;
   }[];
 }
 
@@ -117,6 +119,8 @@ function toRulesResponse(active: ActiveMaterialRules): MaterialRulesResponse {
       basis: r.basis,
       quantity: r.quantity ?? 0,
       voidBands: (r.void_bands ?? []).map((b) => ({ minVoidRatio: b.min_void_ratio, quantity: b.quantity })),
+      targetFillRatio: r.target_fill_ratio ?? null,
+      unitFillMl: r.unit_fill_ml ?? null,
     })),
   };
 }

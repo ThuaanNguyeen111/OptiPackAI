@@ -74,6 +74,10 @@ _Tránh_: số đo áo, kích thước theo size
 Cạnh mỏng nhất của gói quần áo sau khi gấp và cho vào túi zip; bằng số lớp × độ dày một lớp vải, tối thiểu 0,3 cm.
 _Tránh_: chiều cao áo, độ cao gói
 
+**Độ kín**:
+Phần lòng thùng được hàng và vật liệu chèn lấp đầy; mục tiêu để khách mở thùng không thấy rỗng.
+_Tránh_: tỉ lệ lấp đầy (đó chỉ tính hàng), độ đầy
+
 **Kiện**:
 Một thùng hoặc túi đã niêm phong; với GHN mỗi kiện có một mã đơn hãng riêng.
 _Tránh_: parcel (trong UI), gói, hộp

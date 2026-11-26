@@ -187,9 +187,10 @@ export type MaterialRuleScope =
  *  - per_extra_unit:  quantity × (số món thuộc nhóm − 1) — vd tấm ngăn giữa các hộp giày
  *  - per_carton:      quantity cố định cho mỗi kiện
  *  - void_band:       theo độ trống (1 − fill_ratio) của thùng, chọn dải cao nhất thỏa
+ *  - void_fill:       (AOFP-344) đủ đơn vị để hàng + chèn lấp `target_fill_ratio` lòng thùng
  */
 export type MaterialRuleBasis =
-  'per_unit' | 'per_extra_unit' | 'per_carton' | 'void_band';
+  'per_unit' | 'per_extra_unit' | 'per_carton' | 'void_band' | 'void_fill';
 
 export interface MaterialVoidBand {
   min_void_ratio: number;
@@ -205,6 +206,10 @@ export interface MaterialRule {
   /** Hệ số/số lượng (per_unit, per_extra_unit, per_carton); bỏ qua với void_band. */
   quantity?: number;
   void_bands?: MaterialVoidBand[];
+  /** void_fill: độ kín mục tiêu (hàng + chèn) / lòng thùng, 0..1. */
+  target_fill_ratio?: number;
+  /** void_fill: thể tích 1 đơn vị lấp được (ml), vd gối hơi 800. */
+  unit_fill_ml?: number;
 }
 
 /** Dữ liệu tính vật tư truyền vào engine (từ DB hoặc luật mặc định). */

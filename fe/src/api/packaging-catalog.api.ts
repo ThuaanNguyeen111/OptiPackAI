@@ -89,6 +89,7 @@ export type MaterialRuleBasis =
   | 'per_extra_unit'
   | 'per_carton'
   | 'void_band'
+  | 'void_fill'
 
 export type MaterialRuleScope = 'fragile' | 'shoes' | 'fragile_or_shoes' | 'any'
 
@@ -99,6 +100,9 @@ export type MaterialRule = {
   basis: string
   quantity: number
   voidBands: { minVoidRatio: number; quantity: number }[]
+  /** void_fill (AOFP-344): độ kín mục tiêu 0–1 và thể tích 1 đơn vị (ml). */
+  targetFillRatio: number | null
+  unitFillMl: number | null
 }
 
 export type MaterialRules = {
@@ -575,10 +579,16 @@ function mapRules(raw: unknown): MaterialRules {
               },
             ]
           }),
+          targetFillRatio: optNum(rule.targetFillRatio ?? rule.target_fill_ratio),
+          unitFillMl: optNum(rule.unitFillMl ?? rule.unit_fill_ml),
         },
       ]
     }),
   }
+}
+
+function optNum(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 export async function getMaterialRules(): Promise<MaterialRules> {
@@ -604,6 +614,10 @@ export async function saveMaterialRules(rules: MaterialRule[]): Promise<Material
                 quantity: band.quantity,
               }))
             : undefined,
+        ...(rule.basis === 'void_fill' && {
+          target_fill_ratio: rule.targetFillRatio,
+          unit_fill_ml: rule.unitFillMl,
+        }),
       })),
     },
   })

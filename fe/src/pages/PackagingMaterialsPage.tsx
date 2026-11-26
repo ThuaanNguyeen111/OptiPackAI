@@ -88,7 +88,9 @@ const CUSHION_TYPES: CushionMaterialType[] = [
 ]
 
 const RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any', 'bag', 'dress_or_bag'] as const
-const RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band'] as const
+const RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band', 'void_fill'] as const
+/** AOFP-344: mặc định khi chọn void_fill — kín 90%, gối hơi 800 ml. */
+const VOID_FILL_DEFAULT = { targetFillRatio: 0.9, unitFillMl: 800 }
 
 const fieldClass =
   'h-10 w-full rounded-md border border-hairline bg-canvas px-3 text-sm text-ink outline-none focus:border-primary'
@@ -2551,6 +2553,8 @@ function RulesEditor({
         rule.basis === 'void_band' && rule.voidBands.length === 0
           ? [{ minVoidRatio: 0.5, quantity: 2 }]
           : rule.voidBands,
+      targetFillRatio: rule.targetFillRatio ?? VOID_FILL_DEFAULT.targetFillRatio,
+      unitFillMl: rule.unitFillMl ?? VOID_FILL_DEFAULT.unitFillMl,
     }))
     setBusy(true)
     void saveMaterialRules(payload)
@@ -2586,6 +2590,8 @@ function RulesEditor({
                     basis: 'per_carton',
                     quantity: 1,
                     voidBands: [],
+                    targetFillRatio: null,
+                    unitFillMl: null,
                   },
                 ])
               }
@@ -2665,7 +2671,28 @@ function RulesEditor({
                   </select>
                 </td>
                 <td className="py-1 pr-2">
-                  {rule.basis === 'void_band' ? (
+                  {rule.basis === 'void_fill' ? (
+                    <div className="flex gap-1">
+                      <Input
+                        className={fieldClass}
+                        disabled={!canManage}
+                        title={tx(vi, 'Độ kín mục tiêu: hàng + chèn / lòng thùng (0–1)', 'Target fill: items + void fill / box (0–1)')}
+                        value={String(rule.targetFillRatio ?? VOID_FILL_DEFAULT.targetFillRatio)}
+                        onChange={(event) =>
+                          updateRow(index, { targetFillRatio: Number(event.target.value) || 0 })
+                        }
+                      />
+                      <Input
+                        className={fieldClass}
+                        disabled={!canManage}
+                        title={tx(vi, 'Thể tích 1 đơn vị lấp được (ml)', 'Volume filled per unit (ml)')}
+                        value={String(rule.unitFillMl ?? VOID_FILL_DEFAULT.unitFillMl)}
+                        onChange={(event) =>
+                          updateRow(index, { unitFillMl: Math.floor(Number(event.target.value)) || 0 })
+                        }
+                      />
+                    </div>
+                  ) : rule.basis === 'void_band' ? (
                     <div className="flex gap-1">
                       <Input
                         className={fieldClass}

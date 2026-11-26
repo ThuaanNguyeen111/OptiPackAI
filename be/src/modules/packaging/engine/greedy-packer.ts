@@ -663,7 +663,7 @@ export function buildOk(
   const fillRatio = itemsVolume / innerVolume;
   // (28/09/2026) Vật tư theo luật + danh mục (ước lượng, không vào hình học).
   const materials = materialPlanning
-    ? selectMaterials(units, fillRatio, materialPlanning)
+    ? selectMaterials(units, fillRatio, materialPlanning, box.kind === 'mailer' ? 0 : innerVolume)
     : [];
   const materialsWeight = materials.reduce((sum, m) => sum + m.weight_g, 0);
   const materialsCost = materials.reduce((sum, m) => sum + m.cost_vnd, 0);
