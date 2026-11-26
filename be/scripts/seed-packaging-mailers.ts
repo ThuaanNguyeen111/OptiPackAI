@@ -26,10 +26,10 @@ import {
  */
 
 const SAMPLE_MAILERS = [
-  { code: 'MAILER-20X30', name: 'Túi niêm phong 20×30 (mẫu)', width_cm: 20, length_cm: 30, tare_g: 6, price_vnd: 600 },
-  { code: 'MAILER-25X35', name: 'Túi niêm phong 25×35 (mẫu)', width_cm: 25, length_cm: 35, tare_g: 8, price_vnd: 800 },
-  { code: 'MAILER-32X45', name: 'Túi niêm phong 32×45 (mẫu)', width_cm: 32, length_cm: 45, tare_g: 13, price_vnd: 1200 },
-  { code: 'MAILER-38X52', name: 'Túi niêm phong 38×52 (mẫu)', width_cm: 38, length_cm: 52, tare_g: 18, price_vnd: 1600 },
+  { code: 'MAILER-20X30', name: 'Túi niêm phong 20×30 cm', width_cm: 20, length_cm: 30, tare_g: 6, price_vnd: 600 },
+  { code: 'MAILER-25X35', name: 'Túi niêm phong 25×35 cm', width_cm: 25, length_cm: 35, tare_g: 8, price_vnd: 800 },
+  { code: 'MAILER-32X45', name: 'Túi niêm phong 32×45 cm', width_cm: 32, length_cm: 45, tare_g: 13, price_vnd: 1200 },
+  { code: 'MAILER-38X52', name: 'Túi niêm phong 38×52 cm', width_cm: 38, length_cm: 52, tare_g: 18, price_vnd: 1600 },
 ] as const;
 
 const SAMPLE_STOCK = 200;
