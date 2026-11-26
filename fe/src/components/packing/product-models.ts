@@ -8,6 +8,9 @@
  */
 
 /** Thùng mẫu seed (`BOX-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
+import type { PackingItemProfile } from '../../types/packing-plan'
+import type { PrimitiveSpec } from './scene/primitives'
+
 export const BOX_MODELS: Record<string, string> = {
   'BOX-S': '/models/sampleS.glb',
   'BOX-M': '/models/sampleM.glb',
@@ -25,7 +28,15 @@ export const BOX_MODELS: Record<string, string> = {
  */
 export type ItemModelKind = 'garment' | 'rigid'
 
-export type ItemModel = { path: string; kind: ItemModelKind; prepStep?: 'bagPrep' | 'shoeBox' | 'caseIn' }
+export type ItemModel = {
+  path: string
+  kind: ItemModelKind
+  prepStep?: 'bagPrep' | 'shoeBox' | 'caseIn'
+  /** AOFP-352 — dựng bằng code thay cho file GLB. */
+  primitive?: PrimitiveSpec
+  /** AOFP-352 — giãn từng trục theo placement.orientation (mô hình riêng / hình cơ bản). */
+  stretch?: boolean
+}
 
 export const ITEM_MODELS: Record<string, ItemModel> = {
   shirt: { path: '/models/somi.glb', kind: 'garment' },
@@ -96,6 +107,22 @@ const CATEGORY_COLORS: Record<string, string> = {
 export function itemModelFor(category: string | null | undefined): ItemModel | null {
   if (!category) return null
   return ITEM_MODELS[category] ?? null
+}
+
+/**
+ * AOFP-352 — mô hình của một SKU trong kế hoạch: theo ảnh chụp `model`; kế hoạch cũ không có thì theo loại.
+ * Bước chuẩn bị (clip trong file) chỉ có ở mô hình theo loại. Mô hình theo loại giữ cách khớp cũ.
+ */
+export function resolveItemModel(profile: Pick<PackingItemProfile, 'productCategory' | 'model'> | undefined): ItemModel | null {
+  const byCategory = itemModelFor(profile?.productCategory)
+  const snap = profile?.model
+  if (!snap) return byCategory
+  if (snap.source === 'primitive') {
+    return snap.primitive ? { path: '', kind: 'rigid', primitive: snap.primitive, stretch: true } : null
+  }
+  if (!snap.url) return byCategory
+  if (snap.source === 'category') return { kind: snap.kind, prepStep: byCategory?.prepStep, path: snap.url }
+  return { path: snap.url, kind: snap.kind, stretch: snap.kind === 'rigid' }
 }
 
 export function boxModelFor(code: string): string | null {

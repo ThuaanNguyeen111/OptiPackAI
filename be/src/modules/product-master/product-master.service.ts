@@ -30,6 +30,7 @@ import { formatDimsCm, formatFlatMmAsCm } from '../../common/utils/measure-forma
 import { describeError } from '../../common/utils/log-error.util';
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
 import { normalizeSellerSku } from '../master-skus/seller-sku.util';
+import { ProductModelsService, type ProductModelLean } from '../product-models/product-models.service';
 
 /**
  * 27/11/2026 — các field HỒ SƠ KHO (số đo sau gấp/bọc + quy tắc đóng gói). Cùng 1 hàng thật bán
@@ -46,12 +47,29 @@ const SHARED_PROFILE_FIELDS = [
   'zip_bag_folded',
   'can_fold_in_half',
   'outer_requirement',
+  'model_id', // AOFP-352 — cùng hàng thì cùng dáng
   'packaging_profile_status',
   'profile_confirmed_by',
   'profile_confirmed_at',
 ] as const;
 
 type SkuRef = Pick<ProductMaster, 'platform' | 'shop_id' | 'seller_sku'>;
+
+const MODEL_CODES = {
+  required: PRODUCT_MASTER_ERROR_CODES.MODEL_REQUIRED,
+  mismatch: PRODUCT_MASTER_ERROR_CODES.MODEL_CATEGORY_MISMATCH,
+};
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Mã mẫu = phần trước đoạn cuối (size/màu): "TS-BASIC-L" → "TS-BASIC". Không có dấu phân cách → null. */
+export function styleCode(sellerSku: string): string | null {
+  const trimmed = sellerSku.trim();
+  const cut = Math.max(trimmed.lastIndexOf('-'), trimmed.lastIndexOf('_'), trimmed.lastIndexOf(' '));
+  return cut > 1 ? trimmed.slice(0, cut) : null;
+}
 
 function sharedProfileOf(source: ProductMaster): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -115,6 +133,8 @@ export class ProductMasterService implements OnModuleInit {
     @Optional() private readonly masterSkusService?: MasterSkusService,
     // 27/11/2026 — tìm các dòng cùng 1 hàng thật (cùng SKU nội bộ) để dùng chung hồ sơ kho.
     @Optional() @InjectModel(MarketplaceSkuMapping.name) private readonly mappingModel?: Model<MarketplaceSkuMappingDocument>,
+    // AOFP-352 — kiểm tra mô hình 3D khi xác nhận hồ sơ. @Optional: test cũ không đăng ký.
+    @Optional() private readonly productModelsService?: ProductModelsService,
   ) {}
 
   /** 27/11/2026 — dòng đã có từ trước (chưa đo nhưng hàng cùng loại đã đo ở sàn khác) nhận hồ sơ ngay khi khởi động. */
@@ -615,10 +635,19 @@ export class ProductMasterService implements OnModuleInit {
       }
     }
 
+    // AOFP-352 (R1, R2) — hồ sơ ready phải có mô hình 3D hợp loại. Mô hình đã ngừng dùng chỉ giữ được nếu SKU đang dùng sẵn.
+    // App mobile chưa gửi model_id: giữ mô hình đang gắn nếu còn hợp loại, không thì lấy mô hình theo loại.
+    let modelId = dto.model_id ? new Types.ObjectId(dto.model_id) : null;
+    if (this.productModelsService) {
+      const current = await this.productMasterModel.findById(id).select('model_id').lean();
+      modelId = (await this.productModelsService.resolveForConfirm(dto.model_id ?? null, dto.product_category, current?.model_id, MODEL_CODES))._id;
+    }
+
     const updated = await this.productMasterModel.findByIdAndUpdate(
       id,
       {
         $set: {
+          ...(modelId ? { model_id: modelId } : {}),
           dimension: {
             package_length_cm: dto.length_cm,
             package_width_cm: dto.width_cm,
@@ -657,6 +686,70 @@ export class ProductMasterService implements OnModuleInit {
     // Chỉ cảnh báo khi kho tự nhập độ dày; bỏ trống (kể cả null) thì độ dày vừa tính từ GSM.
     const warning = measuredCm === null ? null : thicknessWarning(dto.product_category, fabricGsm, measuredCm);
     return { product: updated, warnings: warning === null ? [] : [warning] };
+  }
+
+  /**
+   * AOFP-352 (R4) — đổi mô hình 3D cho SKU, không đụng số đo / `profile_confirmed_at` (dáng không ảnh hưởng phép tính).
+   * Các dòng cùng hàng ở sàn/shop khác đổi theo, như hồ sơ kho dùng chung.
+   */
+  async setModel(id: string, modelId: string): Promise<ProductMasterDocument> {
+    const product = await this.getProduct(id);
+    if (this.productModelsService) {
+      await this.productModelsService.assertAttachable(modelId, product.product_category, product.model_id, MODEL_CODES);
+    }
+    product.model_id = new Types.ObjectId(modelId);
+    await product.save();
+    const rows = await this.findSameProductRows(product);
+    if (rows.length > 0) {
+      await this.productMasterModel.updateMany(
+        { _id: { $in: rows.map((r) => (r as ProductMaster & { _id: Types.ObjectId })._id) } },
+        { $set: { model_id: product.model_id } },
+      );
+    }
+    return product;
+  }
+
+  /**
+   * AOFP-352 (Q9) — gợi ý mô hình: dòng cùng hàng (cùng SKU nội bộ) → SKU cùng mã mẫu trong shop → mô hình theo loại.
+   * Không kế thừa ngầm: người dùng bấm chọn.
+   */
+  async modelSuggestions(id: string): Promise<{ model: ProductModelLean; reason: 'same_product' | 'same_style' | 'category'; sellerSku: string | null }[]> {
+    const models = this.productModelsService;
+    if (!models) return [];
+    const product = await this.getProduct(id);
+    const out: { modelId: string; reason: 'same_product' | 'same_style' | 'category'; sellerSku: string | null }[] = [];
+    const seen = new Set<string>();
+    const push = (modelId: Types.ObjectId | null | undefined, reason: (typeof out)[number]['reason'], sellerSku: string | null): void => {
+      if (!modelId || seen.has(modelId.toString())) return;
+      seen.add(modelId.toString());
+      out.push({ modelId: modelId.toString(), reason, sellerSku });
+    };
+    for (const row of await this.findSameProductRows(product)) {
+      push(row.model_id, 'same_product', row.seller_sku);
+    }
+    const style = styleCode(product.seller_sku);
+    if (style) {
+      const siblings = await this.productMasterModel
+        .find({
+          _id: { $ne: product._id },
+          platform: product.platform,
+          shop_id: product.shop_id,
+          model_id: { $ne: null },
+          seller_sku: { $regex: `^${escapeRegex(style)}[-_ ]`, $options: 'i' },
+        })
+        .select('seller_sku model_id')
+        .limit(20)
+        .lean();
+      for (const s of siblings) push(s.model_id, 'same_style', s.seller_sku);
+    }
+    const byCategory = await models.findCategoryModel(product.product_category);
+    push(byCategory?._id, 'category', null);
+    const snapshots = await Promise.all(
+      out.map(async (o) => ({ ...o, model: await models.findById(o.modelId).catch(() => null) })),
+    );
+    return snapshots
+      .filter((o): o is typeof o & { model: ProductModelLean } => o.model !== null && o.model.status === 'active')
+      .map(({ model, reason, sellerSku }) => ({ model, reason, sellerSku }));
   }
 
   /**

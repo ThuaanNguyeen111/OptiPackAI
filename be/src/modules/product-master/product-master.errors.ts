@@ -9,4 +9,7 @@ export const PRODUCT_MASTER_ERROR_CODES = {
   // (29/09/2026) sàn chưa implement getProducts trên MarketplaceAdapter (VD TikTok/Tiki)
   UNSUPPORTED_PLATFORM: 'PM_UNSUPPORTED_PLATFORM',
   NOTHING_TO_UPDATE: 'PM_NOTHING_TO_UPDATE',
+  // AOFP-352 — hồ sơ ready phải có mô hình 3D hợp loại (docs/specs/PRODUCT_3D_MODELS.md R1, R2)
+  MODEL_REQUIRED: 'PM_MODEL_REQUIRED',
+  MODEL_CATEGORY_MISMATCH: 'PM_MODEL_CATEGORY_MISMATCH',
 } as const;

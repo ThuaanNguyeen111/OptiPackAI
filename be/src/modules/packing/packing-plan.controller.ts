@@ -24,7 +24,7 @@ import { effectiveParcelStatus } from './utils/parcels.util';
 import { orderIdsOf } from './utils/shared-parcel.util';
 import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
 import { averageFill } from './utils/stock-suggestion.util';
-import type { PackingPlanDocument, PlanBoxComparison, PlanProofLabel } from './schemas/packing-plan.schema';
+import type { PackingPlanDocument, PlanBoxComparison, PlanItemModel, PlanProofLabel } from './schemas/packing-plan.schema';
 import {
   ApprovePlanDto,
   ChangeBoxDto,
@@ -315,6 +315,8 @@ export interface PackingPlanResponse {
     productCategory: string | null;
     zipBagCode: string | null;
     zipBagFolded: boolean;
+    /** AOFP-352 — ảnh chụp mô hình 3D lúc tính kế hoạch; null = kế hoạch cũ, FE dùng mô hình theo loại. */
+    model: PlanItemModel | null;
   }[];
   adjustments: { kind: string; detail: string; reason: string; note: string | null; at: Date; skus: string[]; boxCodes: string[]; oldBoxOutcome: 'unused' | 'damaged' | null; wasteCostVnd: number }[];
   issues: {
@@ -580,6 +582,7 @@ export function toPlanResponse(
       productCategory: i.product_category,
       zipBagCode: i.zip_bag_code,
       zipBagFolded: i.zip_bag_folded,
+      model: i.model ?? null,
     })),
     adjustments: plan.adjustments.map((a) => ({
       kind: a.kind,

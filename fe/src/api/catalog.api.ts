@@ -94,6 +94,8 @@ export type ProductMasterRow = {
   weightKg: number | null
   isFragile: boolean
   productCategory: string | null
+  /** AOFP-352 — mô hình 3D trong thư viện; null = chưa gắn (chưa đóng gói được). */
+  modelId: string | null
   orientationRule: 'any' | 'upright_only' | null
   maxStackLoadKg: number | null
   zipBagCode: string | null
@@ -132,6 +134,8 @@ export type ConfirmPackagingProfileInput = {
   zip_bag_folded?: boolean
   can_fold_in_half?: boolean
   outer_requirement?: OuterRequirement | null
+  /** AOFP-352 — bắt buộc. */
+  model_id: string
 }
 
 export type StockAvailability = {
@@ -514,6 +518,7 @@ function mapProductMaster(raw: unknown): ProductMasterRow | null {
     weightKg: pickNumber(dimension?.weightKg, dimension?.package_weight_kg, row.weightKg),
     isFragile: row.isFragile === true || row.is_fragile === true,
     productCategory: pickString(row.productCategory, row.product_category) || null,
+    modelId: pickString(row.modelId, row.model_id) || null,
     orientationRule: orientation === 'upright_only' || orientation === 'any' ? orientation : null,
     maxStackLoadKg: pickNumber(row.maxStackLoadKg, row.max_stack_load_kg),
     zipBagCode: pickString(row.zipBagCode, row.zip_bag_code) || null,

@@ -101,6 +101,13 @@ export class ProductMaster {
   @Prop({ type: String, enum: [...OUTER_REQUIREMENTS, null], default: null })
   outer_requirement?: OuterRequirement | null;
 
+  /**
+   * AOFP-352 — mô hình 3D trong thư viện `product_models` (chỉ quyết định dáng hiển thị, kích thước vẫn là
+   * `dimension`). Bắt buộc khi hồ sơ `ready` — xem docs/specs/PRODUCT_3D_MODELS.md.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null, index: true })
+  model_id?: Types.ObjectId | null;
+
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   profile_confirmed_by?: Types.ObjectId | null;
 

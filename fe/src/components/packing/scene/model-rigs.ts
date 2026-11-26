@@ -184,6 +184,36 @@ export function fitToBlock(box: Box3, size: Vec3, uniform: boolean): Fit {
   }
 }
 
+/**
+ * AOFP-352 — khớp mô hình theo đúng hướng bộ giải đặt (placement.orientation), giãn từng trục.
+ * Khung mô hình: +Y = chiều cao SKU (H); trục ngang dài hơn = L, còn lại = W.
+ * orientation đọc theo trục BE (x, y, z↑) — cảnh 3D: x = BE x, y = BE z, z = BE y.
+ */
+export function orientedFit(box: Box3, size: Vec3, orientation: string): Fit {
+  const m = box.isEmpty() ? [1, 1, 1] : box.getSize(new Vector3()).toArray()
+  const center = box.isEmpty() ? new Vector3() : box.getCenter(new Vector3())
+  const longX = (m[0] ?? 0) >= (m[2] ?? 0)
+  const modelAxis: Record<string, number> = { L: longX ? 0 : 2, W: longX ? 2 : 0, H: 1 }
+  const sceneAxis = [0, 2, 1] // ký tự thứ i của orientation ↦ trục cảnh
+  const cols = [new Vector3(), new Vector3(), new Vector3()]
+  const scale = new Vector3()
+  for (let i = 0; i < 3; i++) {
+    const dim = orientation[i] ?? 'LWH'[i] ?? 'L'
+    const from = modelAxis[dim] ?? i
+    const to = sceneAxis[i] ?? i
+    cols[from]?.setComponent(to, 1)
+    scale.setComponent(to, (size[to] ?? 0) / Math.max(m[from] ?? 0, 1e-6))
+  }
+  const [c0, c1, c2] = cols as [Vector3, Vector3, Vector3]
+  const rot = new Matrix4().makeBasis(c0, c1, c2)
+  if (rot.determinant() < 0) {
+    // Hoán vị lẻ: lật theo trục W của mô hình (ít thấy nhất) để ra phép xoay thật.
+    cols[modelAxis.W ?? 2]?.negate()
+    rot.makeBasis(c0, c1, c2)
+  }
+  return { quaternion: new Quaternion().setFromRotationMatrix(rot), scale, offset: center.negate() }
+}
+
 /** Một bản model món hàng: clone riêng, ẩn node thừa, điều khiển thời gian clip. */
 export class ItemRig {
   readonly root: Object3D

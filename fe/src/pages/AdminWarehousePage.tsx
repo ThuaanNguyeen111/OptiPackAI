@@ -50,6 +50,7 @@ import {
   MasterSkuTab,
   ReconcileTab,
 } from './admin-warehouse/CatalogPanels'
+import { ProductModelsTab } from './admin-warehouse/ProductModelsTab'
 import { cn } from '../lib/cn'
 import { formatApiError, getApiErrorCode, getApiErrorDetailList } from '../lib/api'
 import { AdminToast } from '../modules/admin/components/AdminToast'
@@ -93,7 +94,7 @@ const fieldClass =
   'w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
 type AreaId = 'catalog' | 'warehouse'
-type CatalogTabId = 'categories' | 'master' | 'link'
+type CatalogTabId = 'categories' | 'master' | 'link' | 'models'
 type WarehouseTabId = 'layout' | 'assign' | 'stock' | 'picking'
 
 export function AdminWarehousePage() {
@@ -125,6 +126,7 @@ export function AdminWarehousePage() {
     { id: 'categories', labelVi: 'Danh mục & màu', labelEn: 'Categories & colors' },
     { id: 'master', labelVi: 'SKU nội bộ', labelEn: 'Internal SKUs' },
     { id: 'link', labelVi: 'Nối SKU Lazada', labelEn: 'Map Lazada SKUs' },
+    { id: 'models', labelVi: 'Mô hình 3D', labelEn: '3D models' },
   ]
 
   const warehouseTabs: Array<{ id: WarehouseTabId; labelVi: string; labelEn: string }> = [
@@ -217,6 +219,11 @@ export function AdminWarehousePage() {
                   </div>
                 ) : null}
                 {catalogTab === 'master' ? <MasterSkuTab vi={vi} onNotice={showToast} /> : null}
+                {catalogTab === 'models' ? (
+                  <PanelSection title={vi ? 'Thư viện mô hình 3D' : '3D model library'}>
+                    <ProductModelsTab vi={vi} onNotice={showToast} />
+                  </PanelSection>
+                ) : null}
                 {catalogTab === 'link' ? (
                   <div className="space-y-6">
                     <PanelSection title={vi ? 'Đồng bộ và nối SKU sàn' : 'Sync and map seller SKUs'}>

@@ -1,11 +1,12 @@
 import type { PackableItem } from '../../../common/interfaces/packaging.interface';
 import { FLAT_CATEGORIES } from '../../packaging/engine/units';
 import { suggestSmallestBag, type BagSize } from '../../packaging/bag-fit.util';
-import type { PackingPlan } from '../schemas/packing-plan.schema';
+import type { PackingPlan, PlanItemModel } from '../schemas/packing-plan.schema';
 
 export function toItemProfiles(
   items: PackableItem[],
   bags: (BagSize & { code: string })[],
+  models: ReadonlyMap<string, PlanItemModel> = new Map(),
 ): PackingPlan['item_profiles'] {
   const seen = new Map<string, PackingPlan['item_profiles'][number]>();
   for (const i of items) {
@@ -18,6 +19,7 @@ export function toItemProfiles(
       product_category: i.product_category ?? null,
       zip_bag_code: i.zip_bag_code ?? autoBag,
       zip_bag_folded: i.zip_bag_folded ?? false,
+      model: (i.model_id ? models.get(i.model_id.toString()) : undefined) ?? null,
     });
   }
   return [...seen.values()];

@@ -415,12 +415,41 @@ export class PlanOrder {
 }
 export const PlanOrderSchema = SchemaFactory.createForClass(PlanOrder);
 
+/** AOFP-352 — ảnh chụp hình cơ bản lúc tính kế hoạch. */
+@Schema({ _id: false })
+export class PlanItemPrimitive {
+  @Prop({ type: String, required: true }) shape!: string;
+  @Prop({ type: Number, default: null }) corner_radius_pct!: number | null;
+  @Prop({ type: Number, default: null }) cap_height_pct!: number | null;
+  @Prop({ type: Number, default: null }) shoulder_pct!: number | null;
+  @Prop({ type: Number, default: null }) neck_height_pct!: number | null;
+  @Prop({ type: Number, default: null }) neck_diameter_pct!: number | null;
+  @Prop({ type: Number, default: null }) crimp_pct!: number | null;
+  @Prop({ type: String, required: true }) body_color!: string;
+  @Prop({ type: String, default: null }) cap_color!: string | null;
+}
+export const PlanItemPrimitiveSchema = SchemaFactory.createForClass(PlanItemPrimitive);
+
+/** AOFP-352 — ảnh chụp mô hình 3D lúc tính kế hoạch: thay/ngừng dùng mô hình sau đó không đổi hình kế hoạch cũ. */
+@Schema({ _id: false })
+export class PlanItemModel {
+  @Prop({ type: String, required: true }) id!: string;
+  @Prop({ type: Number, required: true }) version!: number;
+  @Prop({ type: String, required: true }) source!: string;
+  @Prop({ type: String, required: true }) kind!: string;
+  @Prop({ type: String, default: null }) url!: string | null;
+  @Prop({ type: PlanItemPrimitiveSchema, default: null }) primitive!: PlanItemPrimitive | null;
+}
+export const PlanItemModelSchema = SchemaFactory.createForClass(PlanItemModel);
+
 @Schema({ _id: false })
 export class PlanItemProfile {
   @Prop({ required: true }) sku!: string;
   @Prop({ type: String, default: null }) product_category!: string | null;
   @Prop({ type: String, default: null }) zip_bag_code!: string | null;
   @Prop({ type: Boolean, default: false }) zip_bag_folded!: boolean;
+  /** AOFP-352 — null ở kế hoạch tính trước khi có thư viện mô hình (FE rơi về bảng theo loại). */
+  @Prop({ type: PlanItemModelSchema, default: null }) model!: PlanItemModel | null;
 }
 export const PlanItemProfileSchema = SchemaFactory.createForClass(PlanItemProfile);
 

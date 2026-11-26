@@ -10,6 +10,7 @@ import { ProductMasterSyncScheduler } from './product-master-sync.scheduler';
 import { ProductMasterController } from './product-master.controller';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { MasterSkusModule } from '../master-skus/master-skus.module';
+import { ProductModelsModule } from '../product-models/product-models.module';
 import { MarketplaceSkuMapping, MarketplaceSkuMappingSchema } from '../master-skus/schemas/marketplace-sku-mapping.schema';
 
 @Module({
@@ -28,6 +29,7 @@ import { MarketplaceSkuMapping, MarketplaceSkuMappingSchema } from '../master-sk
       { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema },
     ]),
     MarketplaceIntegrationModule,
+    ProductModelsModule, // AOFP-352 — kiểm tra mô hình 3D khi xác nhận hồ sơ
     MasterSkusModule, // 22/10/2026 — tự nối SKU sàn trùng mã SKU nội bộ (MasterSkusModule không import ngược)
   ],
   controllers: [ProductMasterController],

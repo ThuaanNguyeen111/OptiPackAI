@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsIn, IsMongoId, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { PRODUCT_CATEGORY_VALUES, ProductCategory } from '../../../common/enums/product-category.enum';
 import { OUTER_REQUIREMENTS, type OuterRequirement } from '../../../common/enums/outer-requirement.enum';
 
@@ -117,4 +117,20 @@ export class ConfirmPackagingProfileDto {
   @IsOptional()
   @IsIn(OUTER_REQUIREMENTS, { message: 'outer_requirement phải là mailer_ok hoặc box_required' })
   outer_requirement?: OuterRequirement | null;
+
+  @ApiPropertyOptional({
+    example: '6745f0c2a1b2c3d4e5f60718',
+    description:
+      'AOFP-352 — mô hình 3D trong thư viện /product-models (quần áo phải dùng mô hình có bước gập). Bỏ trống = giữ mô hình đang gắn nếu hợp loại, không thì mô hình theo loại; không có → PM_MODEL_REQUIRED.',
+  })
+  @IsOptional()
+  @IsMongoId({ message: 'model_id không hợp lệ' })
+  model_id?: string;
+}
+
+/** AOFP-352 — đổi mô hình cho SKU đã đo, không phải xác nhận lại số đo (R4). */
+export class SetProductModelDto {
+  @ApiProperty({ example: '6745f0c2a1b2c3d4e5f60718' })
+  @IsMongoId({ message: 'model_id không hợp lệ' })
+  model_id!: string;
 }

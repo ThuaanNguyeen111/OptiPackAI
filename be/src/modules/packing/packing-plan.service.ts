@@ -21,6 +21,7 @@ import { PackagingBoxService } from '../packaging/packaging-box.service';
 import { PackagingMaterialService } from '../packaging/packaging-material.service';
 import { PackagingBagService } from '../packaging/packaging-bag.service';
 import { toItemProfiles } from './utils/item-profiles.util';
+import { ProductModelsService } from '../product-models/product-models.service';
 import { PackingGuideAiService } from '../packaging/packing-guide-ai.service';
 import {
   ALL_ORIENTATIONS,
@@ -382,6 +383,8 @@ export class PackingPlanService {
     @Optional() private readonly guideMemory?: PackingGuideMemoryService,
     // 08/11/2026 — cảnh báo tồn khi thùng hỏng lúc đóng (hao hụt).
     @Optional() private readonly stockAlerts?: PackagingStockAlertService,
+    // AOFP-352 — chụp mô hình 3D của từng SKU vào kế hoạch.
+    @Optional() private readonly productModels?: ProductModelsService,
   ) {}
 
   /**
@@ -707,6 +710,10 @@ export class PackingPlanService {
       }
 
       const zipBags = await this.bagService.list(true);
+      const planItems = allocations.flatMap((a) => a.items);
+      const modelSnapshots = this.productModels
+        ? await this.productModels.snapshots(planItems.map((i) => (i.model_id ? new Types.ObjectId(i.model_id.toString()) : null)))
+        : new Map();
       const saved = await this.runInTransaction(async (session) => {
         const updated = await this.planModel.findOneAndUpdate(
           { _id: plan._id, status: 'computing' },
@@ -715,7 +722,7 @@ export class PackingPlanService {
               status: 'ready',
               orders,
               parcels: renumberParcels(parcels, orders.map((o) => o.order_id)),
-              item_profiles: toItemProfiles(allocations.flatMap((a) => a.items), zipBags),
+              item_profiles: toItemProfiles(planItems, zipBags, modelSnapshots),
               'solver.computation_ms': Date.now() - started,
               'solver.inputs': inputs,
             },

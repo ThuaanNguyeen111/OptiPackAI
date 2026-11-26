@@ -118,6 +118,7 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
         seller_sku: 'SKU-A',
         is_fragile: false,
         packaging_profile_status: 'ready',
+        model_id: new Types.ObjectId(),
         dimension: {
           package_length_cm: 10,
           package_width_cm: 8,

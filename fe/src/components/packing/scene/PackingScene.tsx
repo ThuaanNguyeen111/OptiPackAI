@@ -18,8 +18,9 @@ import {
   type Vec3,
   type WorkArea,
 } from '../../../utils/packing-layout'
-import { MAILER_MODEL, boxModelFor, categoryColor, itemModelFor, type ItemModel } from '../product-models'
-import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock } from './model-rigs'
+import { MAILER_MODEL, boxModelFor, categoryColor, resolveItemModel, type ItemModel } from '../product-models'
+import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock, orientedFit } from './model-rigs'
+import { buildPrimitive, type PrimitiveSpec } from './primitives'
 import { BubbleSleeve, CloseMaterials, PrepareTray, WrapAnimation } from './MaterialsScene'
 import { materialCounts, needsBubbleSleeve } from '../../../utils/packing-materials'
 
@@ -176,8 +177,37 @@ function clipRange(
   }
 }
 
+/** AOFP-352 — hình cơ bản dựng trong khối đơn vị, xoay theo orientation rồi giãn khớp khối. */
+function PrimitiveBody({ spec, size, orientation }: { spec: PrimitiveSpec; size: Vec3; orientation: string }): ReactNode {
+  const object = useMemo(() => buildPrimitive(spec), [spec])
+  useEffect(
+    () => () => {
+      object.traverse((o) => {
+        if (o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as Material).dispose()
+        }
+      })
+    },
+    [object],
+  )
+  const [sx, sy, sz] = size
+  const fit = useMemo(
+    () => orientedFit(new Box3(new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5)), [sx, sy, sz], orientation),
+    [sx, sy, sz, orientation],
+  )
+  return (
+    <group scale={fit.scale}>
+      <group quaternion={fit.quaternion}>
+        <primitive object={object} />
+      </group>
+    </group>
+  )
+}
+
 function ModelBody({
   model,
+  orientation,
   size,
   withZip,
   role,
@@ -187,6 +217,7 @@ function ModelBody({
   bend,
 }: {
   model: ItemModel
+  orientation: string
   bend: BendUniforms
   size: Vec3
   /** Cạnh khu chuẩn bị: hàng trải phẳng lớn hơn thì co lại, gấp xong về đúng cỡ. */
@@ -219,12 +250,15 @@ function ModelBody({
     return v
   }, [rig])
   const fit = useMemo(
-    () => fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
-    [rig, sx, sy, sz, model.kind],
+    () =>
+      model.stretch
+        ? orientedFit(rig.finalBox, [sx, sy, sz], orientation)
+        : fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
+    [rig, sx, sy, sz, model.kind, model.stretch, orientation],
   )
   // Hàng cứng co đều nên thấp hơn khối được cấp: hạ xuống sát đáy khối để không lơ lửng giữa không trung.
   const sink = useMemo(() => {
-    if (model.kind !== 'rigid' || rig.finalBox.isEmpty()) return 0
+    if (model.kind !== 'rigid' || model.stretch || rig.finalBox.isEmpty()) return 0
     const { min, max } = rig.finalBox
     const turned = new Box3()
     for (const x of [min.x, max.x]) {
@@ -236,7 +270,7 @@ function ModelBody({
     }
     const height = turned.getSize(new Vector3()).y
     return -Math.max(0, sy - height) / 2
-  }, [model.kind, rig, fit, sy])
+  }, [model.kind, model.stretch, rig, fit, sy])
   const clock = useMemo(() => new StepClock(), [])
   useEffect(() => {
     clock.reset()
@@ -454,18 +488,21 @@ function PlacedItem({
     }
   })
 
-  const model = itemModelFor(profile?.productCategory)
+  const model = resolveItemModel(profile)
   const color = tint ?? categoryColor(profile?.productCategory)
   const initial = role === 'placed' ? center : staged
 
   return (
     <group ref={motionRef} position={initial} visible={role !== 'hidden'}>
       <group ref={squashRef}>
-        {model ? (
+        {model?.primitive ? (
+          <PrimitiveBody spec={model.primitive} size={size} orientation={placement.orientation} />
+        ) : model ? (
           <ModelBoundary fallback={<Block size={size} color={color} />}>
             <Suspense fallback={<Block size={size} color={color} wire />}>
               <ModelBody
                 model={model}
+                orientation={placement.orientation}
                 size={size}
                 withZip={Boolean(profile?.zipBagCode)}
                 role={role}
