@@ -1,0 +1,59 @@
+@startuml write_status_back_aurelle
+' Source: marketplace-writeback.scheduler.ts (run, every 15 s)
+'         marketplace-writeback.service.ts (processPending, processOne, processReturn, notifyFailed)
+'         status-outbox.util.ts (enqueueStatusPush, called in the same transaction as each status change)
+title Sequence Diagram - Write Status Back to AURELLE
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+participant "MarketplaceWritebackScheduler" as Cron
+participant "MarketplaceWritebackService" as Wb
+participant "MarketplaceStatusOutbox" as Outbox
+participant "Order" as Order
+participant "MarketplaceIntegrationService" as Integ
+participant "AurelleAdapter" as Adapter
+participant "AURELLE Website" as Aurelle
+participant "NotificationsService" as Notify
+
+[-> Cron : every 15 seconds
+activate Cron
+Cron -> Wb : processPending()
+activate Wb
+Wb -> Outbox : find(state = pending, nextAttemptAt <= now)
+Outbox --> Wb : rows (oldest event first)
+loop each row
+  opt an older row of the same order group is still pending
+    Wb -> Wb : skip (keep status order)
+  end
+  Wb -> Order : find(AURELLE orders of the group, not canceled)
+  Order --> Wb : orders
+  Wb -> Integ : getValidAccessToken(shopId)
+  Integ --> Wb : accessToken
+  alt kind = return_status
+    Wb -> Adapter : updateReturnStatus(returnId, status)
+    Adapter -> Aurelle : POST /reverse/order/update (idempotencyKey)
+  else order / shipment status
+    Wb -> Adapter : updateOrderStatus(orderId, status, trackingCode)
+    Adapter -> Aurelle : POST /order/status/update (idempotencyKey)
+  end
+  alt sent
+    Aurelle --> Adapter : success
+    Wb -> Outbox : update(state = sent)
+  else error
+    Aurelle --> Adapter : error
+    alt attempts < 8
+      Wb -> Outbox : update(attempts + 1, nextAttemptAt = backoff)
+    else 8 attempts failed
+      Wb -> Outbox : update(state = failed)
+      Wb -> Notify : notify(Admin, SYNC_FAILED)
+    end
+  end
+end
+Wb --> Cron : sent, skipped, retrying, failed
+deactivate Wb
+deactivate Cron
+
+@enduml

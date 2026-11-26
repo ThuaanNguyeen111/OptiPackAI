@@ -29,6 +29,8 @@ export type PackingPlacement = {
   orientation: PackingOrientation
   /** true = thuật toán đã gập đôi món để vừa thùng nhỏ hơn. */
   folded: boolean
+  /** (AOFP-345) Số lần gập: 1 = gập đôi, 2 = gập tư. BE cũ không gửi → coi folded = 1 lần. */
+  foldCount?: number
   /** Kiện gộp nhiều đơn: món này thuộc đơn nào. Kiện 1 đơn = null. */
   orderId?: string | null
 }
@@ -234,6 +236,8 @@ export type BoxComparisonRow = {
   /** Thùng trống còn lại. null = không xét tồn. */
   available: number | null
   verdict: string
+  /** AOFP-348: vì sao xếp sau thùng ngay trên, VD "Xếp sau CTN-005: giá thùng + vật tư …". null/thiếu = hạng 1 / dữ liệu cũ. */
+  rankReason?: string | null
 }
 
 export type BoxComparison = {

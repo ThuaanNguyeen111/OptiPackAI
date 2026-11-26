@@ -5,7 +5,7 @@ import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, ValidateNested, IsNumber
 import { SupplierReceiptEvidenceDto } from '../../receipt-ocr/dto/supplier-receipt-evidence.dto';
 
 export class CreatePackagingMaterialDto {
-  @ApiProperty({ example: 'BOX-M' }) @Matches(/^[A-Z0-9-]{2,20}$/, { message: 'code 2-20 ký tự CHỮ HOA/số/gạch ngang' }) code!: string;
+  @ApiProperty({ example: 'CTN-012' }) @Matches(/^[A-Z0-9-]{2,20}$/, { message: 'code 2-20 ký tự CHỮ HOA/số/gạch ngang' }) code!: string;
   @ApiProperty({ example: 'Thùng carton Medium 35x25x20' }) @IsString() @MinLength(2) @MaxLength(120) name!: string;
   @ApiProperty({ enum: PACKAGING_MATERIAL_KINDS }) @IsIn(PACKAGING_MATERIAL_KINDS) kind!: PackagingMaterialKind;
   @ApiPropertyOptional({ example: 35 }) @IsOptional() @IsNumber() @Min(1) @Max(500) length_cm?: number;
@@ -20,6 +20,9 @@ export class CreatePackagingMaterialDto {
   @IsOptional() @IsInt() @Min(0) @Max(2000) tare_g?: number;
   @ApiPropertyOptional({ example: 3000, description: 'Túi niêm phong: tải hàng tối đa (g), mặc định 3000' })
   @IsOptional() @IsInt() @Min(1) @Max(30_000) max_load_g?: number;
+  @ApiPropertyOptional({ example: '0201', description: 'Thùng: mã kiểu FEFCO (4 chữ số)' })
+  @IsOptional() @Matches(/^\d{4}$/, { message: 'fefco_code là 4 chữ số, VD 0201' }) fefco_code?: string;
+  @ApiPropertyOptional({ example: 3, description: 'Thùng: số lớp giấy (3, 5, 7)' }) @IsOptional() @IsIn([3, 5, 7]) ply?: number;
 }
 
 /** Không sửa được code/kind/kích thước (đã gắn với gợi ý đóng gói và lịch sử). */
@@ -30,6 +33,8 @@ export class UpdatePackagingMaterialDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(20) max_reuse_cycles?: number;
   /** 08/11/2026 — ngưỡng cảnh báo tồn (tồn dùng được ≤ mức này → cảnh báo; báo sớm từ ngưỡng + 20%). */
   @ApiPropertyOptional({ example: 50 }) @IsOptional() @IsInt() @Min(0) @Max(1_000_000) reorder_level?: number;
+  @ApiPropertyOptional({ example: '0201' }) @IsOptional() @Matches(/^\d{4}$/, { message: 'fefco_code là 4 chữ số, VD 0201' }) fefco_code?: string;
+  @ApiPropertyOptional({ example: 3 }) @IsOptional() @IsIn([3, 5, 7]) ply?: number;
 }
 
 export class PurchasePackagingDto extends SupplierReceiptEvidenceDto {
@@ -39,7 +44,7 @@ export class PurchasePackagingDto extends SupplierReceiptEvidenceDto {
 
 /** Dùng trong form kiểm hàng hoàn (G3) — kiểm luôn thùng/xốp đi kèm. */
 export class PackagingInspectionLineDto {
-  @ApiProperty({ example: 'BOX-M' }) @IsString() @MaxLength(20) material_code!: string;
+  @ApiProperty({ example: 'CTN-009' }) @IsString() @MaxLength(20) material_code!: string;
   @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(1000) quantity!: number;
   @ApiProperty({ enum: ['A', 'B', 'C'], description: 'A: giao lại được · B: chỉ dùng nội bộ · C: tái chế/bỏ' }) @IsIn(['A', 'B', 'C']) grade!: 'A' | 'B' | 'C';
   @ApiPropertyOptional({ example: 1, description: 'Số lần đã tái sử dụng ghi trên nắp thùng (R1, R2...). Không ghi = 0' })
@@ -50,7 +55,7 @@ export class PackagingInspectionLineDto {
 
 /** Vật liệu nhân viên THỰC TẾ đã dùng khi đóng gói (khai ở bước pack). */
 export class MaterialUsedDto {
-  @ApiProperty({ example: 'BOX-L' }) @IsString() @MaxLength(20) material_code!: string;
+  @ApiProperty({ example: 'CTN-011' }) @IsString() @MaxLength(20) material_code!: string;
   @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(100) quantity!: number;
   @ApiProperty({ enum: ['new', 'reused'], description: 'Lấy từ kệ vật liệu mới hay kệ tái sử dụng' }) @IsIn(['new', 'reused']) condition!: 'new' | 'reused';
 }

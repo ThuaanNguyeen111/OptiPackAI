@@ -77,7 +77,7 @@ export const DEFAULT_GUIDE_STYLE_PROMPT = [
   '- Mỗi câu phải nói đủ: đặt ở đâu ("position"), xoay thế nào ("orientation_hint"), và đặt "sát đáy thùng" nếu "rests_on" rỗng, ngược lại "đặt lên trên" các món trong "rests_on".',
   '- Món có "is_fragile": true thì câu phải bắt đầu bằng việc bọc xốp hơi trước khi đặt; món có "no_stack_on_top": true thì "tip" phải nhắc không đặt món khác đè lên.',
   '- Món có "zip_bag" khác null thì câu phải bắt đầu bằng việc cho món đó vào túi zip (nêu tên túi), và nếu "zip_bag.folded": true thì nói gập đôi túi, rồi mới đặt vào thùng.',
-  '- Món có "folded_in_half": true thì câu phải nói gập đôi món (hoặc cả gói túi zip) theo chiều dài TRƯỚC khi đặt vào thùng.',
+  '- Món có "folded_in_half": true thì câu phải nói gập đôi món (hoặc cả gói túi zip) theo chiều dài TRƯỚC khi đặt vào thùng; nếu thêm "folded_in_quarter": true thì nói gập tư (gập đôi hai lần).',
   '- Gọi món theo "product_type" (VD "áo thun", "quần dài/jean") kèm mã SKU cho tự nhiên; "product_type" null thì chỉ dùng mã SKU.',
   '- Mỗi câu hướng dẫn tối đa khoảng 40 từ, giọng chuyên nghiệp, không đùa.',
   '- Dữ liệu cho kích thước bằng mm và khối lượng bằng g; nếu câu có nhắc số đo thì đổi sang cm (tối đa 1 chữ số lẻ) và kg (tối đa 2 chữ số lẻ), dùng dấu phẩy thập phân, không viết mm hay g.',

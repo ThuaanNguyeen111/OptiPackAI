@@ -31,6 +31,9 @@ export type PackagingBox = {
   available: number
   reorderLevel: number
   storageLocation: string | null
+  /** AOFP-346: kiểu FEFCO (VD 0201) và số lớp giấy; null = chưa khai. */
+  fefcoCode: string | null
+  ply: number | null
   stockStatus: StockStatus
 }
 
@@ -89,6 +92,7 @@ export type MaterialRuleBasis =
   | 'per_extra_unit'
   | 'per_carton'
   | 'void_band'
+  | 'void_fill'
 
 export type MaterialRuleScope = 'fragile' | 'shoes' | 'fragile_or_shoes' | 'any'
 
@@ -99,6 +103,9 @@ export type MaterialRule = {
   basis: string
   quantity: number
   voidBands: { minVoidRatio: number; quantity: number }[]
+  /** void_fill (AOFP-344): độ kín mục tiêu 0–1 và thể tích 1 đơn vị (ml). */
+  targetFillRatio: number | null
+  unitFillMl: number | null
 }
 
 export type MaterialRules = {
@@ -181,6 +188,8 @@ function mapBox(raw: unknown): PackagingBox | null {
     available: num(row.available),
     reorderLevel: num(row.reorderLevel ?? row.reorder_level),
     storageLocation: str(row.storageLocation ?? row.storage_location),
+    fefcoCode: str(row.fefcoCode ?? row.fefco_code),
+    ply: typeof (row.ply ?? null) === 'number' ? (row.ply as number) : null,
     stockStatus: stockStatus(row.stockStatus ?? row.stock_status),
   }
 }
@@ -218,6 +227,8 @@ export type CreateBoxInput = {
   priceVnd?: number | null
   reorderLevel?: number
   storageLocation?: string | null
+  fefcoCode?: string | null
+  ply?: number | null
 }
 
 function sizeBody(sizeInput: BoxSizeInput): Record<string, number> {
@@ -244,6 +255,8 @@ export async function createPackagingBox(
       price_vnd: input.priceVnd ?? null,
       reorder_level: input.reorderLevel,
       storage_location: input.storageLocation?.trim() || null,
+      ...(input.fefcoCode ? { fefco_code: input.fefcoCode } : {}),
+      ...(input.ply ? { ply: input.ply } : {}),
     },
   })
   const item = mapBox(res)
@@ -259,11 +272,15 @@ export async function updatePackagingBox(
     isActive?: boolean
     reorderLevel?: number
     storageLocation?: string | null
+    fefcoCode?: string | null
+    ply?: number | null
   },
 ): Promise<PackagingBox> {
   const body: Record<string, unknown> = {}
   if (input.name !== undefined) body.name = input.name.trim()
   if (input.priceVnd !== undefined) body.price_vnd = input.priceVnd
+  if (input.fefcoCode !== undefined) body.fefco_code = input.fefcoCode
+  if (input.ply !== undefined) body.ply = input.ply
   if (input.isActive !== undefined) body.is_active = input.isActive
   if (input.reorderLevel !== undefined) body.reorder_level = input.reorderLevel
   if (input.storageLocation !== undefined) {
@@ -575,10 +592,16 @@ function mapRules(raw: unknown): MaterialRules {
               },
             ]
           }),
+          targetFillRatio: optNum(rule.targetFillRatio ?? rule.target_fill_ratio),
+          unitFillMl: optNum(rule.unitFillMl ?? rule.unit_fill_ml),
         },
       ]
     }),
   }
+}
+
+function optNum(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 export async function getMaterialRules(): Promise<MaterialRules> {
@@ -604,6 +627,10 @@ export async function saveMaterialRules(rules: MaterialRule[]): Promise<Material
                 quantity: band.quantity,
               }))
             : undefined,
+        ...(rule.basis === 'void_fill' && {
+          target_fill_ratio: rule.targetFillRatio,
+          unit_fill_ml: rule.unitFillMl,
+        }),
       })),
     },
   })

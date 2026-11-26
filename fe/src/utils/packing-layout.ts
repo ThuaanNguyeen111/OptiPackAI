@@ -141,7 +141,7 @@ export function buildPackSteps(
       if (profile.zipBagFolded) steps.push({ kind: 'zipFold', item })
     }
     // Gập đôi thêm làm trên cả gói đã vào túi zip — cùng thứ tự với hướng dẫn chữ của BE.
-    if (p.folded) steps.push({ kind: 'halfFold', item })
+    if (p.folded) for (let i = 0; i < (p.foldCount ?? 1); i++) steps.push({ kind: 'halfFold', item })
     if (options.wrapItem?.(profile)) steps.push({ kind: 'wrap', item }, { kind: 'tape', item })
     steps.push({ kind: 'place', item })
   })
@@ -159,8 +159,8 @@ export function actionNote(kind: PackStepKind, vi: boolean): string | null {
   switch (kind) {
     case 'close':
       return vi
-        ? 'Chèn vật tư vào khoảng trống, gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
-        : 'Fill gaps with materials, fold short flaps then long flaps, tape the box.'
+        ? 'Gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
+        : 'Fold short flaps then long flaps, tape the box.'
     case 'slip':
       return vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng.' : "Place each order's packing slip on the stack."
     case 'bagIn':
@@ -297,21 +297,6 @@ export function workAreaFor(outer: PackingMm, inner: PackingMm, mailer: boolean)
     size,
     clearance: heightM + flap + 0.08,
   }
-}
-
-/** Bước thao tác ngay tại khu chuẩn bị: camera lại gần khu đó. */
-export function isWorkAreaStep(kind: PackStepKind | undefined): boolean {
-  return (
-    kind === 'fold' ||
-    kind === 'halfFold' ||
-    kind === 'zip' ||
-    kind === 'zipFold' ||
-    kind === 'bagPrep' ||
-    kind === 'shoeBox' ||
-    kind === 'caseIn' ||
-    kind === 'wrap' ||
-    kind === 'tape'
-  )
 }
 
 /** Màu theo thứ tự đơn trong kiện gộp, cùng tông với chip người nhận. */

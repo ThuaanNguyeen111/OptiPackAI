@@ -33,7 +33,7 @@ export const CODE_MAP: Record<string, string> = {
 };
 
 const CATALOGS = ['packaging_materials', 'packaging_bags'];
-const COLLECTIONS = [
+export const COLLECTIONS = [
   ...CATALOGS,
   'packaging_movements',
   'product_master',
@@ -43,11 +43,11 @@ const COLLECTIONS = [
   'packing_guide_examples',
 ];
 
-/** Trả bản đã thay mã (cùng tham chiếu nếu không đổi gì). */
-export function renameCodes(value: unknown): unknown {
-  if (typeof value === 'string') return CODE_MAP[value] ?? value;
+/** Trả bản đã thay mã (cùng tham chiếu nếu không đổi gì). AOFP-346 dùng lại với bảng mã khác. */
+export function renameCodes(value: unknown, map: Record<string, string> = CODE_MAP): unknown {
+  if (typeof value === 'string') return map[value] ?? value;
   if (Array.isArray(value)) {
-    const next = value.map(renameCodes);
+    const next = value.map((v) => renameCodes(v, map));
     return next.some((v, i) => v !== value[i]) ? next : value;
   }
   // Chỉ đi vào object thường — bỏ qua ObjectId, Date, Binary...
@@ -56,7 +56,7 @@ export function renameCodes(value: unknown): unknown {
     let changed = false;
     const next: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(obj)) {
-      next[k] = renameCodes(v);
+      next[k] = renameCodes(v, map);
       if (next[k] !== v) changed = true;
     }
     return changed ? next : value;

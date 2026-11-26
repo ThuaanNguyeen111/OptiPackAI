@@ -1,4 +1,4 @@
-import { foldUnit, orientedDims } from '../../packaging/engine/units';
+import { foldShapes, orientedDims } from '../../packaging/engine/units';
 import { validateCandidate } from '../../packaging/engine/validator';
 import { lowerBoundCartons } from '../../packaging/engine/lower-bound';
 import { orderUnits } from '../../packaging/engine/greedy-packer';
@@ -55,10 +55,10 @@ export function defaultEvaluations(n: number): number {
   return 600;
 }
 
-/** Mọi cách đặt món: dạng gốc (+ dạng gập nếu gập được) × các hướng cho phép. */
+/** Mọi cách đặt món: dạng gốc (+ gập đôi, gập tư nếu gập được) × các hướng cho phép. */
 export function variantsOf(unit: PackingUnit): Variant[] {
   const shapes = [unit];
-  if (unit.foldable === true && unit.folded !== true) shapes.push(foldUnit(unit));
+  shapes.push(...foldShapes(unit));
   const out: Variant[] = [];
   for (const shape of shapes) {
     for (const orientation of shape.orientations) {

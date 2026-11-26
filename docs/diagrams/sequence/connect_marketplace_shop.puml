@@ -1,0 +1,73 @@
+@startuml connect_marketplace_shop
+' Source: marketplace-integration.controller.ts (connect, callback)
+'         marketplace-integration.service.ts (createConnectUrl, handleOAuthCallback, saveConnectedShop)
+title Sequence Diagram - Connect Marketplace Shop
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Admin" as Admin
+participant "Marketplace Connection Screen" as UI
+participant "MarketplaceIntegrationController" as Ctrl
+participant "MarketplaceIntegrationService" as Svc
+participant "LazadaAdapter / AurelleAdapter" as Adapter
+participant "MarketplaceOAuthState" as State
+participant "MarketplaceShop" as Shop
+participant "Marketplace\n(Lazada / AURELLE)" as Mkt
+
+Admin -> UI : Choose platform, click Connect
+activate UI
+UI -> Ctrl : GET /marketplace/{platform}/connect
+activate Ctrl
+Ctrl -> Svc : createConnectUrl(platform, adminId)
+activate Svc
+Svc -> State : create(state, adminId, platform)
+note right of State : TTL 10 minutes, single use
+Svc -> Adapter : buildAuthorizationUrl(state)
+Adapter --> Svc : authUrl
+Svc --> Ctrl : authUrl
+deactivate Svc
+Ctrl --> UI : 200 OK (authUrl)
+deactivate Ctrl
+UI -> Mkt : Redirect browser to authUrl
+deactivate UI
+
+Admin -> Mkt : Log in to seller account and authorize
+activate Mkt
+Mkt -> Ctrl : GET /marketplace/{platform}/callback (code, state)
+deactivate Mkt
+activate Ctrl
+Ctrl -> Svc : handleOAuthCallback(platform, code, state)
+activate Svc
+Svc -> State : findOneAndDelete(state)
+State --> Svc : stateRecord
+
+alt state expired or not found
+  Svc --> Ctrl : OAUTH_STATE_INVALID
+  Ctrl --> UI : 302 Redirect (error)
+else state valid
+  Svc -> Adapter : exchangeCodeForToken(code)
+  activate Adapter
+  Adapter -> Mkt : Request access token
+  Mkt --> Adapter : accessToken, refreshToken, shopId
+  Adapter --> Svc : tokenResult
+  deactivate Adapter
+  alt token exchange failed
+    Svc --> Ctrl : TOKEN_EXCHANGE_FAILED
+    Ctrl --> UI : 302 Redirect (error)
+  else token received
+    Svc -> Svc : encryptToken(accessToken, refreshToken)
+    Svc -> Shop : findOneAndUpdate(upsert, isActive = true)
+    Shop --> Svc : shop
+    Svc --> Ctrl : shop
+    Ctrl --> UI : 302 Redirect (shopId, shopName, connected)
+  end
+end
+deactivate Svc
+deactivate Ctrl
+activate UI
+UI --> Admin : Show connection result
+deactivate UI
+@enduml

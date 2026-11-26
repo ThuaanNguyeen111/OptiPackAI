@@ -89,6 +89,8 @@ export class PlanPlacement {
   @Prop({ type: Number, required: true }) dz!: number;
   @Prop({ required: true }) orientation!: string;
   @Prop({ type: Boolean, default: false }) folded!: boolean;
+  /** (AOFP-345) 2 = gập tư; null = gập đôi khi folded (kế hoạch cũ). */
+  @Prop({ type: Number, default: null }) fold_count?: number | null;
   /**
    * AOFP-224 (31/10/2026) — đơn sở hữu món này. Chỉ ghi ở kiện GỘP nhiều đơn
    * (PACKAGING_STANDARD §8); kiện 1 đơn để null (món thuộc `parcel.order_id`).
@@ -271,6 +273,8 @@ export class PlanBoxComparisonRow {
   @Prop({ type: Number, default: null }) estimated_weight_g!: number | null;
   @Prop({ type: Number, default: null }) available!: number | null;
   @Prop({ required: true }) verdict!: string;
+  /** AOFP-348: vì sao xếp sau thùng ngay trên; null = hạng 1 / dữ liệu cũ. */
+  @Prop({ type: String, default: null }) rank_reason!: string | null;
 }
 export const PlanBoxComparisonRowSchema = SchemaFactory.createForClass(PlanBoxComparisonRow);
 

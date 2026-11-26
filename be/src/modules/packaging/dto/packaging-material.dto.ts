@@ -12,6 +12,7 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { MATERIAL_TYPES, type MaterialType } from '../engine/types';
@@ -201,6 +202,19 @@ export class MaterialRuleDto {
   @ValidateNested({ each: true })
   @Type(() => MaterialVoidBandDto)
   void_bands?: MaterialVoidBandDto[];
+
+  @ApiPropertyOptional({ example: 0.9, description: 'Chỉ dùng cho basis = void_fill: độ kín mục tiêu (hàng + chèn) / lòng thùng' })
+  @ValidateIf((r: MaterialRuleDto) => r.basis === 'void_fill')
+  @IsNumber({}, { message: 'target_fill_ratio phải là số' })
+  @Min(0.1, { message: 'target_fill_ratio tối thiểu 0,1' })
+  @Max(1, { message: 'target_fill_ratio tối đa 1' })
+  target_fill_ratio?: number;
+
+  @ApiPropertyOptional({ example: 800, description: 'Chỉ dùng cho basis = void_fill: thể tích 1 đơn vị lấp được (ml)' })
+  @ValidateIf((r: MaterialRuleDto) => r.basis === 'void_fill')
+  @IsInt({ message: 'unit_fill_ml phải là số nguyên (ml)' })
+  @Min(1, { message: 'unit_fill_ml tối thiểu 1 ml' })
+  unit_fill_ml?: number;
 }
 
 /** Lưu bộ luật mới (tạo version mới, bản cũ tắt). */

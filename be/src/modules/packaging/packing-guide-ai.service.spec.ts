@@ -30,6 +30,7 @@ function fact(step: number, sku: string): GuideStepFacts {
     product_type: null,
     zip_bag: null,
     folded_in_half: false,
+    folded_in_quarter: false,
     is_fragile: false,
     no_stack_on_top: false,
     position: 'góc trái – phía trước',

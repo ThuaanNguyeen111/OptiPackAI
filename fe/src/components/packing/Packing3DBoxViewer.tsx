@@ -19,7 +19,6 @@ import {
   STEP_SECONDS,
   packStepsForParcel,
   innerOf,
-  isWorkAreaStep,
   orderColor,
   profileFor,
   sceneMode,
@@ -31,7 +30,7 @@ import {
   type SceneMode,
 } from '../../utils/packing-layout'
 import { sharedOrderCodes } from '../../lib/parcel-order-display'
-import { bubbleWrapFor } from '../../utils/packing-materials'
+import { bubbleWrapFor, closeNote } from '../../utils/packing-materials'
 import { formatDimsMmAsCm } from '../../utils/units'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
@@ -173,25 +172,20 @@ function ParcelGuidePlayer({
   const minZ = -Math.max(outer.widthMm / 2000, area.size / 2)
   const maxZ = Math.max(area.center[1] + area.size / 2, mailer && !alongX ? (outer.widthMm * 1.5) / 1000 : outer.widthMm / 2000)
   const reach = Math.max(maxX - minX, maxZ - minZ)
-  const onWorkArea = isWorkAreaStep(current?.kind)
-  const [areaX, areaZ] = area.center
   // Nắp thùng mở choãi ra ngoài thân thùng: khung toàn cảnh phải chứa cả phần này.
   const flap = mailer ? 0 : Math.min(outer.lengthMm, outer.widthMm) / 2000
   const fullMinX = minX - flap
-  // Cho vào túi zip / gập đôi là thao tác trên một gói nhỏ: lại gần để thấy rõ nếp gập.
-  const closeUp = current?.kind === 'zip' || current?.kind === 'halfFold' || current?.kind === 'zipFold'
-  const areaView = area.size * (closeUp ? 0.6 : 1)
+  // AOFP-350: MỘT khung toàn cảnh (thùng + tấm thảm) cho mọi bước — trước đây bước trên tấm thảm sáp vào
+  // rồi bước đặt hàng lùi ra, nên mỗi lần bấm tiếp camera lại zoom. Chuyển động là của món hàng, không phải camera;
+  // muốn nhìn gần thì người dùng tự kéo / dùng nút phóng to.
   const focus = useMemo<CameraFocus>(
-    () =>
-      onWorkArea
-        ? { center: [areaX, areaZ], width: areaView, depth: areaView, height: 0.12 }
-        : {
-            center: [(fullMinX + maxX) / 2, (minZ + maxZ) / 2],
-            width: maxX - fullMinX,
-            depth: maxZ - minZ,
-            height: outer.heightMm / 1000 + flap,
-          },
-    [onWorkArea, areaX, areaZ, areaView, fullMinX, maxX, minZ, maxZ, outer.heightMm, flap],
+    () => ({
+      center: [(fullMinX + maxX) / 2, (minZ + maxZ) / 2],
+      width: maxX - fullMinX,
+      depth: maxZ - minZ,
+      height: outer.heightMm / 1000 + flap,
+    }),
+    [fullMinX, maxX, minZ, maxZ, outer.heightMm, flap],
   )
   const placementOrder = placement && shared ? tintOf?.(placement) : undefined
   const placementOrderCode = placement
@@ -269,7 +263,8 @@ function ParcelGuidePlayer({
       <div className="shrink-0 border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         {/* Lời bước dài/ngắn khác nhau: giới hạn chiều cao + cuộn để thẻ không phình che cảnh 3D. */}
         {showCaption ? (
-        <div className="max-h-28 min-h-[3.25rem] overflow-y-auto overscroll-contain px-3 pt-2.5 pb-2" aria-live="polite">
+        // Cao CỐ ĐỊNH (chữ dài thì cuộn): dải này co giãn theo câu từng bước làm khung 3D đổi cỡ → camera tính lại, nhích zoom.
+        <div className="h-24 shrink-0 overflow-y-auto overscroll-contain px-3 pt-2.5 pb-2" aria-live="polite">
             {current?.kind === 'prepare' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
                 {parcel.box.name} ({parcel.box.code}) — {formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}{boxCutNote(parcel.box, vi)}
@@ -278,7 +273,7 @@ function ParcelGuidePlayer({
                   : ''}
               </p>
             ) : current?.kind === 'close' ? (
-              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">{actionNote('close', vi)}</p>
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">{closeNote(parcel.materials, vi)}</p>
             ) : current?.kind === 'slip' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
                 {vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng' : 'Place each order\'s packing slip on the stack'}
@@ -292,7 +287,7 @@ function ParcelGuidePlayer({
                   <span className="font-mono font-semibold">{placement.sku}</span>
                   {' · '}
                   {categoryLabel(profile?.productCategory, vi)}
-                  {placement.folded ? (vi ? ' · gập đôi' : ' · folded in half') : ''}
+                  {placement.folded ? ((placement.foldCount ?? 1) > 1 ? (vi ? ' · gập tư' : ' · folded in quarters') : vi ? ' · gập đôi' : ' · folded in half') : ''}
                   {profile?.zipBagCode ? ` · ${vi ? 'túi' : 'bag'} ${profile.zipBagCode}` : ''}
                   {placementOrderCode ? (
                     <span className="font-semibold" style={{ color: placementOrder }}>

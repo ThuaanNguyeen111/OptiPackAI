@@ -94,6 +94,15 @@ describe('PackagingBoxService', () => {
     expect(payload).toMatchObject({ kind: 'box', unit_cost_vnd: 4500, length_cm: 35.6, width_cm: 25.6, height_cm: 20.6 });
   });
 
+  it('AOFP-346: lưu kiểu FEFCO + số lớp khi tạo; bỏ trống = null', async () => {
+    boxModel.create.mockResolvedValue({ _id: new Types.ObjectId() });
+    await service.create(Object.assign(new CreatePackagingBoxDto(), validDto, { fefco_code: '0201', ply: 5 }));
+    await service.create(validDto);
+    const payloads = boxModel.create.mock.calls.map((c) => (c as [Record<string, unknown>])[0]);
+    expect(payloads[0]).toMatchObject({ fefco_code: '0201', ply: 5 });
+    expect(payloads[1]).toMatchObject({ fefco_code: null, ply: null });
+  });
+
   it('kích thước ngoài nhỏ hơn lòng thùng → PKG_BOX_INVALID_DIMENSIONS', async () => {
     await expect(
       service.create(

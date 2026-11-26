@@ -1,0 +1,66 @@
+@startuml place_order_aurelle
+' Source: storefront.controller.ts (POST /storefront/orders/checkout)
+'         storefront-orders.service.ts (checkout)
+'         aurelle-webhook.publisher.ts (notifyOrderChanged, signAurelleWebhook)
+title Sequence Diagram - Place Order (AURELLE Website)
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Customer" as Customer
+participant "Checkout Screen" as UI
+participant "StorefrontController" as Ctrl
+participant "StorefrontOrdersService" as Svc
+participant "StorefrontProductVariant" as Variant
+participant "StorefrontInventoryStock" as Stock
+participant "StorefrontOrder" as Order
+participant "StorefrontOrderItem" as Item
+participant "StorefrontPayment" as Payment
+participant "AurelleWebhookPublisher" as Pub
+participant "OptiPack AI" as Opti
+
+Customer -> UI : Enter address, delivery and payment, click Place order
+activate UI
+UI -> Ctrl : POST /storefront/orders/checkout
+activate Ctrl
+Ctrl -> Svc : checkout(customerId, dto)
+activate Svc
+alt clientOrderId already used
+  Svc -> Order : findOne(customerId, clientOrderId)
+  Order --> Svc : existing order
+else new order
+  Svc -> Variant : find(variantIds, isActive)
+  Variant --> Svc : variants
+  Svc -> Stock : find(variantIds)
+  Stock --> Svc : stocks
+  alt variant unavailable or not enough stock
+    Svc --> Ctrl : VARIANT_UNAVAILABLE / OUT_OF_STOCK
+    Ctrl --> UI : 400 Bad Request
+  else express delivery outside allowed ward or time
+    Svc --> Ctrl : EXPRESS_UNAVAILABLE
+    Ctrl --> UI : 400 Bad Request
+  else order valid
+    Svc -> Svc : calculateOrderTotal(subtotal, deliveryOption)
+    Svc -> Order : create(order, publicOrderId)
+    Svc -> Item : insertMany(orderItems)
+    Svc -> Payment : create(status = pending)
+    loop each item
+      Svc -> Stock : $inc reservedQuantity
+    end
+    Svc -) Pub : notifyOrderChanged(publicOrderId, status)
+    activate Pub
+    Pub -> Pub : signAurelleWebhook(appKey, appSecret, body)
+    Pub -) Opti : POST /marketplace/webhooks/aurelle
+    deactivate Pub
+    ref over Opti : Receive AURELLE webhook
+  end
+end
+Svc --> Ctrl : order
+deactivate Svc
+Ctrl --> UI : 201 Created
+deactivate Ctrl
+UI --> Customer : Show order confirmation
+deactivate UI
+@enduml

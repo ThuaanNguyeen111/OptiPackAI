@@ -311,6 +311,8 @@ export class PackagingBoxService {
         qty_reused: 0,
         reorder_level: dto.reorder_level ?? 10,
         storage_location: dto.storage_location?.trim() ? dto.storage_location.trim() : null,
+        fefco_code: dto.fefco_code ?? null,
+        ply: dto.ply ?? null,
         is_sample: false,
         is_active: true,
       });
@@ -353,6 +355,8 @@ export class PackagingBoxService {
           ...(dto.storage_location !== undefined && {
             storage_location: dto.storage_location?.trim() ? dto.storage_location.trim() : null,
           }),
+          ...(dto.fefco_code !== undefined && { fefco_code: dto.fefco_code }),
+          ...(dto.ply !== undefined && { ply: dto.ply }),
           // Sửa số đo/bì/tải = đã có số thật, bỏ nhãn "giả lập".
           ...(measurementChanged && { is_sample: false }),
         },

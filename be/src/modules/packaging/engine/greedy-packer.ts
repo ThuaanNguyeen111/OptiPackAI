@@ -1,4 +1,4 @@
-import { foldUnit, orientedDims } from './units';
+import { foldFields, foldShapes, foldTimes, orientedDims } from './units';
 import {
   computeLoadsOnTop,
   isFullySupported,
@@ -268,7 +268,7 @@ export function packIntoBox(
               dy,
               dz,
               orientation,
-              ...(unit.folded === true && { folded: true }),
+              ...foldFields(unit),
             };
             if (placed.some((p) => overlaps(p, candidate))) continue;
             if (!isFullySupported(candidate, placed)) continue;
@@ -356,13 +356,8 @@ export function classifyUnfittable(
   u: PackingUnit,
   boxes: BoxSpec[],
 ): NoFitReason | null {
-  const foldedToo =
-    u.foldable === true && u.folded !== true ? foldUnit(u) : null;
-  const fitsSize = boxes.some(
-    (b) =>
-      fitsSomeOrientation(u, b) ||
-      (foldedToo !== null && fitsSomeOrientation(foldedToo, b)),
-  );
+  const shapes = [u, ...foldShapes(u)];
+  const fitsSize = boxes.some((b) => shapes.some((s) => fitsSomeOrientation(s, b)));
   if (!fitsSize) {
     return {
       box_code: '-',
@@ -617,7 +612,7 @@ export function foldVariants(units: PackingUnit[]): PackingUnit[][] {
     counts.forEach((k, gi) => {
       for (const u of (ordered[gi] ?? []).slice(0, k)) folded.add(u.item_key);
     });
-    return units.map((u) => (folded.has(u.item_key) ? foldUnit(u) : u));
+    return units.map((u) => (folded.has(u.item_key) ? foldTimes(u, 1) : u));
   };
 
   // Duyệt theo tổng số món gập t = 1..totalFoldable, sinh vector đếm theo nhóm.
@@ -641,6 +636,11 @@ export function foldVariants(units: PackingUnit[]): PackingUnit[][] {
     };
     walk(0, t, []);
   }
+  // AOFP-345: thêm dạng gập tư mọi món gập được (đơn trộn quần áo + hàng cứng).
+  if (totalFoldable > 0 && variants.length < MAX_FOLD_VARIANTS) {
+    const keys = new Set(ordered.flat().map((u) => u.item_key));
+    variants.push(units.map((u) => (keys.has(u.item_key) ? foldTimes(u, 2) : u)));
+  }
   return variants;
 }
 
@@ -663,7 +663,7 @@ export function buildOk(
   const fillRatio = itemsVolume / innerVolume;
   // (28/09/2026) Vật tư theo luật + danh mục (ước lượng, không vào hình học).
   const materials = materialPlanning
-    ? selectMaterials(units, fillRatio, materialPlanning)
+    ? selectMaterials(units, fillRatio, materialPlanning, box.kind === 'mailer' ? 0 : innerVolume)
     : [];
   const materialsWeight = materials.reduce((sum, m) => sum + m.weight_g, 0);
   const materialsCost = materials.reduce((sum, m) => sum + m.cost_vnd, 0);

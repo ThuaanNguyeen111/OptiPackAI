@@ -110,11 +110,11 @@ Bốn cỡ trên là cỡ **có sẵn** trên thị trường VN (nhà sản xu�
 
 Quy tắc xếp trong cùng một thùng:
 
-- **Hàng mềm luôn nằm trên hàng cứng**, không bao giờ đặt dưới hộp giày/túi xách.
+- **Hàng cứng được nằm thẳng trên quần áo**, không lót gì ở giữa (AOFP-345, 26/11/2026, user chốt; bỏ luật 16/11 cấm hàng cứng nằm trên quần áo). Quần áo đặt lên hàng cứng vẫn hợp lệ. Hàng dễ vỡ vẫn không cho đặt gì lên.
 - Món có `max_stack_load_kg = null` (vd. túi xách form cứng) không bị đặt gì lên trên — luật có sẵn. Riêng quần áo (loại nằm phẳng) để trống thì coi như chịu được 5 kg (`SOFT_DEFAULT_STACK_LOAD_G`, 13/11/2026).
 - Mục tiêu lấp đầy 80% (`FILL_TARGET`, 13/11/2026) chỉ dùng để **cảnh báo**, không phải ràng buộc. Kiện lấp đầy dưới 80% được ghi thêm một câu vào `explanation` nêu lý do: kho chưa có túi niêm phong cho hàng mềm, hoặc nêu cỡ khối bao của chồng hàng để gợi ý nhập thùng sát hơn. Lý do có thể là kho chưa có túi niêm phong cho hàng mềm, hoặc là cỡ khối bao của chồng hàng (gợi ý nhập thùng sát hơn). Túi niêm phong không bị xét.
-- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 10 cm). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
-- Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập đôi thêm đúng 1 lần nếu bật `can_fold_in_half`. Số đo hồ sơ là của gói sau khi đã gập túi.
+- Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 10 cm theo BOX-XS từ 26/11/2026). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
+- Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập thêm nếu bật `can_fold_in_half`: gập đôi, hoặc **gập tư** (gập đôi hai lần, AOFP-345) để nhét vào khe cạnh hàng cứng. Engine thử nguyên dạng trước, rồi gập đôi, rồi gập tư. Placement ghi `folded: true` và `fold_count: 2` khi gập tư. Số đo hồ sơ là của gói sau khi đã gập túi.
 - Quần áo luôn nằm phẳng — luật có sẵn (`FLAT_CATEGORIES`).
 
 ### 5.2. Độ dày quần áo tính từ GSM (13/11/2026, user chốt)
@@ -153,6 +153,37 @@ Túi zip theo khuôn: chọn túi nhỏ nhất vừa gói bằng `suggestBag` c�
 
 Engine vẫn được thử **gập đôi thêm** (biến thể `foldUnit` có sẵn) nếu SKU bật `can_fold_in_half` và việc gập giúp vào túi/thùng nhỏ hơn.
 
+### 5.3. Khuôn gấp và thông số chuẩn (AOFP-343, 26/11/2026, user chốt)
+
+Quần áo gấp về **khuôn gấp** của loại: mọi size chung dài × rộng, độ dày tính theo 5.2, size chỉ đổi cân nặng. Khuôn lớn **30 × 22 cm** (áo thun, sơ mi, áo khoác, đầm, váy, quần dài) vừa túi ZIP-S. Khuôn nhỏ **22 × 15 cm** (quần short) bằng nửa khuôn lớn. BOX-S đổi lòng sang **31 × 23 × 12 cm** để vừa khuôn lớn và mũ lưỡi trai.
+
+Thông số 39 SKU của shop Lazada `201182096267` được nạp bằng `be/scripts/apply-standard-packing-specs.ts`. Script này cũng là bảng thông số gốc. Đã chạy thử 1.364 tổ hợp đơn 1–4 món: tất cả đều vừa 1 kiện (issue #211). Cân nặng và kích thước mũ, dép là ước lượng, kho đo lại thì xác nhận lại hồ sơ.
+
+### 5.4. Danh mục thùng carton (AOFP-346, 27/11/2026, user chốt)
+
+Mã thùng là `CTN-xxx`, đánh theo thể tích lòng nhỏ → lớn; thùng mới lấy số tiếp theo, không chèn giữa. Mọi thùng kiểu FEFCO `0201` (nắp gập). Tên hiển thị: `Thùng carton 0201 · D×R×C mm lọt lòng · N lớp`. Lọt lòng dùng để xếp hàng, phủ bì dùng tính cước.
+
+| Mã | Mã cũ | Lọt lòng (mm) | Lớp |
+|---|---|---|---|
+| CTN-001 | BOX-XS | 240 × 230 × 100 | 3 |
+| CTN-002 | BOX-201040 | 200 × 100 × 400 | 3 |
+| CTN-003 | BOX-S | 310 × 230 × 120 | 3 |
+| CTN-004 | BOX-302015 | 300 × 200 × 150 | 3 |
+| CTN-005 | BOX-352015 | 350 × 200 × 150 | 3 |
+| CTN-006 | BOX-302020 | 300 × 200 × 200 | 3 |
+| CTN-007 | BOX-302025 | 300 × 200 × 250 | 3 |
+| CTN-008 | BOX-352025 | 350 × 200 × 250 | 3 |
+| CTN-009 | BOX-M | 350 × 250 × 200 | 3 |
+| CTN-010 | BOX-LT | 500 × 400 × 200 | 5 |
+| CTN-011 | BOX-L | 500 × 400 × 350 | 5 |
+| CTN-012 | — | 180 × 180 × 110 | 3 |
+| CTN-013 | — | 190 × 170 × 70 | 3 |
+| CTN-014 | — | 400 × 190 × 130 | 3 |
+
+CTN-002, CTN-004…CTN-008 là 6 cỡ chuẩn của AOFP-345. Đổi mã bằng `be/scripts/migrate-carton-codes.ts` (đổi ở mọi collection; câu chữ lịch sử giữ mã cũ). Tài liệu viết trước 27/11 còn dùng mã cũ.
+
+**Thùng nhỏ/dài cho đơn ít món (AOFP-347, 27/11/2026, user chốt).** CTN-012…014 đo bằng engine thật trên 915 kiện mẫu: kiện đạt lấp đầy ≥ 70% tăng từ 278 (30%) lên 418 (46%), trung vị 52% → 67%. Đơn kính + túi + quần dài trước đây vào CTN-001 46%, nay vào CTN-012 72%. Giá và khối lượng thùng là số ước theo diện tích giấy (giá ≈ 1.150 + 0,807 × cm² giấy, làm tròn 100 đ; khối lượng ≈ 0,0515 g/cm²) — thay bằng báo giá NCC khi có. Kế hoạch đang `ready` tính lại bằng `be/scripts/recompute-ready-plans.ts`.
+
 ## 6. Đơn có cả hàng mềm và hàng cứng
 
 Ví dụ: 1 áo thun + 1 đôi giày.
@@ -178,12 +209,22 @@ Bổ sung vào `MATERIAL_TYPES`:
 
 | Mã | Dùng khi |
 |---|---|
-| `kraft_paper` (mới) | Lấp khoảng trống trong thùng; nhồi giữ form túi xách; chèn khe quanh hộp giày. Ưu tiên trước túi khí |
+| `kraft_paper` (mới) | Nhồi giữ form túi xách; chèn khe quanh hộp giày |
 | `tissue_paper` (mới) | Lót đầm, bọc túi xách — chống nhăn, chống trầy |
-| `air_pillow` | Dự phòng khi khoảng trống rất lớn (tỉ lệ rỗng ≥ 0,7) hoặc hết giấy |
+| `air_pillow` | Lấp khoảng trống trong thùng tới **độ kín 90%** (luật `void_fill`, xem dưới) |
 | `bubble_wrap`, `foam_corner`, `corrugated_divider`, `fragile_tape` | Giữ như luật hiện tại (dễ vỡ, giày) |
 
 Túi niêm phong **không** dùng vật liệu chèn (trừ `tissue_paper` theo L1 của đầm/túi xách).
+
+**Chèn kín (AOFP-344, 26/11/2026, user chốt).** Mục tiêu là khách mở thùng không thấy rỗng, nên không ép tỉ lệ hàng / thùng. Với 11 mẫu đang bán, kể cả thùng may đo vừa khít khối hàng, chỉ 23% đơn đạt ≥ 70%: quần áo rất mỏng, hàng cứng cao, và luật xếp chồng buộc nhiều món nằm đáy. Thay vào đó, luật `void_fill` đặt đủ gối hơi để **hàng + vật liệu chèn** lấp ≥ 90% lòng thùng:
+
+```
+số gối = làm tròn lên( max(0 ; 0,9 − lấp đầy hàng) × thể tích lòng thùng ÷ 800 ml )
+```
+
+Độ kín 90% và 800 ml/gối nằm trong luật vật tư (màn Vật tư, Admin sửa được). 800 ml là giả định, kho đo gối thật rồi sửa. Ước tính trên 915 tổ hợp đóng thùng: trung vị 9 gối/kiện (~3.600 đ), 90% kiện ≤ 15 gối. Cùng đợt thêm **BOX-XS** lòng 24 × 23 × 10 cm cho đơn nhỏ để bớt khoảng trống phải chèn.
+
+**Chỉ chèn kiện có hàng dễ vỡ (AOFP-345, 26/11/2026, user chốt).** Luật `void_fill` áp cho nhóm `fragile`: kiện chỉ có quần áo, túi xách, mũ, dép không chèn gối. Để kiện thường vẫn đầy, AOFP-345 thêm gập tư quần áo và các cỡ thùng chuẩn ở mục 5.4.
 
 ## 8. Đơn gộp nhiều đơn
 
