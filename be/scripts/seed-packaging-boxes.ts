@@ -30,17 +30,18 @@ import { PackagingBoxService } from '../src/modules/packaging/packaging-box.serv
  */
 
 const SAMPLE_BOXES = [
-  { code: 'BOX-S', name: 'Thùng carton S', inner: [310, 230, 120], outer: [316, 236, 126], tare_g: 140, max_load_g: 5000, price_vnd: 3200 }, // AOFP-343: vừa khuôn gấp 30×22
-  { code: 'BOX-XS', name: 'Thùng carton XS', inner: [240, 230, 100], outer: [246, 236, 106], tare_g: 110, max_load_g: 5000, price_vnd: 2800 }, // AOFP-344: đơn nhỏ ít khoảng trống
-  { code: 'BOX-302015', name: 'Thùng carton 30×20×15', inner: [300, 200, 150], outer: [306, 206, 156], tare_g: 140, max_load_g: 10000, price_vnd: 3300 }, // AOFP-345: 6 cỡ chuẩn phủ nhiều đơn ≥ 70% nhất
-  { code: 'BOX-302020', name: 'Thùng carton 30×20×20', inner: [300, 200, 200], outer: [306, 206, 206], tare_g: 160, max_load_g: 10000, price_vnd: 3700 },
-  { code: 'BOX-302025', name: 'Thùng carton 30×20×25', inner: [300, 200, 250], outer: [306, 206, 256], tare_g: 190, max_load_g: 10000, price_vnd: 4100 },
-  { code: 'BOX-352015', name: 'Thùng carton 35×20×15', inner: [350, 200, 150], outer: [356, 206, 156], tare_g: 160, max_load_g: 10000, price_vnd: 3500 },
-  { code: 'BOX-352025', name: 'Thùng carton 35×20×25', inner: [350, 200, 250], outer: [356, 206, 256], tare_g: 210, max_load_g: 10000, price_vnd: 4500 },
-  { code: 'BOX-201040', name: 'Thùng carton 20×10×40', inner: [200, 100, 400], outer: [206, 106, 406], tare_g: 140, max_load_g: 10000, price_vnd: 3100 },
-  { code: 'BOX-M', name: 'Thùng carton M', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
-  { code: 'BOX-L', name: 'Thùng carton L', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
-  { code: 'BOX-LT', name: 'Thùng carton L thấp', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000 },
+  // AOFP-346: mã CTN-xxx theo thể tích lòng nhỏ → lớn; thùng mới lấy số tiếp theo. FEFCO 0201.
+  { code: 'CTN-001', name: 'Thùng carton 0201 · 240×230×100 mm lọt lòng · 3 lớp', inner: [240, 230, 100], outer: [246, 236, 106], tare_g: 110, max_load_g: 5000, price_vnd: 2800, ply: 3 }, // AOFP-344: đơn nhỏ ít khoảng trống
+  { code: 'CTN-002', name: 'Thùng carton 0201 · 200×100×400 mm lọt lòng · 3 lớp', inner: [200, 100, 400], outer: [206, 106, 406], tare_g: 140, max_load_g: 10000, price_vnd: 3100, ply: 3 },
+  { code: 'CTN-003', name: 'Thùng carton 0201 · 310×230×120 mm lọt lòng · 3 lớp', inner: [310, 230, 120], outer: [316, 236, 126], tare_g: 140, max_load_g: 5000, price_vnd: 3200, ply: 3 }, // AOFP-343: vừa khuôn gấp 30×22
+  { code: 'CTN-004', name: 'Thùng carton 0201 · 300×200×150 mm lọt lòng · 3 lớp', inner: [300, 200, 150], outer: [306, 206, 156], tare_g: 140, max_load_g: 10000, price_vnd: 3300, ply: 3 }, // AOFP-345: 6 cỡ chuẩn phủ nhiều đơn ≥ 70% nhất
+  { code: 'CTN-005', name: 'Thùng carton 0201 · 350×200×150 mm lọt lòng · 3 lớp', inner: [350, 200, 150], outer: [356, 206, 156], tare_g: 160, max_load_g: 10000, price_vnd: 3500, ply: 3 },
+  { code: 'CTN-006', name: 'Thùng carton 0201 · 300×200×200 mm lọt lòng · 3 lớp', inner: [300, 200, 200], outer: [306, 206, 206], tare_g: 160, max_load_g: 10000, price_vnd: 3700, ply: 3 },
+  { code: 'CTN-007', name: 'Thùng carton 0201 · 300×200×250 mm lọt lòng · 3 lớp', inner: [300, 200, 250], outer: [306, 206, 256], tare_g: 190, max_load_g: 10000, price_vnd: 4100, ply: 3 },
+  { code: 'CTN-008', name: 'Thùng carton 0201 · 350×200×250 mm lọt lòng · 3 lớp', inner: [350, 200, 250], outer: [356, 206, 256], tare_g: 210, max_load_g: 10000, price_vnd: 4500, ply: 3 },
+  { code: 'CTN-009', name: 'Thùng carton 0201 · 350×250×200 mm lọt lòng · 3 lớp', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500, ply: 3 },
+  { code: 'CTN-010', name: 'Thùng carton 0201 · 500×400×200 mm lọt lòng · 5 lớp', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000, ply: 5 },
+  { code: 'CTN-011', name: 'Thùng carton 0201 · 500×400×350 mm lọt lòng · 5 lớp', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000, ply: 5 },
 ] as const;
 
 /** Tồn nhập cho mỗi thùng mẫu mới tạo. */
@@ -118,6 +119,8 @@ async function run(): Promise<void> {
             height_cm: cm(box.outer[2]),
             tare_g: box.tare_g,
             max_load_g: box.max_load_g,
+            fefco_code: '0201',
+            ply: 'ply' in box ? box.ply : null,
             unit_cost_vnd: box.price_vnd,
             qty_new: 0,
             qty_reused: 0,

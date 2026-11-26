@@ -159,6 +159,26 @@ Quần áo gấp về **khuôn gấp** của loại: mọi size chung dài × r�
 
 Thông số 39 SKU của shop Lazada `201182096267` được nạp bằng `be/scripts/apply-standard-packing-specs.ts`. Script này cũng là bảng thông số gốc. Đã chạy thử 1.364 tổ hợp đơn 1–4 món: tất cả đều vừa 1 kiện (issue #211). Cân nặng và kích thước mũ, dép là ước lượng, kho đo lại thì xác nhận lại hồ sơ.
 
+### 5.4. Danh mục thùng carton (AOFP-346, 27/11/2026, user chốt)
+
+Mã thùng là `CTN-xxx`, đánh theo thể tích lòng nhỏ → lớn; thùng mới lấy số tiếp theo, không chèn giữa. Mọi thùng kiểu FEFCO `0201` (nắp gập). Tên hiển thị: `Thùng carton 0201 · D×R×C mm lọt lòng · N lớp`. Lọt lòng dùng để xếp hàng, phủ bì dùng tính cước.
+
+| Mã | Mã cũ | Lọt lòng (mm) | Lớp |
+|---|---|---|---|
+| CTN-001 | BOX-XS | 240 × 230 × 100 | 3 |
+| CTN-002 | BOX-201040 | 200 × 100 × 400 | 3 |
+| CTN-003 | BOX-S | 310 × 230 × 120 | 3 |
+| CTN-004 | BOX-302015 | 300 × 200 × 150 | 3 |
+| CTN-005 | BOX-352015 | 350 × 200 × 150 | 3 |
+| CTN-006 | BOX-302020 | 300 × 200 × 200 | 3 |
+| CTN-007 | BOX-302025 | 300 × 200 × 250 | 3 |
+| CTN-008 | BOX-352025 | 350 × 200 × 250 | 3 |
+| CTN-009 | BOX-M | 350 × 250 × 200 | 3 |
+| CTN-010 | BOX-LT | 500 × 400 × 200 | 5 |
+| CTN-011 | BOX-L | 500 × 400 × 350 | 5 |
+
+CTN-002, CTN-004…CTN-008 là 6 cỡ chuẩn của AOFP-345. Đổi mã bằng `be/scripts/migrate-carton-codes.ts` (đổi ở mọi collection; câu chữ lịch sử giữ mã cũ). Tài liệu viết trước 27/11 còn dùng mã cũ.
+
 ## 6. Đơn có cả hàng mềm và hàng cứng
 
 Ví dụ: 1 áo thun + 1 đôi giày.
