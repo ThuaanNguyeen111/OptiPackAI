@@ -72,6 +72,10 @@ function matchesMasterSkuSearch(row: MasterSkuRecord, needle: string): boolean {
   return hay.includes(needle)
 }
 
+function compareMasterSkuCode(a: MasterSkuRecord, b: MasterSkuRecord): number {
+  return a.masterSku.localeCompare(b.masterSku, 'en', { numeric: true, sensitivity: 'base' })
+}
+
 function matchesProductSearch(row: ProductMasterRow, needle: string): boolean {
   if (!needle) return true
   const hay = [row.sellerSku, row.shopId, row.platform, row.packagingProfileStatus]
@@ -304,6 +308,7 @@ export function MasterSkuTab({
   const [name, setName] = useState('')
   const [gender, setGender] = useState<'nam' | 'nu' | 'unisex'>('unisex')
   const [search, setSearch] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
   const [selected, setSelected] = useState('')
   const [createdCode, setCreatedCode] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -321,16 +326,21 @@ export function MasterSkuTab({
   const selectedRow = items.find((row) => row.masterSku === selected)
   const visibleItems = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    if (!needle) return items
-    return items.filter((row) => matchesMasterSkuSearch(row, needle))
-  }, [items, search])
+    return items
+      .filter((row) => (showInactive || row.isActive) && matchesMasterSkuSearch(row, needle))
+      .sort(compareMasterSkuCode)
+  }, [items, search, showInactive])
   const canCopyCreated = createdRow === undefined || createdRow.isActive
 
   async function reload(query = search) {
     const [nextCategories, nextColors, nextSkus] = await Promise.all([
       listCategories(),
       listColors(true),
-      listMasterSkus({ search: query.trim() || undefined, includeInactive: true, limit: 50 }),
+      listMasterSkus({
+        search: query.trim() || undefined,
+        includeInactive: showInactive,
+        limit: 50,
+      }),
     ])
     setCategories(nextCategories)
     setColors(nextColors)
@@ -339,16 +349,11 @@ export function MasterSkuTab({
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      listCategories(),
-      listColors(true),
-      listMasterSkus({ includeInactive: true, limit: 50 }),
-    ])
-      .then(([nextCategories, nextColors, nextSkus]) => {
+    void Promise.all([listCategories(), listColors(true)])
+      .then(([nextCategories, nextColors]) => {
         if (cancelled) return
         setCategories(nextCategories)
         setColors(nextColors)
-        setItems(nextSkus.items)
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(formatApiError(err))
@@ -359,29 +364,29 @@ export function MasterSkuTab({
   }, [])
 
   useEffect(() => {
-    if (skipSearchDebounce.current) {
-      skipSearchDebounce.current = false
-      return
-    }
     let cancelled = false
-    const handle = window.setTimeout(() => {
-      void listMasterSkus({
-        search: search.trim() || undefined,
-        includeInactive: true,
-        limit: 50,
-      })
-        .then((next) => {
-          if (!cancelled) setItems(next.items)
+    const handle = window.setTimeout(
+      () => {
+        void listMasterSkus({
+          search: search.trim() || undefined,
+          includeInactive: showInactive,
+          limit: 50,
         })
-        .catch((err: unknown) => {
-          if (!cancelled) setError(formatApiError(err))
-        })
-    }, 250)
+          .then((next) => {
+            if (!cancelled) setItems(next.items)
+          })
+          .catch((err: unknown) => {
+            if (!cancelled) setError(formatApiError(err))
+          })
+      },
+      skipSearchDebounce.current ? 0 : 250,
+    )
+    skipSearchDebounce.current = false
     return () => {
       cancelled = true
       window.clearTimeout(handle)
     }
-  }, [search])
+  }, [search, showInactive])
 
   useEffect(() => {
     if (!selected) return
@@ -551,6 +556,14 @@ export function MasterSkuTab({
           {vi ? `In tem SKU (${printCodes.length})` : `Print SKU labels (${printCodes.length})`}
         </Button>
       </form>
+      <label className="flex items-center gap-2 text-xs text-ink-muted">
+        <input
+          type="checkbox"
+          checked={showInactive}
+          onChange={(e) => setShowInactive(e.target.checked)}
+        />
+        {vi ? 'Hiện SKU đã tắt' : 'Show inactive SKUs'}
+      </label>
       <Table>
         <TableHeader>
           <TableRow>
