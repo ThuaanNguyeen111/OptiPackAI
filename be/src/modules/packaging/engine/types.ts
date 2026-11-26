@@ -42,8 +42,10 @@ export interface PackingUnit {
   max_stack_load_g: number | null;
   /** (22/09/2026) Hàng mềm được phép gập đôi thêm khi cần để vừa thùng nhỏ hơn. */
   foldable?: boolean;
-  /** true = số đo đang là số đo SAU KHI gập đôi (xem foldUnit). */
+  /** true = số đo đang là số đo SAU KHI gập (xem foldUnit). */
   folded?: boolean;
+  /** (AOFP-345) Số lần đã gập: 1 = gập đôi, 2 = gập tư. Thiếu = 1 khi folded. */
+  fold_count?: number;
   /**
    * (28/09/2026) Loại sản phẩm (enum ProductCategory) — chỉ để chọn vật tư
    * chèn theo luật; hình học không dùng.
@@ -114,6 +116,8 @@ export interface Placement {
   orientation: Orientation;
   /** (22/09/2026) Món này phải gập đôi trước khi đặt. */
   folded?: boolean;
+  /** (AOFP-345) 2 = gập tư (gập đôi hai lần); thiếu = gập đôi khi folded. */
+  fold_count?: number;
 }
 
 export type ViolationCode =
@@ -126,7 +130,6 @@ export type ViolationCode =
   | 'OVERLAP'
   | 'NO_SUPPORT'
   | 'STACK_LOAD_EXCEEDED'
-  | 'HARD_ON_SOFT'
   | 'BOX_LOAD_EXCEEDED';
 
 export interface Violation {

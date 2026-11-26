@@ -16,7 +16,8 @@ import mongoose from 'mongoose';
  * ===================================================================
  */
 
-const VOID_FILL = { basis: 'void_fill', quantity: 0, void_bands: [], target_fill_ratio: 0.9, unit_fill_ml: 800 };
+// AOFP-345: chỉ kiện có hàng dễ vỡ mới chèn gối.
+const VOID_FILL = { applies_to: 'fragile', basis: 'void_fill', quantity: 0, void_bands: [], target_fill_ratio: 0.9, unit_fill_ml: 800 };
 
 interface RuleEntry {
   material_type: string;
@@ -44,8 +45,8 @@ async function main(): Promise<void> {
     replaced += 1;
     return { ...r, ...VOID_FILL };
   });
-  if (replaced === 0) rules.push({ material_type: 'air_pillow', applies_to: 'any', min_units: 1, ...VOID_FILL });
-  console.log(`Bộ luật v${String(active.version)} → v${String(version)}: ${replaced > 0 ? 'thay' : 'thêm'} luật gối hơi = void_fill 90%, 800 ml/gối.`);
+  if (replaced === 0) rules.push({ material_type: 'air_pillow', min_units: 1, ...VOID_FILL });
+  console.log(`Bộ luật v${String(active.version)} → v${String(version)}: ${replaced > 0 ? 'thay' : 'thêm'} luật gối hơi = void_fill 90% cho kiện có hàng dễ vỡ, 800 ml/gối.`);
 
   if (apply) {
     const backup = `material-rules-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;

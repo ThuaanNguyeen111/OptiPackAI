@@ -292,7 +292,7 @@ function ParcelGuidePlayer({
                   <span className="font-mono font-semibold">{placement.sku}</span>
                   {' · '}
                   {categoryLabel(profile?.productCategory, vi)}
-                  {placement.folded ? (vi ? ' · gập đôi' : ' · folded in half') : ''}
+                  {placement.folded ? ((placement.foldCount ?? 1) > 1 ? (vi ? ' · gập tư' : ' · folded in quarters') : vi ? ' · gập đôi' : ' · folded in half') : ''}
                   {profile?.zipBagCode ? ` · ${vi ? 'túi' : 'bag'} ${profile.zipBagCode}` : ''}
                   {placementOrderCode ? (
                     <span className="font-semibold" style={{ color: placementOrder }}>

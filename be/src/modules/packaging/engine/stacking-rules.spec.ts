@@ -5,9 +5,9 @@ import type { BoxSpec, PackingUnit, Placement } from './types';
 import { ALL_ORIENTATIONS } from './types';
 
 /**
- * (16/11/2026, user chốt) Luật xếp chồng: hàng cứng (không thuộc 6 loại quần áo)
- * không được nằm trên quần áo, kể cả chỉ một phần đáy; riêng hàng dễ vỡ được
- * nằm trên quần áo (đệm êm), nhưng vẫn không được đè gì lên nó.
+ * Luật xếp chồng. (16/11/2026) từng cấm hàng cứng nằm trên quần áo; AOFP-345
+ * (26/11/2026, user chốt) bỏ luật đó để thùng đầy hơn: hàng cứng được nằm thẳng
+ * trên quần áo, không lót gì. Hàng dễ vỡ vẫn không được đè gì lên.
  */
 function unit(
   key: string,
@@ -51,23 +51,23 @@ const codes = (placements: Placement[], units: PackingUnit[]): string[] =>
   validateCandidate(units, box, placements).map((v) => v.code);
 
 describe('Luật xếp chồng — packOrder', () => {
-  it('áo phủ kín đáy thùng, chỉ còn cách đặt giày lên áo → no_fit', () => {
+  it('áo phủ kín đáy thùng: giày được đặt lên áo (AOFP-345)', () => {
     const smallShoe = unit('GIAY#9', [150, 100, 100], 100, { category: ProductCategory.SHOES });
     const tight: BoxSpec = { ...box, code: 'TIGHT', inner: { length_mm: 300, width_mm: 200, height_mm: 140 } };
-    expect(packOrder([shirt, smallShoe], [tight]).status).toBe('no_fit');
+    expect(packOrder([shirt, smallShoe], [tight]).status).toBe('ok');
   });
 });
 
 describe('Luật xếp chồng — validator', () => {
-  it('hộp giày đặt lên áo → HARD_ON_SOFT', () => {
-    expect(codes([place(shirt, 1, [0, 0, 0]), place(shoe, 2, [0, 0, 40])], [shirt, shoe])).toContain('HARD_ON_SOFT');
+  it('hộp giày đặt lên áo là hợp lệ (AOFP-345)', () => {
+    expect(codes([place(shirt, 1, [0, 0, 0]), place(shoe, 2, [0, 0, 40])], [shirt, shoe])).toEqual([]);
   });
 
   it('áo đặt lên hộp giày là hợp lệ', () => {
     expect(codes([place(shoe, 1, [0, 0, 0]), place(shirt, 2, [0, 0, 120])], [shirt, shoe])).toEqual([]);
   });
 
-  it('hộp giày nửa trên hộp giày, nửa trên áo cao bằng nhau → HARD_ON_SOFT', () => {
+  it('hộp giày nửa trên hộp giày, nửa trên áo cao bằng nhau là hợp lệ (AOFP-345)', () => {
     const shoeBase = unit('GIAY#2', [150, 200, 40], 300, { category: ProductCategory.SHOES });
     const halfShirt = unit('AO#2', [150, 200, 40], 200, { category: ProductCategory.T_SHIRT });
     expect(
@@ -75,7 +75,13 @@ describe('Luật xếp chồng — validator', () => {
         [place(shoeBase, 1, [0, 0, 0]), place(halfShirt, 2, [150, 0, 0]), place(shoe, 3, [0, 0, 40])],
         [shoeBase, halfShirt, shoe],
       ),
-    ).toContain('HARD_ON_SOFT');
+    ).toEqual([]);
+  });
+
+  it('vẫn không được đặt gì lên hàng dễ vỡ', () => {
+    expect(codes([place(glasses, 1, [0, 0, 0]), place(shirt, 2, [0, 0, 50])], [glasses, shirt])).toContain(
+      'STACK_LOAD_EXCEEDED',
+    );
   });
 
   it('hàng dễ vỡ được nằm trên áo', () => {

@@ -46,6 +46,8 @@ export interface GuideStepFacts {
   zip_bag: GuideZipBag | null;
   /** (22/09/2026) Engine gập đôi món này (theo chiều dài) để vừa thùng nhỏ hơn. */
   folded_in_half: boolean;
+  /** (AOFP-345) Gập tư: gập đôi thêm lần nữa (khi đó folded_in_half cũng true). */
+  folded_in_quarter: boolean;
   is_fragile: boolean;
   /** true = hồ sơ kho cấm đặt vật khác lên trên món này. */
   no_stack_on_top: boolean;
@@ -183,6 +185,7 @@ export function describePackingSteps(
           : productTypeLabel(profile?.product_category),
       zip_bag: profile?.zip_bag ?? null,
       folded_in_half: p.folded === true,
+      folded_in_quarter: (p.fold_count ?? 0) > 1,
       is_fragile: unit?.is_fragile ?? false,
       no_stack_on_top: unit ? unit.max_stack_load_g === null : false,
       position: describePosition(p, box),
@@ -199,6 +202,12 @@ export function describePackingSteps(
  * zip, món lớn dưới cùng, rồi cho vào túi, ép khí, dán nắp, dán tem. Không có
  * vị trí trong lòng thùng nên không nói "góc/giữa thùng".
  */
+/** Câu gập món (gập đôi, hoặc gập tư khi AOFP-345 gập hai lần). */
+function foldAction(f: GuideStepFacts, itemName: string): string {
+  const how = f.folded_in_quarter ? 'gập tư' : 'gập đôi';
+  return f.zip_bag ? `${how} cả gói theo chiều dài` : `${how[0]?.toUpperCase() ?? ''}${how.slice(1)} ${itemName} (${f.item_key}) theo chiều dài`;
+}
+
 function buildMailerGuide(facts: GuideStepFacts[], box: BoxSpec): GuideText {
   const steps = facts.map((f) => {
     const itemName = f.product_type ? `${f.product_type} ${f.sku}` : `món ${f.sku}`;
@@ -209,7 +218,7 @@ function buildMailerGuide(facts: GuideStepFacts[], box: BoxSpec): GuideText {
       );
     }
     if (f.folded_in_half) {
-      actions.push(f.zip_bag ? 'gập đôi cả gói theo chiều dài' : `Gập đôi ${itemName} (${f.item_key}) theo chiều dài`);
+      actions.push(foldAction(f, itemName));
     }
     if (actions.length === 0) actions.push(`Lấy ${itemName} (${f.item_key})`);
     const where =
@@ -253,11 +262,7 @@ export function buildTemplateGuide(
       );
     }
     if (f.folded_in_half) {
-      actions.push(
-        f.zip_bag
-          ? 'gập đôi cả gói theo chiều dài'
-          : `Gập đôi ${itemName} (${f.item_key}) theo chiều dài`,
-      );
+      actions.push(foldAction(f, itemName));
     }
     if (f.is_fragile) {
       actions.push(
@@ -273,7 +278,11 @@ export function buildTemplateGuide(
     if (f.zip_bag)
       tips.push('Vuốt hết không khí và kéo kín miệng túi trước khi xếp.');
     if (f.folded_in_half)
-      tips.push('Gập đôi giúp dùng được thùng nhỏ hơn — ép phẳng nếp gập.');
+      tips.push(
+        f.folded_in_quarter
+          ? 'Gập tư để lấp khe cạnh món khác — ép phẳng nếp gập.'
+          : 'Gập đôi giúp dùng được thùng nhỏ hơn — ép phẳng nếp gập.',
+      );
     return {
       step: f.step,
       instruction: `${actions.join(', ')}, ${f.orientation_hint}, đặt ${where} ở ${f.position}.`,
