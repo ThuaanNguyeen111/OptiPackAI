@@ -1,6 +1,7 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import {
+  AlertTriangle,
   BarChart3,
   Box,
   Boxes,
@@ -23,6 +24,7 @@ import {
   Users,
   Warehouse,
   X,
+  Zap,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../../../context/use-auth'
@@ -52,7 +54,9 @@ const navItems: NavItem[] = [
   { to: '/app/admin/roles', end: false, labelVi: 'Phân quyền', labelEn: 'Role access', icon: Shield, section: 'directory' },
   { to: '/app/admin/marketplace', end: false, labelVi: 'Kết nối sàn', labelEn: 'Marketplace', icon: Store, section: 'marketplace' },
   { to: '/app/admin/orders', end: false, labelVi: 'Đơn hàng', labelEn: 'Orders', icon: Package, section: 'marketplace' },
-  { to: '/app/order-groups', end: false, labelVi: 'Nhóm đơn & Hỏa tốc', labelEn: 'Groups & Express', icon: ClipboardList, section: 'marketplace' },
+  { to: '/app/order-groups', end: true, labelVi: 'Nhóm đơn', labelEn: 'Order groups', icon: ClipboardList, section: 'marketplace' },
+  { to: '/app/order-groups/express', end: false, labelVi: 'Đơn hỏa tốc', labelEn: 'Express orders', icon: Zap, section: 'marketplace' },
+  { to: '/app/order-groups/shortage', end: false, labelVi: 'Thiếu hàng', labelEn: 'Stock shortage', icon: AlertTriangle, section: 'marketplace' },
   { to: '/app/admin/order-sync', end: false, labelVi: 'Đồng bộ đơn', labelEn: 'Order sync', icon: SlidersHorizontal, section: 'marketplace' },
   { to: '/app/admin/returns', end: false, labelVi: 'Trả hàng', labelEn: 'Returns', icon: PackageX, section: 'marketplace' },
   { to: '/app/admin/warehouse', end: false, labelVi: 'Cấu hình kho', labelEn: 'Warehouse setup', icon: Warehouse, section: 'warehouse' },

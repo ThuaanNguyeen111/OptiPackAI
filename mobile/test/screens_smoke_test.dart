@@ -108,7 +108,10 @@ void main() {
     expect(find.text('Chấp nhận'), findsWidgets);
     expect(find.text('Từ chối'), findsOneWidget);
     expect(find.textContaining('Cắt hạ thùng còn'), findsOneWidget, reason: 'BOX-M có cắt hạ');
-    expect(find.textContaining('Đang hiện 4/4 món'), findsOneWidget);
+    // Sơ đồ 2D theo lớp đã ẩn; còn hai nút mở 3D và hướng dẫn.
+    expect(find.textContaining('Đang hiện'), findsNothing);
+    expect(find.text('Xem 3D'), findsWidgets);
+    expect(find.text('Hướng dẫn'), findsWidgets);
   });
 
   testWidgets('Đóng gói: phiên đóng quét món rồi niêm phong', (tester) async {

@@ -37,6 +37,7 @@ import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   isFullyInactiveGroup,
   isPartiallyCanceledGroup,
+  type ListOrderGroupsParams,
   type OrderGroup,
   type OrderPriority,
 } from '../types/order-groups'
@@ -138,7 +139,75 @@ function platformLabel(platform: string): string {
   return platform
 }
 
-export function OrderGroupsPage() {
+/** Ba trang tách riêng: toàn bộ nhóm, đơn hỏa tốc, nhóm thiếu hàng. */
+export type OrderGroupsView = 'all' | 'express' | 'shortage'
+
+const VIEW_TEXT: Record<
+  OrderGroupsView,
+  { title: [string, string]; hint: [string, string]; empty: [string, string] }
+> = {
+  all: {
+    title: ['Nhóm đơn', 'Order groups'],
+    hint: [
+      'Tiến độ từng nhóm đơn. Chọn một dòng để xem chi tiết hoặc đặt Hỏa tốc.',
+      'Progress of every order group. Select a row to view details or mark it Express.',
+    ],
+    empty: ['Chưa có nhóm đơn', 'No order groups yet'],
+  },
+  express: {
+    title: ['Đơn hỏa tốc', 'Express orders'],
+    hint: [
+      'Chỉ các nhóm Hỏa tốc, kèm hạn đóng gói. Nhóm quá hạn nằm trên cùng.',
+      'Express groups only, with packaging deadlines. Overdue groups come first.',
+    ],
+    empty: ['Không có đơn hỏa tốc', 'No express orders'],
+  },
+  shortage: {
+    title: ['Thiếu hàng', 'Stock shortage'],
+    hint: [
+      'Nhóm không giữ đủ tồn kho và nhóm đang chờ duyệt vì báo thiếu khi lấy hàng.',
+      'Groups short of reserved stock, plus groups awaiting review after a missing-item report.',
+    ],
+    empty: ['Không có nhóm nào thiếu hàng', 'No groups are short of stock'],
+  },
+}
+
+const AWAITING_REVIEW = 'partial_needs_review'
+
+function belongsToView(group: OrderGroup, view: OrderGroupsView): boolean {
+  if (view === 'express') return group.orderPriority === 'express'
+  if (view === 'shortage') {
+    return group.stockShortage || group.fulfillmentStatus === AWAITING_REVIEW
+  }
+  return true
+}
+
+/** BE không lọc được "thiếu tồn HOẶC chờ duyệt" nên trang Thiếu hàng gọi 2 lần rồi gộp. */
+async function fetchViewGroups(
+  view: OrderGroupsView,
+  signal: AbortSignal,
+  extra: ListOrderGroupsParams = {},
+): Promise<OrderGroup[]> {
+  if (view === 'express') {
+    return listOrderGroups({ ...extra, order_priority: 'express' }, { signal })
+  }
+  if (view === 'shortage') {
+    // Tìm theo mã: BE tìm một lần rồi lọc lại ở đây.
+    if (extra.q) {
+      const found = await listOrderGroups(extra, { signal })
+      return found.filter((g) => belongsToView(g, view))
+    }
+    const [short, review] = await Promise.all([
+      listOrderGroups({ ...extra, stock_shortage: true }, { signal }),
+      listOrderGroups({ ...extra, fulfillment_status: AWAITING_REVIEW }, { signal }),
+    ])
+    const seen = new Set(review.map((g) => g.id))
+    return [...review, ...short.filter((g) => !seen.has(g.id))]
+  }
+  return listOrderGroups(extra, { signal })
+}
+
+export function OrderGroupsPage({ view = 'all' }: { view?: OrderGroupsView }) {
   const { locale } = usePortal()
   const { session } = useAuth()
   const vi = locale === 'vi'
@@ -156,11 +225,9 @@ export function OrderGroupsPage() {
   const canRecheck =
     role === UserRole.ADMIN || role === UserRole.STORE_OWNER
   const canRelease = role === UserRole.ADMIN
+  const text = VIEW_TEXT[view]
+  const pageTitle = text.title[vi ? 0 : 1]
 
-  const [priorityFilter, setPriorityFilter] = useState<
-    'all' | OrderPriority
-  >('all')
-  const [shortageOnly, setShortageOnly] = useState(false)
   const [groups, setGroups] = useState<OrderGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -186,12 +253,7 @@ export function OrderGroupsPage() {
     setLoading(true)
     setError(null)
     try {
-      const rows = await listOrderGroups({
-        ...(priorityFilter === 'all'
-          ? {}
-          : { order_priority: priorityFilter }),
-        ...(shortageOnly ? { stock_shortage: true } : {}),
-      }, { signal })
+      const rows = await fetchViewGroups(view, signal)
       setGroups(rows)
       setSelectedId((prev) => {
         if (prev && rows.some((g) => g.id === prev)) return prev
@@ -204,7 +266,7 @@ export function OrderGroupsPage() {
     } finally {
       if (!signal.aborted) setLoading(false)
     }
-  }, [priorityFilter, shortageOnly, nextSignal])
+  }, [view, nextSignal])
 
   useEffect(() => {
     let cancelled = false
@@ -282,8 +344,8 @@ export function OrderGroupsPage() {
     const express = groups.filter((g) => g.orderPriority === 'express').length
     const overdue = groups.filter((g) => g.isOverdue).length
     const shortage = groups.filter((g) => g.stockShortage).length
-    const normal = groups.length - express
-    return { total: groups.length, express, normal, overdue, shortage }
+    const review = groups.filter((g) => g.fulfillmentStatus === AWAITING_REVIEW).length
+    return { total: groups.length, express, overdue, shortage, review }
   }, [groups])
 
   /** Chỉ sắp xếp hiển thị: quá hạn / thiếu hàng / hỏa tốc lên đầu — không đổi state `groups`. */
@@ -321,13 +383,7 @@ export function OrderGroupsPage() {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setRemoteSearching(true)
-      void listOrderGroups({
-        q: query,
-        ...(priorityFilter === 'all'
-          ? {}
-          : { order_priority: priorityFilter }),
-        ...(shortageOnly ? { stock_shortage: true } : {}),
-      }, { signal: controller.signal })
+      void fetchViewGroups(view, controller.signal, { q: query })
         .then((rows) => {
           if (!cancelled) setRemoteGroups(rows)
         })
@@ -343,7 +399,7 @@ export function OrderGroupsPage() {
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [searchQuery, localVisibleGroups.length, priorityFilter, shortageOnly])
+  }, [searchQuery, localVisibleGroups.length, view])
 
   async function applyPriority(priority: OrderPriority): Promise<void> {
     if (!detail) return
@@ -371,6 +427,8 @@ export function OrderGroupsPage() {
             : 'Set back to Normal.',
       )
       window.setTimeout(() => setToast(null), 2800)
+      // Chuyển về thường thì nhóm không còn thuộc trang Hỏa tốc.
+      if (view === 'express') await load()
     } catch (err: unknown) {
       setActionError(formatApiError(err))
     } finally {
@@ -378,34 +436,12 @@ export function OrderGroupsPage() {
     }
   }
 
-  const filterChips: Array<{
-    value: 'all' | OrderPriority
-    label: string
-    icon: typeof Layers
-  }> = [
-    {
-      value: 'all',
-      label: vi ? `Tất cả (${stats.total})` : `All (${stats.total})`,
-      icon: Layers,
-    },
-    {
-      value: 'express',
-      label: vi ? `Hỏa tốc (${stats.express})` : `Express (${stats.express})`,
-      icon: Zap,
-    },
-    {
-      value: 'normal',
-      label: vi ? `Thường (${stats.normal})` : `Normal (${stats.normal})`,
-      icon: Package,
-    },
-  ]
-
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
-          { label: vi ? 'Nhóm đơn & Hỏa tốc' : 'Order groups & Express' },
+          { label: pageTitle },
         ]}
       />
 
@@ -414,12 +450,10 @@ export function OrderGroupsPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold tracking-tight text-ink">
-              {vi ? 'Nhóm đơn & Hỏa tốc' : 'Order groups & Express'}
+              {pageTitle}
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-ink-subtle">
-              {vi
-                ? 'Tiến độ từng nhóm đơn. Đơn đánh dấu Hỏa tốc có hạn đóng gói tính theo giờ hành chính 8h–17h.'
-                : 'Track processing progress by order group. Mark Express so the system sets a packaging deadline in business hours (8–17).'}
+              {text.hint[vi ? 0 : 1]}
             </p>
           </div>
           <Button
@@ -445,28 +479,18 @@ export function OrderGroupsPage() {
               <Layers className="h-3 w-3" />
               {vi ? `${stats.total} nhóm` : `${stats.total} groups`}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
-              <Zap className="h-3 w-3" />
-              {vi ? `${stats.express} hỏa tốc` : `${stats.express} express`}
-            </span>
+            {view === 'all' ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
+                <Zap className="h-3 w-3" />
+                {vi ? `${stats.express} hỏa tốc` : `${stats.express} express`}
+              </span>
+            ) : null}
             {stats.overdue > 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/70 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
                 <AlertTriangle className="h-3 w-3" />
                 {vi ? `${stats.overdue} quá hạn` : `${stats.overdue} overdue`}
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setShortageOnly((current) => !current)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium',
-                shortageOnly
-                  ? 'border-orange-400 bg-orange-100 text-orange-900'
-                  : 'border-hairline bg-surface text-ink-muted',
-              )}
-            >
-              {vi ? 'Chỉ nhóm thiếu hàng' : 'Shortage only'}
-            </button>
             {stats.shortage > 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200/70 bg-orange-50 px-2.5 py-1 text-[11px] font-medium text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200">
                 <AlertTriangle className="h-3 w-3" />
@@ -475,7 +499,12 @@ export function OrderGroupsPage() {
                   : `${stats.shortage} stock short`}
               </span>
             ) : null}
-            {savings ? (
+            {view === 'shortage' && stats.review > 0 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/70 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+                {vi ? `${stats.review} chờ duyệt lấy thiếu` : `${stats.review} awaiting review`}
+              </span>
+            ) : null}
+            {view === 'all' && savings ? (
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-200"
                 title={
@@ -489,29 +518,6 @@ export function OrderGroupsPage() {
                   : `Pack savings ${savings.totalSavingVnd.toLocaleString('en-US')}₫`}
               </span>
             ) : null}
-          </div>
-
-          <div className="ml-auto flex flex-wrap gap-1.5 rounded-lg border border-hairline bg-surface-2/80 p-1">
-            {filterChips.map((chip) => {
-              const Icon = chip.icon
-              const active = priorityFilter === chip.value
-              return (
-                <button
-                  key={chip.value}
-                  type="button"
-                  onClick={() => setPriorityFilter(chip.value)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                    active
-                      ? 'bg-surface text-ink shadow-sm'
-                      : 'text-ink-muted hover:text-ink',
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {chip.label}
-                </button>
-              )
-            })}
           </div>
         </div>
 
@@ -540,7 +546,13 @@ export function OrderGroupsPage() {
                 {vi ? 'Danh sách nhóm' : 'Group list'}
               </p>
               <p className="text-[11px] text-ink-subtle">
-                {vi ? 'Chọn dòng để đặt Hỏa tốc' : 'Select a row to set Express'}
+                {view === 'all'
+                  ? vi
+                    ? 'Chọn dòng để đặt Hỏa tốc'
+                    : 'Select a row to set Express'
+                  : vi
+                    ? 'Chọn dòng để xem chi tiết'
+                    : 'Select a row for details'}
               </p>
             </div>
 
@@ -560,13 +572,15 @@ export function OrderGroupsPage() {
                     <Package className="h-5 w-5" />
                   </div>
                   <p className="text-sm font-medium text-ink">
-                    {vi ? 'Chưa có nhóm đơn' : 'No order groups yet'}
+                    {text.empty[vi ? 0 : 1]}
                   </p>
-                  <p className="max-w-sm text-xs text-ink-subtle">
-                    {vi
-                      ? 'Nhóm được tạo khi hệ thống backfill/gộp đơn. Đổi bộ lọc hoặc tải lại sau khi sync đơn Lazada.'
-                      : 'Groups appear after backfill/consolidation. Change filter or refresh after Lazada sync.'}
-                  </p>
+                  {view === 'all' ? (
+                    <p className="max-w-sm text-xs text-ink-subtle">
+                      {vi
+                        ? 'Nhóm được tạo khi hệ thống gộp đơn. Tải lại sau khi đồng bộ đơn.'
+                        : 'Groups appear after consolidation. Refresh after syncing orders.'}
+                    </p>
+                  ) : null}
                 </div>
               ) : visibleGroups.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
@@ -587,7 +601,19 @@ export function OrderGroupsPage() {
                       </th>
                       <th className="px-3 py-3">{vi ? 'Kênh' : 'Channel'}</th>
                       <th className="px-3 py-3">{vi ? 'Trạng thái' : 'Status'}</th>
-                      <th className="px-3 py-3">{vi ? 'Ưu tiên' : 'Priority'}</th>
+                      <th className="px-3 py-3">
+                        {view === 'express'
+                          ? vi
+                            ? 'Hạn đóng gói'
+                            : 'Deadline'
+                          : view === 'shortage'
+                            ? vi
+                              ? 'Đang thiếu'
+                              : 'Missing'
+                            : vi
+                              ? 'Ưu tiên'
+                              : 'Priority'}
+                      </th>
                       <th className="px-3 py-3">{vi ? 'Số đơn' : 'Orders'}</th>
                       <th className="px-4 py-3">{vi ? 'Cập nhật' : 'Updated'}</th>
                     </tr>
@@ -677,7 +703,34 @@ export function OrderGroupsPage() {
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-center">
-                              {g.isOverdue ? (
+                              {view === 'express' ? (
+                                <span
+                                  className={cn(
+                                    'font-mono text-[11px] whitespace-nowrap',
+                                    g.isOverdue
+                                      ? 'font-bold text-rose-700 dark:text-rose-300'
+                                      : 'text-ink',
+                                  )}
+                                >
+                                  {toIso(g.packagingDeadline)
+                                    ? formatDateTime(toIso(g.packagingDeadline)!)
+                                    : '—'}
+                                  {g.isOverdue ? (vi ? ' · Quá hạn' : ' · Overdue') : ''}
+                                </span>
+                              ) : view === 'shortage' ? (
+                                <div className="space-y-0.5 text-[11px] text-ink">
+                                  {g.fulfillmentStatus === AWAITING_REVIEW ? (
+                                    <p className="font-semibold text-rose-700 dark:text-rose-300">
+                                      {vi ? 'Chờ duyệt lấy thiếu' : 'Awaiting review'}
+                                    </p>
+                                  ) : null}
+                                  {g.stockShortageItems.map((item) => (
+                                    <p key={item.sku} className="font-mono">
+                                      {item.sku} × {item.shortage}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : g.isOverdue ? (
                                 <span
                                   className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:border-rose-700 dark:bg-rose-950/50 dark:text-rose-200"
                                   title={vi ? 'Hỏa tốc quá hạn SLA' : 'Express SLA overdue'}
@@ -750,12 +803,22 @@ export function OrderGroupsPage() {
                 </span>
                 <div>
                   <h2 className="text-sm font-semibold text-ink">
-                    {vi ? 'Chi tiết & Hỏa tốc' : 'Detail & Express'}
+                    {view === 'express'
+                      ? vi
+                        ? 'Chi tiết đơn hỏa tốc'
+                        : 'Express detail'
+                      : vi
+                        ? 'Chi tiết nhóm'
+                        : 'Group detail'}
                   </h2>
                   <p className="text-[11px] text-ink-subtle">
-                    {vi
-                      ? 'Chỉ Store Owner / Admin đặt tay'
-                      : 'Store Owner / Admin mark manually'}
+                    {view === 'shortage'
+                      ? vi
+                        ? 'Nhóm đang thiếu hàng'
+                        : 'Group short of stock'
+                      : vi
+                        ? 'Chỉ Store Owner / Admin đặt Hỏa tốc'
+                        : 'Only Store Owner / Admin set Express'}
                   </p>
                 </div>
               </div>
@@ -981,6 +1044,16 @@ export function OrderGroupsPage() {
                     }}
                   />
 
+                  {view === 'shortage' ? (
+                    detail.fulfillmentStatus === AWAITING_REVIEW ? (
+                      <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
+                        {vi
+                          ? 'Nhóm đang chờ quyết định "Giao phần có sẵn" hoặc "Lấy lại". Nhân viên đóng gói hoặc Admin quyết định ở màn Đóng gói.'
+                          : 'Awaiting "ship available" or "pick again". Packaging Staff or Admin decide on the Packing screen.'}
+                      </p>
+                    ) : null
+                  ) : (
+                    <>
                   <dl className="grid gap-3 rounded-lg border border-hairline bg-canvas/60 p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <dt className="inline-flex items-center gap-1 text-ink-subtle">
@@ -1039,6 +1112,8 @@ export function OrderGroupsPage() {
                       </Button>
                     </div>
                   </div>
+                    </>
+                  )}
 
                   {actionError ? (
                     <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">

@@ -6,7 +6,6 @@ import '../../app/colors.dart';
 import '../../app/providers.dart';
 import '../../core/config/env.dart';
 import 'packing_repository.dart';
-import 'parcel_layer_view.dart';
 
 /// Địa chỉ trang nhúng khung 3D của web. Phiên đăng nhập đi qua **fragment** (`#...`): fragment không
 /// gửi lên máy chủ và không vào log; web ghi vào localStorage của WebView rồi xoá khỏi thanh địa chỉ.
@@ -42,7 +41,7 @@ Future<void> openParcelWeb(BuildContext context, String groupId, Parcel parcel, 
   return replace ? nav.pushReplacement(route) : nav.push(route);
 }
 
-/// Một kiện: nhìn 2D theo lớp (có sẵn, chạy offline) kèm nút mở khung 3D đầy đủ như web.
+/// Một kiện: hai nút mở khung 3D và trang hướng dẫn của web.
 class ParcelLayoutCard extends StatelessWidget {
   const ParcelLayoutCard({super.key, required this.groupId, required this.parcel});
 
@@ -51,37 +50,30 @@ class ParcelLayoutCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Row(
       children: [
-        ParcelLayerView(parcel: parcel),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => openParcelWeb(context, groupId, parcel, EmbedView.scene),
-                icon: const Icon(Icons.view_in_ar_outlined),
-                label: const Text('Xem 3D'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => openParcelWeb(context, groupId, parcel, EmbedView.guide),
-                icon: const Icon(Icons.menu_book_outlined),
-                label: const Text('Hướng dẫn'),
-              ),
-            ),
-          ],
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => openParcelWeb(context, groupId, parcel, EmbedView.scene),
+            icon: const Icon(Icons.view_in_ar_outlined),
+            label: const Text('Xem 3D'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton.icon(
+            onPressed: () => openParcelWeb(context, groupId, parcel, EmbedView.guide),
+            icon: const Icon(Icons.menu_book_outlined),
+            label: const Text('Hướng dẫn'),
+          ),
         ),
       ],
     );
   }
 }
 
-/// Khung 3D hoặc trang hướng dẫn đóng gói của web trong WebView. Tải lỗi (mất mạng, web chưa chạy) thì hiện bản 2D để nhân viên
-/// vẫn biết cách xếp, kèm nút thử lại.
+/// Khung 3D hoặc trang hướng dẫn đóng gói của web trong WebView. Tải lỗi (mất mạng, web chưa chạy) thì báo lỗi
+/// kèm nút thử lại.
 class ParcelWebScreen extends ConsumerStatefulWidget {
   const ParcelWebScreen({super.key, required this.groupId, required this.parcel, this.view = EmbedView.scene});
 
@@ -209,10 +201,6 @@ class _ParcelWebScreenState extends ConsumerState<ParcelWebScreen> {
                   icon: const Icon(Icons.refresh),
                   label: const Text('Thử lại'),
                 ),
-                const SizedBox(height: 16),
-                const Text('Bản 2D theo lớp:', style: TextStyle(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                ParcelLayerView(parcel: widget.parcel),
               ],
             )
           : controller == null
