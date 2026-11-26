@@ -29,6 +29,8 @@ export type PackingPlacement = {
   orientation: PackingOrientation
   /** true = thuật toán đã gập đôi món để vừa thùng nhỏ hơn. */
   folded: boolean
+  /** (AOFP-345) Số lần gập: 1 = gập đôi, 2 = gập tư. BE cũ không gửi → coi folded = 1 lần. */
+  foldCount?: number
   /** Kiện gộp nhiều đơn: món này thuộc đơn nào. Kiện 1 đơn = null. */
   orderId?: string | null
 }

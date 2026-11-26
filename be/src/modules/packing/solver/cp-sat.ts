@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { foldUnit, minSupportPct } from '../../packaging/engine/units';
+import { foldedShapeFor, foldFields, minSupportPct } from '../../packaging/engine/units';
 import type {
   BoxSpec,
   Orientation,
@@ -175,7 +175,8 @@ function parcelsFromPlacements(
     for (const [i, p] of inBox.entries()) {
       const base = unitByKey.get(p.key);
       if (!base) return null;
-      units.push(p.folded ? foldUnit(base) : base);
+      const shape = p.folded ? foldedShapeFor(base, [p.dx, p.dy, p.dz]) : base;
+      units.push(shape);
       placed.push({
         item_key: p.key,
         sku: base.sku,
@@ -187,7 +188,7 @@ function parcelsFromPlacements(
         dy: p.dy,
         dz: p.dz,
         orientation: p.orientation as Orientation,
-        ...(p.folded && { folded: true }),
+        ...foldFields(shape),
       });
     }
     parcels.push(

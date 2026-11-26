@@ -1,4 +1,4 @@
-import { mayRestOn, minSupportPct } from '../../packaging/engine/units';
+import { foldCount, foldFields, MAX_FOLDS, minSupportPct } from '../../packaging/engine/units';
 import { footprintOverlapArea } from '../../packaging/engine/validator';
 import type {
   BoxSpec,
@@ -111,8 +111,6 @@ export class ParcelState {
       if (!other || other.z + other.dz !== z) continue;
       const area = footprintOverlapArea(footprint, other);
       if (area > 0) {
-        const below = this.units[i];
-        if (below && !mayRestOn(v.unit, below)) return null;
         raw.push({ index: i, area });
         covered += area;
       }
@@ -157,13 +155,13 @@ export class ParcelState {
     variants: Variant[],
     gene: number,
   ): { variant: Variant; at: Ems; check: PlacementCheck } | null {
-    // Gập chỉ khi cần (quy tắc 22/09/2026): thử dạng gốc trước, hết chỗ mới thử dạng gập.
-    const plain = variants.filter((v) => v.unit.folded !== true);
-    const folded = variants.filter((v) => v.unit.folded === true);
-    return (
-      this.findAmong(plain, gene) ??
-      (folded.length > 0 ? this.findAmong(folded, gene) : null)
-    );
+    // Gập chỉ khi cần (quy tắc 22/09/2026): thử dạng gốc trước, hết chỗ mới gập đôi, rồi gập tư.
+    for (let n = 0; n <= MAX_FOLDS; n += 1) {
+      const level = variants.filter((v) => foldCount(v.unit) === n);
+      const hit = level.length > 0 ? this.findAmong(level, gene) : null;
+      if (hit) return hit;
+    }
+    return null;
   }
 
   private findAmong(
@@ -229,7 +227,7 @@ export class ParcelState {
       dy: variant.dy,
       dz: variant.dz,
       orientation: variant.orientation,
-      ...(variant.unit.folded === true && { folded: true }),
+      ...foldFields(variant.unit),
     };
     this.placements.push(placement);
     this.units.push(variant.unit);

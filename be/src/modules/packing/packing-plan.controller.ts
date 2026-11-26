@@ -477,6 +477,7 @@ export function toPlanResponse(
         dz: q.dz,
         orientation: q.orientation,
         folded: q.folded,
+        foldCount: q.folded ? (q.fold_count ?? 1) : 0,
         orderId: (q.order_id ?? p.order_id).toString(),
         layer: placementLayers(p.placements).get(q.item_key) ?? 1,
       })),

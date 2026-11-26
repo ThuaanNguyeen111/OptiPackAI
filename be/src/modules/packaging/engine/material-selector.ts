@@ -43,11 +43,11 @@ export const DEFAULT_MATERIAL_RULES: MaterialRule[] = [
     basis: 'per_unit',
     quantity: 1,
   },
-  // AOFP-344 (26/11/2026, user chốt): khách mở thùng không thấy rỗng — gối hơi lấp đến
-  // khi hàng + chèn kín 90% lòng thùng. 800 ml/gối là giả định, kho đo gối thật rồi sửa luật.
+  // AOFP-344 (26/11/2026, user chốt): gối hơi lấp đến khi hàng + chèn kín 90% lòng thùng.
+  // AOFP-345: chỉ kiện có hàng dễ vỡ mới chèn. 800 ml/gối là giả định, kho đo gối thật rồi sửa luật.
   {
     material_type: 'air_pillow',
-    applies_to: 'any',
+    applies_to: 'fragile',
     basis: 'void_fill',
     target_fill_ratio: 0.9,
     unit_fill_ml: 800,

@@ -141,7 +141,7 @@ export function buildPackSteps(
       if (profile.zipBagFolded) steps.push({ kind: 'zipFold', item })
     }
     // Gập đôi thêm làm trên cả gói đã vào túi zip — cùng thứ tự với hướng dẫn chữ của BE.
-    if (p.folded) steps.push({ kind: 'halfFold', item })
+    if (p.folded) for (let i = 0; i < (p.foldCount ?? 1); i++) steps.push({ kind: 'halfFold', item })
     if (options.wrapItem?.(profile)) steps.push({ kind: 'wrap', item }, { kind: 'tape', item })
     steps.push({ kind: 'place', item })
   })

@@ -1,4 +1,4 @@
-import { expandToUnits, foldUnit } from '../units';
+import { expandToUnits, foldTimes } from '../units';
 import { validateCandidate } from '../validator';
 import type { PackingUnit } from '../types';
 import {
@@ -25,7 +25,7 @@ function unitsOfCarton(
   return carton.placements.map((p) => {
     const base = all.get(p.item_key);
     if (!base) throw new Error(`Placement tham chiếu món lạ ${p.item_key}`);
-    return p.folded === true ? foldUnit(base) : base;
+    return p.folded === true ? foldTimes(base, p.fold_count ?? 1) : base;
   });
 }
 

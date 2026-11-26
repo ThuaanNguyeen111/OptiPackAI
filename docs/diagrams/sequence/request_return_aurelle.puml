@@ -1,0 +1,57 @@
+@startuml request_return_aurelle
+' Source: storefront.controller.ts (GET /storefront/orders/{id}/exchange-options, POST /storefront/orders/{id}/returns)
+'         storefront-returns.service.ts (exchangeOptions, create, assertItemsReturnable, resolveExchangeItems)
+'         aurelle-webhook.publisher.ts (notifyReturnRequested)
+title Sequence Diagram - Request Return / Exchange (AURELLE Website)
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Customer" as Customer
+participant "Order Detail Screen" as UI
+participant "StorefrontController" as Ctrl
+participant "StorefrontReturnsService" as Svc
+participant "StorefrontOrder" as Order
+participant "StorefrontReturnRequest" as Rma
+participant "StorefrontOrderEvent" as Event
+participant "AurelleWebhookPublisher" as Pub
+participant "OptiPack AI" as Opti
+
+Customer -> UI : Choose items, type (return & refund,\nrefund only, exchange) and reason
+activate UI
+opt exchange
+  UI -> Ctrl : GET /storefront/orders/{id}/exchange-options
+  Ctrl --> UI : variants in stock
+  Customer -> UI : Choose replacement variant
+end
+UI -> Ctrl : POST /storefront/orders/{id}/returns
+activate Ctrl
+Ctrl -> Svc : create(customerId, orderId, dto)
+activate Svc
+Svc -> Order : findOne(orderId, customerId)
+Order --> Svc : order
+alt order not delivered or delivered more than 15 days ago
+  Svc --> Ctrl : RETURN_ORDER_NOT_DELIVERED / RETURN_WINDOW_EXPIRED
+  Ctrl --> UI : 409 Conflict
+else an open request already exists
+  Svc --> Ctrl : RETURN_OPEN_EXISTS
+  Ctrl --> UI : 409 Conflict
+else request allowed
+  Svc -> Svc : assertItemsReturnable(), resolveExchangeItems()
+  Svc -> Rma : create(type, items, reason, status = requested)
+  Svc -> Event : create(return requested)
+  Svc -) Pub : notifyReturnRequested(publicOrderId, returnId)
+  activate Pub
+  Pub -) Opti : POST /marketplace/webhooks/aurelle (return_requested)
+  deactivate Pub
+  note right of Opti : OptiPack pulls the request through\n/reverse/orders/get and opens a return\nticket for the Store Owner (section 4.7)
+  Svc --> Ctrl : return request
+  Ctrl --> UI : 201 Created
+  UI --> Customer : Show request as waiting for review
+end
+deactivate Svc
+deactivate Ctrl
+deactivate UI
+@enduml

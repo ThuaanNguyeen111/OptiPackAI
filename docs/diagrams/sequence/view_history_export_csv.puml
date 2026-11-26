@@ -1,0 +1,95 @@
+@startuml view_history_export_csv
+' Source: history.controller.ts (GET /history, GET /history/order-groups/{id}/timeline, GET /history/export)
+'         history.service.ts (list, exportCsv, buildCtx, sources, collect, count, resolveActors)
+title Sequence Diagram - View History / Export CSV
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Staff" as Staff
+participant "History Screen" as UI
+participant "HistoryController" as Ctrl
+participant "HistoryService" as Svc
+participant "Order" as Order
+participant "ActivityLog" as Activity
+participant "History sources\n(movements, receipts, shipments, ...)" as Sources
+participant "User" as User
+
+Staff -> UI : Open History, choose filters
+activate UI
+UI -> Ctrl : GET /history (category, from, to, sku, orderCode, page)
+activate Ctrl
+Ctrl -> Svc : list(user, query)
+activate Svc
+alt page x limit > 5,000
+  Svc --> Ctrl : 400 Bad Request
+  Ctrl --> UI : 400 Bad Request
+else within 5,000 rows
+  Svc -> Svc : buildCtx(user, query)
+  alt category not allowed for the role
+    Svc --> Ctrl : 403 Forbidden
+    Ctrl --> UI : 403 Forbidden
+  else filters valid
+    opt filter by order code
+      Svc -> Order : find(platformOrderId)
+      Order --> Svc : order group ids
+    end
+    Svc -> Activity : find(filter, sort by time desc)
+    Activity --> Svc : activity rows
+    loop each source allowed for the role
+      Svc -> Sources : find(filter, sort by time desc)
+      Sources --> Svc : rows (failed source is skipped)
+    end
+    Svc -> Svc : merge, sort newest first, slice page
+    Svc -> User : find(actorIds)
+    User --> Svc : actor names and roles
+    Svc -> Sources : countDocuments(filter)
+    Sources --> Svc : total
+    Svc --> Ctrl : items, page, total
+    Ctrl --> UI : 200 OK
+  end
+end
+deactivate Svc
+deactivate Ctrl
+UI --> Staff : Show history table
+
+opt open the Timeline tab of an order group
+  Staff -> UI : Open Timeline of an order group
+  UI -> Ctrl : GET /history/order-groups/{id}/timeline
+  activate Ctrl
+  Ctrl -> Svc : timeline(groupId)
+  activate Svc
+  Svc -> Sources : find(events of the group and its returns)
+  Sources --> Svc : rows (oldest first)
+  alt no history for the group
+    Svc --> Ctrl : 404 Not Found
+    Ctrl --> UI : 404 Not Found
+  else history found
+    Svc --> Ctrl : timeline
+    Ctrl --> UI : 200 OK
+    UI --> Staff : Show timeline of the group
+  end
+  deactivate Svc
+  deactivate Ctrl
+end
+
+opt Admin or Store Owner exports CSV
+  Staff -> UI : Click Export CSV
+  UI -> Ctrl : GET /history/export (same filters)
+  activate Ctrl
+  Ctrl -> Svc : exportCsv(user, query)
+  activate Svc
+  Svc -> Svc : buildCtx(user, query, limit = 5,000)
+  Svc -> Sources : find(filter) for each allowed source
+  Sources --> Svc : rows
+  Svc -> Svc : build CSV rows (UTF-8 BOM)
+  Svc --> Ctrl : csv
+  deactivate Svc
+  Ctrl --> UI : 200 OK (lich-su-thao-tac.csv)
+  deactivate Ctrl
+  UI --> Staff : Download CSV file
+end
+deactivate UI
+@enduml

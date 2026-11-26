@@ -1,0 +1,76 @@
+@startuml assign_sku_to_bin
+' Source: warehouse.controller.ts (suggestBins, assignSkuToBin)
+'         warehouse.service.ts (suggestBins, assignSkuToBin, assertNotInOtherBin, notifyStockIn)
+title Sequence Diagram - Assign SKU to Bin
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Admin" as Admin
+participant "Bin Assignment Screen" as UI
+participant "WarehouseController" as Ctrl
+participant "WarehouseService" as Svc
+participant "BinLocation" as Bin
+participant "MarketplaceSkuMapping" as Map
+participant "SkuBinAssignment" as Asg
+participant "StockLotLedger" as Lots
+participant "OrderGroupsService" as Groups
+
+Admin -> UI : Select SKU
+activate UI
+UI -> Ctrl : GET /warehouse/warehouses/{id}/bin-suggestions
+activate Ctrl
+Ctrl -> Svc : suggestBins(warehouseId, category, size, color)
+Svc --> Ctrl : bins with free capacity
+Ctrl --> UI : 200 OK
+deactivate Ctrl
+UI --> Admin : Show suggested bins
+
+Admin -> UI : Choose bin, enter initial quantity
+UI -> Ctrl : POST /warehouse/warehouses/{id}/sku-bin-assignments
+activate Ctrl
+Ctrl -> Svc : assignSkuToBin(warehouseId, dto)
+activate Svc
+Svc -> Bin : findById(binId)
+Bin --> Svc : bin
+alt bin in another warehouse or inactive
+  Svc --> Ctrl : BIN_NOT_IN_WAREHOUSE / BIN_INACTIVE
+  Ctrl --> UI : 400 / 409
+else bin valid
+  Svc -> Map : resolveMasterSku(sellerSku)
+  Map --> Svc : masterSku
+  Svc -> Asg : findOne(bin, sku)
+  alt SKU already in this bin
+    Asg --> Svc : existing assignment
+  else not assigned yet
+    opt SKU already in another bin and not confirmed
+      Svc --> Ctrl : SKU_IN_OTHER_BIN
+      Ctrl --> UI : 409 Conflict
+      UI --> Admin : Ask to confirm second bin
+      Admin -> UI : Confirm
+      UI -> Ctrl : POST ... (confirmOtherBin = true)
+      Ctrl -> Svc : assignSkuToBin(warehouseId, dto)
+    end
+    opt initial quantity > 0 and bin capacity exceeded
+      Svc --> Ctrl : BIN_OVER_CAPACITY
+      Ctrl --> UI : 409 Conflict
+    end
+    Svc -> Asg : create(assignment, quantityOnHand)
+    opt initial quantity > 0
+      Svc -> Lots : add(lot, source = initial)
+      Svc -> Svc : recordMovement(assign_initial)
+    end
+  end
+  Svc --> Ctrl : assignment
+  opt initial quantity > 0
+    Ctrl -) Groups : scheduleShortageRecheck()
+  end
+  Ctrl --> UI : 201 Created
+end
+deactivate Svc
+deactivate Ctrl
+UI --> Admin : Show assignment
+deactivate UI
+@enduml

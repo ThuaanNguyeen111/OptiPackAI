@@ -1,0 +1,45 @@
+@startuml push_stock_aurelle
+' Source: marketplace-writeback.scheduler.ts (pushStock, every minute at second 30)
+'         marketplace-stock-push.service.ts (pushAurelle)
+title Sequence Diagram - Push Stock to AURELLE
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+participant "MarketplaceWritebackScheduler" as Cron
+participant "MarketplaceStockPushService" as Push
+participant "StockReservationService" as Stock
+participant "MarketplaceIntegrationService" as Integ
+participant "AurelleAdapter" as Adapter
+participant "AURELLE Website" as Aurelle
+
+
+[-> Cron : every minute (second 30)
+activate Cron
+Cron -> Push : pushAurelle()
+activate Push
+Push -> Integ : listConnectedShops(AURELLE)
+Integ --> Push : shops
+loop each connected shop
+  loop each active seller SKU
+    Push -> Stock : availability(shopId, sellerSku)
+    Stock --> Push : available quantity
+    opt quantity changed since last push
+      Push -> Push : add to changes
+    end
+  end
+  opt changes exist
+    Push -> Integ : getValidAccessToken(shopId)
+    Integ --> Push : accessToken
+    Push -> Adapter : updateSellableQuantity(changes)
+    Adapter -> Aurelle : POST /product/stock/sellable/update
+    Aurelle --> Adapter : result per SKU
+    Adapter --> Push : results
+    Push -> Push : remember pushed quantities
+  end
+end
+Push --> Cron : pushed, unchanged, failed
+deactivate Push
+deactivate Cron
+@enduml

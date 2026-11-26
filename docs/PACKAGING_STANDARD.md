@@ -110,11 +110,11 @@ Bốn cỡ trên là cỡ **có sẵn** trên thị trường VN (nhà sản xu�
 
 Quy tắc xếp trong cùng một thùng:
 
-- **Hàng mềm luôn nằm trên hàng cứng**, không bao giờ đặt dưới hộp giày/túi xách.
+- **Hàng cứng được nằm thẳng trên quần áo**, không lót gì ở giữa (AOFP-345, 26/11/2026, user chốt; bỏ luật 16/11 cấm hàng cứng nằm trên quần áo). Quần áo đặt lên hàng cứng vẫn hợp lệ. Hàng dễ vỡ vẫn không cho đặt gì lên.
 - Món có `max_stack_load_kg = null` (vd. túi xách form cứng) không bị đặt gì lên trên — luật có sẵn. Riêng quần áo (loại nằm phẳng) để trống thì coi như chịu được 5 kg (`SOFT_DEFAULT_STACK_LOAD_G`, 13/11/2026).
 - Mục tiêu lấp đầy 80% (`FILL_TARGET`, 13/11/2026) chỉ dùng để **cảnh báo**, không phải ràng buộc. Kiện lấp đầy dưới 80% được ghi thêm một câu vào `explanation` nêu lý do: kho chưa có túi niêm phong cho hàng mềm, hoặc nêu cỡ khối bao của chồng hàng để gợi ý nhập thùng sát hơn. Lý do có thể là kho chưa có túi niêm phong cho hàng mềm, hoặc là cỡ khối bao của chồng hàng (gợi ý nhập thùng sát hơn). Túi niêm phong không bị xét.
 - Cắt hạ thùng chỉ để giảm cước cho đơn kẹt giữa hai cỡ thùng. Không cắt thấp hơn lòng thùng thấp nhất của danh mục (`min_cut_height_mm`, hiện 10 cm theo BOX-XS từ 26/11/2026). Xem `docs/adr/0002-cat-ha-thung-co-san-chieu-cao.md`.
-- Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập đôi thêm đúng 1 lần nếu bật `can_fold_in_half`. Số đo hồ sơ là của gói sau khi đã gập túi.
+- Gói đã cho vào túi zip, kể cả đã gập túi (`zip_bag_folded`), vẫn được engine gập thêm nếu bật `can_fold_in_half`: gập đôi, hoặc **gập tư** (gập đôi hai lần, AOFP-345) để nhét vào khe cạnh hàng cứng. Engine thử nguyên dạng trước, rồi gập đôi, rồi gập tư. Placement ghi `folded: true` và `fold_count: 2` khi gập tư. Số đo hồ sơ là của gói sau khi đã gập túi.
 - Quần áo luôn nằm phẳng — luật có sẵn (`FLAT_CATEGORIES`).
 
 ### 5.2. Độ dày quần áo tính từ GSM (13/11/2026, user chốt)
@@ -198,6 +198,8 @@ số gối = làm tròn lên( max(0 ; 0,9 − lấp đầy hàng) × thể tích
 ```
 
 Độ kín 90% và 800 ml/gối nằm trong luật vật tư (màn Vật tư, Admin sửa được). 800 ml là giả định, kho đo gối thật rồi sửa. Ước tính trên 915 tổ hợp đóng thùng: trung vị 9 gối/kiện (~3.600 đ), 90% kiện ≤ 15 gối. Cùng đợt thêm **BOX-XS** lòng 24 × 23 × 10 cm cho đơn nhỏ để bớt khoảng trống phải chèn.
+
+**Chỉ chèn kiện có hàng dễ vỡ (AOFP-345, 26/11/2026, user chốt).** Luật `void_fill` áp cho nhóm `fragile`: kiện chỉ có quần áo, túi xách, mũ, dép không chèn gối. Để kiện thường vẫn đầy, AOFP-345 thêm gập tư quần áo và các cỡ thùng chuẩn ở mục 5.4.
 
 ## 8. Đơn gộp nhiều đơn
 

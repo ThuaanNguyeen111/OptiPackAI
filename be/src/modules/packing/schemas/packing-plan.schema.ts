@@ -89,6 +89,8 @@ export class PlanPlacement {
   @Prop({ type: Number, required: true }) dz!: number;
   @Prop({ required: true }) orientation!: string;
   @Prop({ type: Boolean, default: false }) folded!: boolean;
+  /** (AOFP-345) 2 = gập tư; null = gập đôi khi folded (kế hoạch cũ). */
+  @Prop({ type: Number, default: null }) fold_count?: number | null;
   /**
    * AOFP-224 (31/10/2026) — đơn sở hữu món này. Chỉ ghi ở kiện GỘP nhiều đơn
    * (PACKAGING_STANDARD §8); kiện 1 đơn để null (món thuộc `parcel.order_id`).

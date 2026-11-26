@@ -1,0 +1,76 @@
+@startuml send_notification
+' Source: notifications.service.ts (notify, sendEmailAsync, sendPushAsync, unreadCount, listForUser, markAsRead)
+'         push/push-policy.ts (shouldPush), push/push.service.ts (sendToUsers)
+'         notifications.controller.ts (GET /notifications, GET /notifications/unread-count, PATCH /notifications/{id}/read)
+title Sequence Diagram - Send and Read Notification
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+participant "Business service\n(e.g. OrderGroupsService)" as Src
+participant "NotificationsService" as Svc
+participant "Notification" as Noti
+participant "User" as User
+participant "MailService" as Mail
+participant "PushService" as Push
+participant "NotificationsController" as Ctrl
+participant "Notification Bell" as UI
+actor "Staff" as Staff
+
+Src -> Svc : notify(recipientRole or recipientUserId,\ntype, severity, title, message, relatedEntity)
+activate Svc
+Svc -> Noti : create(channelsSent = in_app)
+Noti --> Svc : notification
+Svc --> Src : notification
+par email
+  Svc -) Svc : sendEmailAsync()
+  Svc -> User : find(recipient or active users of the role)
+  User --> Svc : emails
+  Svc -> Mail : sendNotificationEmail(to, title, message)
+  Svc -> Noti : $addToSet channelsSent = email
+else push to mobile app
+  Svc -) Svc : sendPushAsync()
+  opt type is urgent or has a deadline (shouldPush)
+    Svc -> User : find(recipients, isActive)
+    User --> Svc : userIds
+    Svc -> Push : sendToUsers(userIds, title, body)
+    Svc -> Noti : $addToSet channelsSent = push
+  end
+end
+deactivate Svc
+
+loop periodically while the portal is open
+  UI -> Ctrl : GET /notifications/unread-count
+  activate Ctrl
+  Ctrl -> Svc : unreadCount(userId, role)
+  Svc -> Noti : countDocuments(own or role, not read)
+  Noti --> Svc : count
+  Ctrl --> UI : 200 OK (count)
+  deactivate Ctrl
+end
+Staff -> UI : Open bell
+activate UI
+UI -> Ctrl : GET /notifications
+activate Ctrl
+Ctrl -> Svc : listForUser(userId, role)
+Svc -> Noti : find(own or role)
+Noti --> Svc : notifications
+Ctrl --> UI : 200 OK
+deactivate Ctrl
+Staff -> UI : Click a notification
+UI -> Ctrl : PATCH /notifications/{id}/read
+activate Ctrl
+Ctrl -> Svc : markAsRead(id, userId, role)
+alt notification of another user or role
+  Svc --> Ctrl : NOT_FOUND
+  Ctrl --> UI : 404 Not Found
+else own notification
+  Svc -> Noti : update(isRead = true or readBy += userId)
+  Ctrl --> UI : 200 OK
+  UI --> Staff : Open the related order group / item
+end
+deactivate Ctrl
+deactivate UI
+@enduml

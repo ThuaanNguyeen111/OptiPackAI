@@ -1,6 +1,6 @@
 import type { BoxSpec, PackingUnit, Placement } from '../../packaging/engine/types';
 import { ALL_ORIENTATIONS, UPRIGHT_ORIENTATIONS } from '../../packaging/engine/types';
-import { foldUnit, minSupportPct } from '../../packaging/engine/units';
+import { foldedShapeFor, foldShapes, foldUnit, minSupportPct } from '../../packaging/engine/units';
 import { validateCandidate } from '../../packaging/engine/validator';
 import { solveOrder, validatePlan } from './solve-order';
 
@@ -97,5 +97,40 @@ describe('Đồ mềm: đỡ 80% + gập rồi dựng đứng', () => {
     expect(result.unplaced).toEqual([]);
     expect(result.parcels).toHaveLength(1);
     expect(validatePlan(result.parcels, ORDER.map((u) => u.item_key))).toEqual([]);
+  });
+});
+
+describe('Gập tư quần áo (AOFP-345)', () => {
+  // Áo 30×22 cm: gập đôi 15×22 vẫn quá rộng thùng 16×12; gập tư 15×11×2 cm mới vừa.
+  const shirt = garment('AO', 300, 220, 5, 200, 't_shirt');
+  const small: BoxSpec = {
+    code: 'Q',
+    name: 'Q',
+    inner: { length_mm: 160, width_mm: 120, height_mm: 60 },
+    outer: { length_mm: 166, width_mm: 126, height_mm: 66 },
+    tare_g: 50,
+    max_load_g: 5000,
+    price_vnd: 1000,
+  };
+
+  it('foldShapes cho gập đôi rồi gập tư, không quá 2 lần', () => {
+    const shapes = foldShapes(shirt);
+    expect(shapes.map((s) => [s.length_mm, s.width_mm, s.height_mm, s.fold_count])).toEqual([
+      [150, 220, 10, 1],
+      [150, 110, 20, 2],
+    ]);
+    expect(foldShapes(shapes[1] as PackingUnit)).toEqual([]);
+  });
+
+  it('bộ giải gập tư khi gập đôi không vừa, placement ghi fold_count 2', () => {
+    const plan = solveOrder([shirt], [small], { seed: 1 });
+    expect(plan.status).toBe('ok');
+    const p = plan.parcels[0]?.placements[0];
+    expect(p).toMatchObject({ folded: true, fold_count: 2 });
+  });
+
+  it('foldedShapeFor suy đúng số lần gập từ kích thước CP-SAT trả về', () => {
+    expect(foldedShapeFor(shirt, [110, 150, 20]).fold_count).toBe(2);
+    expect(foldedShapeFor(shirt, [220, 10, 150]).fold_count).toBe(1);
   });
 });

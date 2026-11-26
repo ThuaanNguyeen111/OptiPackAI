@@ -128,7 +128,9 @@ describe('Engine M2 — gập theo nhóm, ít món gập nhất trước', () =>
     const variants = foldVariants(units);
     expect(
       variants.map((v) => v.filter((u) => u.folded === true).length),
-    ).toEqual([0, 1, 2, 3]);
+    ).toEqual([0, 1, 2, 3, 3]);
+    // AOFP-345: dạng cuối là gập tư cả 3 áo.
+    expect(variants.at(-1)?.every((u) => u.fold_count === 2)).toBe(true);
   });
 
   it('2 SKU (2 + 1 món) → tổng số món gập không giảm, không trùng tổ hợp', () => {
@@ -140,14 +142,14 @@ describe('Engine M2 — gập theo nhóm, ít món gập nhất trước', () =>
     const counts = foldVariants(units).map((v) =>
       v
         .filter((u) => u.folded === true)
-        .map((u) => u.item_key)
+        .map((u) => `${u.item_key}:${String(u.fold_count)}`)
         .join('+'),
     );
     expect(new Set(counts).size).toBe(counts.length);
     const sizes = counts.map((c) => (c === '' ? 0 : c.split('+').length));
     expect(sizes).toEqual([...sizes].sort((a, b) => a - b));
-    // 3 nhóm số lượng: A ∈ {0,1,2} x B ∈ {0,1} = 6 tổ hợp
-    expect(counts).toHaveLength(6);
+    // 3 nhóm số lượng: A ∈ {0,1,2} x B ∈ {0,1} = 6 tổ hợp, + 1 dạng gập tư tất cả (AOFP-345)
+    expect(counts).toHaveLength(7);
   });
 
   it('nhiều nhóm lớn không nổ tổ hợp (giới hạn số phương án)', () => {

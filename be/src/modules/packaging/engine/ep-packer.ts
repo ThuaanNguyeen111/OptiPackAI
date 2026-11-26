@@ -1,4 +1,4 @@
-import { mayRestOn, orientedDims } from './units';
+import { foldFields, orientedDims } from './units';
 import type { BoxSpec, PackingUnit, Placement } from './types';
 
 /**
@@ -186,10 +186,6 @@ function evaluate(
   for (const p of state.placed) if (intersects(candidate, p)) return null;
   const supporters = findSupport(candidate, state.placed);
   if (supporters === null) return null;
-  for (const s of supporters) {
-    const below = state.units[s.index];
-    if (below && !mayRestOn(unit, below)) return null;
-  }
   const deltas = new Map<number, number>();
   if (supporters.length > 0) {
     collectDeltas(supporters, weight, state, deltas);
@@ -290,7 +286,7 @@ export function createEPPacker(
           dy,
           dz,
           orientation,
-          ...(unit.folded === true && { folded: true }),
+          ...foldFields(unit),
         };
         if (!evaluate(candidate, unit, state, box)) continue;
         const key = scoreKey(
