@@ -576,7 +576,8 @@ BE đã đổi (không đổi API): cùng 1 hàng bán ở Lazada + AURELLE có 
 
 | # | Màn | Việc FE |
 | --- | --- | --- |
-| 22.1 | Bảng SKU (cột SKU / Hồ sơ / cm / kg) | Thêm cột hoặc nhãn **Sàn** (`platform`: Lazada / AURELLE / Tiki) + `shopId` rút gọn — hiện 2 dòng cùng mã nhìn y hệt nhau, người dùng tưởng trùng lặp |
+| 22.1 | Bảng SKU (cột SKU / Hồ sơ / cm / kg) | `GET /product-master` nay **mặc định gộp 1 dòng / hàng** (user chốt 27/11) — FE không sửa gì cũng hết hiện 2 dòng. Nên thêm chip sàn từ field mới `platforms[]` (`{ id, platform, shopId, sellerSku, packagingProfileStatus, retired }`), VD "Lazada · AURELLE". Cần bảng từng dòng sàn như cũ thì gửi `group=false` |
+| 22.3 | Nút **Ngừng dùng** / **Dùng lại** | Mặc định áp cho MỌI sàn của hàng đó. Muốn ngừng riêng 1 sàn (VD trong Chi tiết): `PATCH /product-master/:id/retire` với `{ retired: true, only_this: true }` và `id` lấy từ `platforms[]` |
 | 22.2 | Nút **Xác nhận số đo** | Sau khi lưu thành công, tải lại danh sách (dòng cùng hàng ở sàn khác cũng chuyển "Đã đo"); có thể hiện toast "Áp dụng cho N dòng cùng hàng" — đếm lại từ danh sách, BE chưa trả số này |
 
 ## Phụ lục ✅ — đã hoàn thành
