@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
-import { Loader2, Plus, RefreshCw } from 'lucide-react'
+import { ChevronDown, Loader2, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { ReceiptEvidencePanel } from '../components/warehouse/ReceiptEvidencePanel'
 import {
   EMPTY_RECEIPT_EVIDENCE,
@@ -54,6 +54,13 @@ import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
 import { Input } from '../components/ui/input'
 import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
@@ -89,6 +96,117 @@ const CUSHION_TYPES: CushionMaterialType[] = [
 
 const RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any', 'bag', 'dress_or_bag'] as const
 const RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band', 'void_fill'] as const
+/** Ô chọn trong bảng luật: dùng dropdown của hệ thống thay cho <select> gốc (danh sách mở ra của trình duyệt không chỉnh được giao diện). */
+function RuleSelect(props: {
+  label: string
+  value: string
+  options: { value: string; label: string }[]
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const current = props.options.find((option) => option.value === props.value)?.label ?? props.value
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  // Trước khi mở: cuộn trang (khung cuộn nào cũng được) cho đủ chỗ phía dưới để danh sách xổ xuống trọn vẹn.
+  const makeRoomBelow = (open: boolean) => {
+    const trigger = triggerRef.current
+    if (!open || !trigger) return
+    trigger.style.scrollMarginBottom = `${String(props.options.length * 36 + 24)}px`
+    trigger.scrollIntoView({ block: 'nearest' })
+  }
+  return (
+    <DropdownMenu onOpenChange={makeRoomBelow}>
+      <DropdownMenuTrigger asChild disabled={props.disabled}>
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={`${props.label}: ${current}`}
+          className={cn(
+            fieldClass,
+            'group flex items-center justify-between gap-2 text-left transition-colors hover:border-ink-muted/40',
+            'disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-hairline',
+            'data-[state=open]:border-primary',
+          )}
+        >
+          <span className="truncate">{current}</span>
+          <ChevronDown
+            aria-hidden
+            className="h-4 w-4 shrink-0 text-ink-muted transition-transform duration-200 ease-out group-data-[state=open]:rotate-180"
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        // Chỉ lật lên khi trang đã cuộn hết mà vẫn thiếu chỗ phía dưới.
+        collisionPadding={8}
+        className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))] min-w-[var(--radix-dropdown-menu-trigger-width)] overflow-auto rounded-lg border-hairline bg-surface-1 p-1 text-ink shadow-lg shadow-black/5"
+      >
+        <DropdownMenuRadioGroup value={props.value} onValueChange={props.onChange}>
+          {props.options.map((option) => (
+            <DropdownMenuRadioItem
+              key={option.value}
+              value={option.value}
+              className="cursor-pointer rounded-md py-2 text-sm text-ink focus:bg-surface-2 data-[state=checked]:font-medium data-[state=checked]:text-primary dark:focus:bg-surface-2"
+            >
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** Ô số nguyên gọn trong bảng luật, chữ đơn vị đứng sát hai bên để đọc thành câu ("Thùng trống ≥ 50 %"). */
+function RuleNumberField(props: {
+  prefix?: string
+  suffix?: string
+  hint: string
+  value: number
+  disabled: boolean
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1.5 text-ink-muted" title={props.hint}>
+      {props.prefix ? <span className="whitespace-nowrap">{props.prefix}</span> : null}
+      <Input
+        className={`${fieldClass} w-16 px-2 text-right tabular-nums`}
+        inputMode="numeric"
+        aria-label={props.hint}
+        disabled={props.disabled}
+        value={String(props.value)}
+        onChange={(event) => props.onChange(Number(event.target.value.replace(/\D/g, '')))}
+      />
+      {props.suffix ? <span className="whitespace-nowrap">{props.suffix}</span> : null}
+    </label>
+  )
+}
+
+/** Tỉ lệ 0–1 lưu ở BE ↔ phần trăm nguyên trên màn hình. */
+const toPercent = (ratio: number) => Math.round(ratio * 100)
+const fromPercent = (percent: number) => Math.min(100, percent) / 100
+
+const RULE_SCOPE_LABELS: Record<(typeof RULE_SCOPES)[number], [string, string]> = {
+  fragile: ['Hàng dễ vỡ', 'Fragile items'],
+  shoes: ['Giày dép', 'Shoes'],
+  fragile_or_shoes: ['Dễ vỡ hoặc giày dép', 'Fragile or shoes'],
+  any: ['Mọi đơn', 'Any order'],
+  bag: ['Túi xách', 'Bags'],
+  dress_or_bag: ['Váy đầm hoặc túi xách', 'Dresses or bags'],
+}
+const RULE_BASIS_LABELS: Record<(typeof RULE_BASES)[number], [string, string]> = {
+  per_unit: ['Theo mỗi món', 'Per item'],
+  per_extra_unit: ['Theo mỗi món thêm', 'Per extra item'],
+  per_carton: ['Theo mỗi thùng', 'Per carton'],
+  void_band: ['Theo độ trống thùng', 'By void ratio'],
+  void_fill: ['Chèn kín theo thể tích', 'Fill to target volume'],
+}
+
+function ruleLabel(map: Record<string, [string, string]>, code: string, vi: boolean): string {
+  const pair = map[code] as [string, string] | undefined
+  return pair ? tx(vi, pair[0], pair[1]) : code
+}
+
 /** AOFP-344: mặc định khi chọn void_fill — kín 90%, gối hơi 800 ml. */
 const VOID_FILL_DEFAULT = { targetFillRatio: 0.9, unitFillMl: 800 }
 
@@ -1882,11 +2000,12 @@ function CatalogTable({
   }, [children])
   return (
     <div className="overflow-auto rounded-xl border border-hairline bg-surface-1">
-      <table className="w-full min-w-[720px] text-left text-sm">
+      {/* Chỉ cột tên được xuống dòng; số, kích thước, trạng thái, nút luôn nằm một dòng. */}
+      <table className="w-full min-w-[720px] text-left text-sm tabular-nums [&_td:not(:first-child)]:whitespace-nowrap">
         <thead className="border-b border-hairline text-xs text-ink-muted">
           <tr>
             {headers.map((header) => (
-              <th key={header || 'actions'} className="px-3 py-2">
+              <th key={header || 'actions'} className="whitespace-nowrap px-3 py-2 font-medium">
                 {header}
               </th>
             ))}
@@ -1934,10 +2053,15 @@ function RowActions({
   onEdit: () => void
 }) {
   return (
-    <div className="flex flex-wrap justify-end gap-1">
+    <div className="flex justify-end gap-1">
       {canLedger && onLedger ? (
-        <Button variant="ghost" onClick={onLedger}>
-          {tx(vi, 'Lịch sử nhập/xuất', 'Movement history')}
+        <Button
+          variant="ghost"
+          onClick={onLedger}
+          title={tx(vi, 'Lịch sử nhập/xuất', 'Movement history')}
+          aria-label={tx(vi, 'Lịch sử nhập/xuất', 'Movement history')}
+        >
+          {tx(vi, 'Lịch sử', 'History')}
         </Button>
       ) : null}
       {canStock && active ? (
@@ -2572,6 +2696,57 @@ function CushionEditForm({
   )
 }
 
+const RULE_SCOPE_NOUNS: Record<(typeof RULE_SCOPES)[number], [string, string]> = {
+  fragile: ['hàng dễ vỡ', 'fragile item'],
+  shoes: ['giày dép', 'pair of shoes'],
+  fragile_or_shoes: ['hàng dễ vỡ hoặc giày dép', 'fragile item or shoes'],
+  any: ['hàng', 'item'],
+  bag: ['túi xách', 'bag'],
+  dress_or_bag: ['váy đầm hoặc túi xách', 'dress or bag'],
+}
+
+/** Diễn giải 1 dòng luật thành câu, khớp đúng ruleQuantity ở BE (material-selector.ts). */
+function describeRule(rule: MaterialRule, vi: boolean): string {
+  const material = cushionTypeLabel(rule.materialType, vi).toLocaleLowerCase(vi ? 'vi' : 'en')
+  const noun = ruleLabel(RULE_SCOPE_NOUNS, rule.appliesTo, vi)
+  const anyScope = rule.appliesTo === 'any'
+  const parcel = anyScope ? tx(vi, 'Mỗi kiện', 'Each parcel') : tx(vi, `Kiện có ${noun}`, `A parcel with a ${noun}`)
+  let text: string
+  switch (rule.basis) {
+    case 'per_unit':
+      text = tx(vi, `Mỗi món ${noun} dùng ${String(rule.quantity)} ${material}.`, `Each ${noun} gets ${String(rule.quantity)} ${material}.`)
+      break
+    case 'per_extra_unit':
+      text = tx(vi, `Từ món ${noun} thứ 2 trở đi, mỗi món thêm ${String(rule.quantity)} ${material}.`, `From the 2nd ${noun} on, add ${String(rule.quantity)} ${material} each.`)
+      break
+    case 'per_carton':
+      text = tx(vi, `${parcel} dùng ${String(rule.quantity)} ${material}.`, `${parcel} gets ${String(rule.quantity)} ${material}.`)
+      break
+    case 'void_band': {
+      const bands = [...rule.voidBands].sort((a, b) => a.minVoidRatio - b.minVoidRatio)
+      const steps = bands
+        .map((band) => tx(vi, `trống từ ${String(toPercent(band.minVoidRatio))}% dùng ${String(band.quantity)} ${material}`, `${String(toPercent(band.minVoidRatio))}%+ empty gets ${String(band.quantity)} ${material}`))
+        .join(tx(vi, '; ', '; '))
+      const below = bands[0] ? toPercent(bands[0].minVoidRatio) : 0
+      text = tx(vi, `${parcel}: thùng ${steps}. Trống dưới ${String(below)}% thì không dùng.`, `${parcel}: box ${steps}. Under ${String(below)}% empty gets none.`)
+      break
+    }
+    case 'void_fill':
+      text = tx(
+        vi,
+        `${parcel}: chèn ${material} đến khi thùng kín ${String(toPercent(rule.targetFillRatio ?? VOID_FILL_DEFAULT.targetFillRatio))}%, mỗi cái lấp ${String(rule.unitFillMl ?? VOID_FILL_DEFAULT.unitFillMl)} ml.`,
+        `${parcel}: add ${material} until the box is ${String(toPercent(rule.targetFillRatio ?? VOID_FILL_DEFAULT.targetFillRatio))}% full, ${String(rule.unitFillMl ?? VOID_FILL_DEFAULT.unitFillMl)} ml each.`,
+      )
+      break
+    default:
+      text = ''
+  }
+  if (rule.minUnits > 1) {
+    text += tx(vi, ` Chỉ áp dụng khi kiện có từ ${String(rule.minUnits)} món ${noun}.`, ` Only when the parcel has ${String(rule.minUnits)}+ matching items.`)
+  }
+  return text
+}
+
 function RulesEditor({
   vi,
   canManage,
@@ -2587,6 +2762,8 @@ function RulesEditor({
 }) {
   const [draft, setDraft] = useState<MaterialRule[]>(rules.rules)
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState<number | null>(null)
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(rules.rules), [draft, rules.rules])
 
   function updateRow(index: number, patch: Partial<MaterialRule>) {
     setDraft((current) =>
@@ -2614,8 +2791,8 @@ function RulesEditor({
   }
 
   return (
-    <div className="space-y-2 rounded-xl border border-hairline bg-surface-1 p-4">
-      <div className="flex items-center justify-between gap-2">
+    <div className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink">
             {tx(vi, 'Luật chọn vật tư', 'Material rules')}
@@ -2624,13 +2801,19 @@ function RulesEditor({
             {rules.isDefault
               ? tx(vi, 'Đang dùng luật mặc định.', 'Using the default rules.')
               : tx(vi, `Phiên bản ${rules.version ?? '—'}`, `Version ${rules.version ?? '—'}`)}
+            {dirty ? (
+              <span className="ml-2 font-medium text-amber-700 dark:text-amber-400">
+                · {tx(vi, 'Có thay đổi chưa lưu', 'Unsaved changes')}
+              </span>
+            ) : null}
           </p>
         </div>
         {canManage ? (
           <div className="flex gap-2">
             <Button
               variant="secondary"
-              onClick={() =>
+              onClick={() => {
+                setEditing(draft.length)
                 setDraft((current) => [
                   ...current,
                   {
@@ -2644,66 +2827,108 @@ function RulesEditor({
                     unitFillMl: null,
                   },
                 ])
-              }
+              }}
             >
-              {tx(vi, 'Thêm dòng', 'Add row')}
+              <Plus aria-hidden className="mr-1.5 h-4 w-4" />
+              {tx(vi, 'Thêm luật', 'Add rule')}
             </Button>
-            <Button onClick={save} disabled={busy}>
+            {dirty ? (
+              <Button variant="ghost" disabled={busy} onClick={() => {
+                  setDraft(rules.rules)
+                  setEditing(null)
+                }}>
+                {tx(vi, 'Huỷ thay đổi', 'Discard')}
+              </Button>
+            ) : null}
+            <Button onClick={save} disabled={busy || !dirty}>
+              {busy ? <Loader2 aria-hidden className="mr-1.5 h-4 w-4 animate-spin" /> : null}
               {tx(vi, 'Lưu', 'Save rules')}
             </Button>
           </div>
         ) : null}
       </div>
-      <div className="overflow-auto">
-        <table className="w-full min-w-[720px] text-left text-xs">
-          <thead className="text-ink-muted">
-            <tr>
-              <th className="py-1">{tx(vi, 'Loại', 'Type')}</th>
-              <th className="py-1">{tx(vi, 'Áp dụng', 'Applies')}</th>
-              <th className="py-1">{tx(vi, 'Cách tính', 'Basis')}</th>
-              <th className="py-1">{tx(vi, 'Số lượng', 'Qty')}</th>
-              <th className="py-1">{tx(vi, 'Từ món', 'Min units')}</th>
-              {canManage ? <th /> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {draft.map((rule, index) => (
-              <tr key={`${rule.materialType}-${index}`} className="border-t border-hairline">
-                <td className="py-1 pr-2">
-                  <select
-                    className={fieldClass}
+      <ul className="divide-y divide-hairline overflow-hidden rounded-lg border border-hairline bg-canvas">
+        {draft.length === 0 ? (
+          <li className="px-4 py-6 text-sm text-ink-muted">
+            {tx(vi, 'Chưa có luật nào. Bấm "Thêm luật" để bắt đầu.', 'No rules yet. Use "Add rule" to start.')}
+          </li>
+        ) : null}
+        {draft.map((rule, index) => {
+          const open = editing === index
+          return (
+            <li key={`${rule.materialType}-${index}`} className={cn(open && 'bg-surface-1')}>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <button
+                  type="button"
+                  className="group flex min-w-0 flex-1 items-start gap-3 text-left disabled:cursor-default"
+                  disabled={!canManage}
+                  aria-expanded={open}
+                  onClick={() => setEditing(open ? null : index)}
+                >
+                  <span className="mt-0.5 min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-ink">
+                      {cushionTypeLabel(rule.materialType, vi)}
+                    </span>
+                    <span className="mt-0.5 block text-[13px] leading-relaxed text-ink-muted">
+                      {describeRule(rule, vi)}
+                    </span>
+                  </span>
+                  {canManage ? (
+                    <ChevronDown
+                      aria-hidden
+                      className={cn(
+                        'mt-1 h-4 w-4 shrink-0 text-ink-muted transition-transform duration-200 ease-out group-hover:text-ink',
+                        open && 'rotate-180',
+                      )}
+                    />
+                  ) : null}
+                </button>
+                {canManage ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-red-50 hover:text-red-600 focus-visible:outline-2 focus-visible:outline-primary-focus/50 dark:hover:bg-red-950/40"
+                    title={tx(vi, 'Xoá luật', 'Remove rule')}
+                    aria-label={tx(vi, `Xoá luật ${cushionTypeLabel(rule.materialType, vi)}`, `Remove ${cushionTypeLabel(rule.materialType, vi)} rule`)}
+                    onClick={() => {
+                      setDraft((current) => current.filter((_, rowIndex) => rowIndex !== index))
+                      setEditing(null)
+                    }}
+                  >
+                    <Trash2 aria-hidden className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+              {open ? (
+                <div className="space-y-4 px-4 pb-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <span className="block text-xs font-medium text-ink-muted">{tx(vi, 'Vật tư', 'Material')}</span>
+                      <RuleSelect
+                    label={tx(vi, 'Vật tư', 'Material')}
                     disabled={!canManage}
                     value={rule.materialType}
-                    onChange={(event) => updateRow(index, { materialType: event.target.value })}
-                  >
-                    {CUSHION_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-1 pr-2">
-                  <select
-                    className={fieldClass}
+                    options={CUSHION_TYPES.map((type) => ({ value: type, label: cushionTypeLabel(type, vi) }))}
+                    onChange={(materialType) => updateRow(index, { materialType })}
+                  />
+                    </div>
+                    <div className="space-y-1.5">
+                      <span className="block text-xs font-medium text-ink-muted">{tx(vi, 'Áp dụng cho', 'Applies to')}</span>
+                      <RuleSelect
+                    label={tx(vi, 'Áp dụng cho', 'Applies to')}
                     disabled={!canManage}
                     value={rule.appliesTo}
-                    onChange={(event) => updateRow(index, { appliesTo: event.target.value })}
-                  >
-                    {RULE_SCOPES.map((scope) => (
-                      <option key={scope} value={scope}>
-                        {scope}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-1 pr-2">
-                  <select
-                    className={fieldClass}
+                    options={RULE_SCOPES.map((scope) => ({ value: scope, label: ruleLabel(RULE_SCOPE_LABELS, scope, vi) }))}
+                    onChange={(appliesTo) => updateRow(index, { appliesTo })}
+                  />
+                    </div>
+                    <div className="space-y-1.5">
+                      <span className="block text-xs font-medium text-ink-muted">{tx(vi, 'Cách tính', 'Basis')}</span>
+                      <RuleSelect
+                    label={tx(vi, 'Cách tính', 'Basis')}
                     disabled={!canManage}
                     value={rule.basis}
-                    onChange={(event) => {
-                      const basis = event.target.value
+                    options={RULE_BASES.map((basis) => ({ value: basis, label: ruleLabel(RULE_BASIS_LABELS, basis, vi) }))}
+                    onChange={(basis) =>
                       updateRow(index, {
                         basis,
                         voidBands:
@@ -2711,104 +2936,130 @@ function RulesEditor({
                             ? [{ minVoidRatio: 0.5, quantity: 2 }]
                             : rule.voidBands,
                       })
-                    }}
-                  >
-                    {RULE_BASES.map((basis) => (
-                      <option key={basis} value={basis}>
-                        {basis}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-1 pr-2">
-                  {rule.basis === 'void_fill' ? (
-                    <div className="flex gap-1">
-                      <Input
-                        className={fieldClass}
-                        disabled={!canManage}
-                        title={tx(vi, 'Độ kín mục tiêu: hàng + chèn / lòng thùng (0–1)', 'Target fill: items + void fill / box (0–1)')}
-                        value={String(rule.targetFillRatio ?? VOID_FILL_DEFAULT.targetFillRatio)}
-                        onChange={(event) =>
-                          updateRow(index, { targetFillRatio: Number(event.target.value) || 0 })
-                        }
-                      />
-                      <Input
-                        className={fieldClass}
-                        disabled={!canManage}
-                        title={tx(vi, 'Thể tích 1 đơn vị lấp được (ml)', 'Volume filled per unit (ml)')}
-                        value={String(rule.unitFillMl ?? VOID_FILL_DEFAULT.unitFillMl)}
-                        onChange={(event) =>
-                          updateRow(index, { unitFillMl: Math.floor(Number(event.target.value)) || 0 })
-                        }
-                      />
-                    </div>
-                  ) : rule.basis === 'void_band' ? (
-                    <div className="flex gap-1">
-                      <Input
-                        className={fieldClass}
-                        disabled={!canManage}
-                        title={tx(vi, 'Độ trống tối thiểu (0–1)', 'Minimum void ratio (0–1)')}
-                        value={String(rule.voidBands[0]?.minVoidRatio ?? 0.5)}
-                        onChange={(event) => {
-                          const band = rule.voidBands[0] ?? { minVoidRatio: 0.5, quantity: 2 }
-                          updateRow(index, {
-                            voidBands: [
-                              { ...band, minVoidRatio: Number(event.target.value) || 0 },
-                            ],
-                          })
-                        }}
-                      />
-                      <Input
-                        className={fieldClass}
-                        disabled={!canManage}
-                        title={tx(vi, 'Số lượng ở dải này', 'Quantity in this band')}
-                        value={String(rule.voidBands[0]?.quantity ?? 2)}
-                        onChange={(event) => {
-                          const band = rule.voidBands[0] ?? { minVoidRatio: 0.5, quantity: 2 }
-                          updateRow(index, {
-                            voidBands: [{ ...band, quantity: Number(event.target.value) || 0 }],
-                          })
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <Input
-                      className={fieldClass}
-                      disabled={!canManage}
-                      value={String(rule.quantity)}
-                      onChange={(event) =>
-                        updateRow(index, { quantity: Number(event.target.value) || 0 })
-                      }
-                    />
-                  )}
-                </td>
-                <td className="py-1 pr-2">
-                  <Input
-                    className={fieldClass}
-                    disabled={!canManage}
-                    value={String(rule.minUnits)}
-                    onChange={(event) =>
-                      updateRow(index, { minUnits: Number(event.target.value) || 1 })
                     }
                   />
-                </td>
-                {canManage ? (
-                  <td className="py-1">
-                    <Button
-                      variant="ghost"
-                      onClick={() =>
-                        setDraft((current) => current.filter((_, rowIndex) => rowIndex !== index))
-                      }
-                    >
-                      {tx(vi, 'Xoá', 'Remove')}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-start gap-x-8 gap-y-3 text-xs">
+                    <div className="space-y-1.5">
+                      <span className="block text-xs font-medium text-ink-muted">{tx(vi, 'Số lượng', 'Quantity')}</span>
+                    {rule.basis === 'void_fill' ? (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <RuleNumberField
+                          prefix={tx(vi, 'Chèn đến kín', 'Fill to')}
+                          suffix="%"
+                          hint={tx(vi, 'Độ kín mục tiêu: (hàng + chèn) / lòng thùng', 'Target fill: (items + void fill) / box')}
+                          disabled={!canManage}
+                          value={toPercent(rule.targetFillRatio ?? VOID_FILL_DEFAULT.targetFillRatio)}
+                          onChange={(value) => updateRow(index, { targetFillRatio: fromPercent(value) })}
+                        />
+                        <RuleNumberField
+                          prefix={tx(vi, 'mỗi cái', 'each')}
+                          suffix="ml"
+                          hint={tx(vi, 'Thể tích 1 cái lấp được (ml)', 'Volume filled per unit (ml)')}
+                          disabled={!canManage}
+                          value={rule.unitFillMl ?? VOID_FILL_DEFAULT.unitFillMl}
+                          onChange={(value) => updateRow(index, { unitFillMl: value })}
+                        />
+                      </div>
+                    ) : rule.basis === 'void_band' ? (
+                      <div className="space-y-1.5">
+                        {(rule.voidBands.length > 0 ? rule.voidBands : [{ minVoidRatio: 0.5, quantity: 2 }]).map(
+                          (band, bandIndex, bands) => {
+                            const setBand = (patch: Partial<typeof band>) =>
+                              updateRow(index, {
+                                voidBands: bands.map((b, i) => (i === bandIndex ? { ...b, ...patch } : b)),
+                              })
+                            return (
+                              <div key={bandIndex} className="flex items-center gap-2">
+                                <RuleNumberField
+                                  prefix={tx(vi, 'Thùng trống ≥', 'Void ≥')}
+                                  suffix="%"
+                                  hint={tx(vi, `Mức ${String(bandIndex + 1)}: độ trống tối thiểu của thùng`, `Band ${String(bandIndex + 1)}: minimum void share`)}
+                                  disabled={!canManage}
+                                  value={toPercent(band.minVoidRatio)}
+                                  onChange={(value) => setBand({ minVoidRatio: fromPercent(value) })}
+                                />
+                                <RuleNumberField
+                                  prefix="→"
+                                  suffix={tx(vi, 'cái', 'units')}
+                                  hint={tx(vi, `Mức ${String(bandIndex + 1)}: số lượng`, `Band ${String(bandIndex + 1)}: quantity`)}
+                                  disabled={!canManage}
+                                  value={band.quantity}
+                                  onChange={(value) => setBand({ quantity: value })}
+                                />
+                                {canManage ? (
+                                  <button
+                                    type="button"
+                                    className="shrink-0 rounded-md px-1.5 py-1 text-ink-muted hover:bg-surface-2 hover:text-ink disabled:invisible"
+                                    disabled={bands.length <= 1}
+                                    aria-label={tx(vi, `Bỏ mức ${String(bandIndex + 1)}`, `Remove band ${String(bandIndex + 1)}`)}
+                                    onClick={() =>
+                                      updateRow(index, { voidBands: bands.filter((_, i) => i !== bandIndex) })
+                                    }
+                                  >
+                                    <X aria-hidden className="h-4 w-4" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            )
+                          },
+                        )}
+                        {canManage ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-primary hover:bg-surface-2"
+                            onClick={() => {
+                              const bands = rule.voidBands.length > 0 ? rule.voidBands : [{ minVoidRatio: 0.5, quantity: 2 }]
+                              const last = bands[bands.length - 1]
+                              updateRow(index, {
+                                voidBands: [
+                                  ...bands,
+                                  { minVoidRatio: Math.min(1, Math.round((last.minVoidRatio + 0.2) * 100) / 100), quantity: last.quantity + 2 },
+                                ],
+                              })
+                            }}
+                          >
+                            <Plus aria-hidden className="h-3.5 w-3.5" />
+                            {tx(vi, 'Thêm mức', 'Add band')}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <RuleNumberField
+                        suffix={tx(vi, 'cái', 'units')}
+                        hint={tx(vi, 'Số lượng', 'Quantity')}
+                        disabled={!canManage}
+                        value={rule.quantity}
+                        onChange={(quantity) => updateRow(index, { quantity })}
+                      />
+                    )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <span className="block text-xs font-medium text-ink-muted">{tx(vi, 'Điều kiện', 'Condition')}</span>
+                      <div className="flex items-center gap-1.5 text-ink-muted">
+                        <span className="whitespace-nowrap">{tx(vi, 'Kiện có từ', 'Parcel has at least')}</span>
+                    <RuleNumberField
+                      hint={tx(vi, 'Chỉ áp dụng khi kiện có từ ngần này món', 'Applies only when the parcel has at least this many items')}
+                      disabled={!canManage}
+                      value={rule.minUnits}
+                      onChange={(minUnits) => updateRow(index, { minUnits })}
+                    />
+                        <span className="whitespace-nowrap">{tx(vi, 'món phù hợp', 'matching items')}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button variant="secondary" onClick={() => setEditing(null)}>
+                      {tx(vi, 'Xong', 'Done')}
                     </Button>
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
