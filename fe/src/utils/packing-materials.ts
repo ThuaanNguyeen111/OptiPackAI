@@ -157,3 +157,27 @@ export function bubbleWrapFor(
   const hasBubbleWrap = materialCounts(materials).has('bubble_wrap')
   return (profile) => needsBubbleSleeve(profile, hasBubbleWrap)
 }
+
+const VOID_FILL: { kind: MaterialKind; vi: string; en: string }[] = [
+  { kind: 'air_pillow', vi: 'gối hơi', en: 'air pillow(s)' },
+  { kind: 'kraft_paper', vi: 'giấy kraft', en: 'kraft paper' },
+  { kind: 'tissue_paper', vi: 'giấy lót', en: 'tissue paper' },
+]
+
+/**
+ * AOFP-349: lời bước gập nắp theo ĐÚNG vật tư của kiện — kiện không có vật tư chèn (từ AOFP-345 chỉ kiện
+ * dễ vỡ mới chèn gối hơi) thì không bảo "chèn vật tư vào khoảng trống".
+ */
+export function closeNote(materials: MaterialRow[] | undefined, vi: boolean): string {
+  const counts = materialCounts(materials)
+  const fill = VOID_FILL.filter((f) => counts.has(f.kind)).map(
+    (f) => `${String(counts.get(f.kind))} ${vi ? f.vi : f.en}`,
+  )
+  const tape = counts.has('fragile_tape')
+  if (vi) {
+    const head = fill.length > 0 ? `Chèn ${fill.join(' và ')} vào khoảng trống, gập` : 'Gập'
+    return `${head} 2 nắp ngắn rồi 2 nắp dài, dán băng keo${tape ? ', dán tem cảnh báo dễ vỡ lên nắp' : ''}.`
+  }
+  const head = fill.length > 0 ? `Fill gaps with ${fill.join(' and ')}, fold` : 'Fold'
+  return `${head} short flaps then long flaps, tape the box${tape ? ', put the fragile label on the lid' : ''}.`
+}
