@@ -96,9 +96,9 @@ describe('PackagingBoxService', () => {
 
   it('AOFP-346: lưu kiểu FEFCO + số lớp khi tạo; bỏ trống = null', async () => {
     boxModel.create.mockResolvedValue({ _id: new Types.ObjectId() });
-    await service.create({ ...validDto, fefco_code: '0201', ply: 5 });
+    await service.create(Object.assign(new CreatePackagingBoxDto(), validDto, { fefco_code: '0201', ply: 5 }));
     await service.create(validDto);
-    const payloads = boxModel.create.mock.calls.map((c) => c[0] as Record<string, unknown>);
+    const payloads = boxModel.create.mock.calls.map((c) => (c as [Record<string, unknown>])[0]);
     expect(payloads[0]).toMatchObject({ fefco_code: '0201', ply: 5 });
     expect(payloads[1]).toMatchObject({ fefco_code: null, ply: null });
   });

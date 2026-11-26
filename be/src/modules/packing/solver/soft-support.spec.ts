@@ -119,7 +119,9 @@ describe('Gập tư quần áo (AOFP-345)', () => {
       [150, 220, 10, 1],
       [150, 110, 20, 2],
     ]);
-    expect(foldShapes(shapes[1] as PackingUnit)).toEqual([]);
+    const quarter = shapes[1];
+    if (!quarter) throw new Error('thiếu hình gập tư');
+    expect(foldShapes(quarter)).toEqual([]);
   });
 
   it('bộ giải gập tư khi gập đôi không vừa, placement ghi fold_count 2', () => {
