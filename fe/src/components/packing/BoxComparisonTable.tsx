@@ -286,14 +286,20 @@ export function BoxComparisonTable({
         <p className="flex items-start gap-1.5 text-xs leading-snug text-amber-800 dark:text-amber-200">
           <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
           {vi
-            ? 'Có thùng điểm cao hơn nhưng xếp sau: thứ hạng mới là quyết định, điểm chỉ để so nhanh.'
-            : 'A higher-scoring box ranks lower: the rank decides, the score is only a quick comparison.'}
+            ? 'Có thùng điểm cao hơn mà xếp sau — dòng tô vàng ghi rõ nó thua ở tiêu chí nào. Thứ hạng quyết định, điểm chỉ để so nhanh.'
+            : 'A higher-scoring box ranks lower — the highlighted line says which rule it loses on. Rank decides; the score is only a quick comparison.'}
         </p>
       ) : null}
 
       {usable.length > 0 ? (
         <ol className="space-y-2">
-          {usable.map((row) => (
+          {usable.map((row, idx) => {
+            const above = idx > 0 ? usable[idx - 1] : undefined
+            // Điểm cao hơn thùng xếp trên = chỗ dễ gây thắc mắc → tô vàng lý do.
+            const inverted = above !== undefined && row.score > above.score
+            // Thùng trên là thùng đang dùng thì verdict đã nói cùng ý.
+            const showVerdict = !row.isChosen && !(row.rankReason && above?.isChosen)
+            return (
             <li
               key={row.boxCode}
               className={`rounded-lg border px-3 py-2.5 text-xs ${
@@ -358,9 +364,25 @@ export function BoxComparisonTable({
                 />
               </dl>
               {/* Thẻ đang dùng đã có nhãn "Đang dùng" — không lặp lại "Thùng đang chọn." */}
-              {row.isChosen ? null : <p className="mt-1.5 leading-snug text-ink-muted">{row.verdict}</p>}
+              {row.rankReason ? (
+                <p
+                  className={`mt-1.5 flex items-start gap-1.5 leading-snug ${
+                    inverted
+                      ? 'rounded bg-amber-50 px-1.5 py-1 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+                      : 'text-ink-muted'
+                  }`}
+                >
+                  {inverted ? <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+                  <span>
+                    {row.rankReason}
+                    {inverted ? (vi ? ' Điểm cao hơn nhưng thua ở tiêu chí này.' : ' Higher score, but it loses on this rule.') : ''}
+                  </span>
+                </p>
+              ) : null}
+              {showVerdict ? <p className="mt-1.5 leading-snug text-ink-muted">{row.verdict}</p> : null}
             </li>
-          ))}
+            )
+          })}
         </ol>
       ) : null}
 
