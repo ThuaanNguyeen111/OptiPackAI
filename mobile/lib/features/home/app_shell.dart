@@ -143,7 +143,8 @@ List<_TabSpec> _tabsFor(UserRole role, Set<String> features) {
     UserRole.warehouseStaff => [_myWork(), _stock(), _warehouseReturns(), _history()],
     UserRole.packagingStaff => [_packing()],
     UserRole.shippingCoordinator => [_shipping()],
-    UserRole.storeOwner => [_overview(), _returnsApproval()],
+    // Các trang còn lại của web nằm trong "Thêm".
+    UserRole.storeOwner => [_overview(), _returnsApproval(), _history(), _more()],
     // Admin có nhiều trang hơn chỗ trên thanh dưới: 3 tab hay dùng, còn lại nằm trong "Thêm".
     UserRole.admin => [_overview(), _myWork(), _packing(), _more()],
   };

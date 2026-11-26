@@ -1,25 +1,29 @@
+/// Hàng đợi đóng gói — cột "Hàng đợi" của trang Đóng gói trên web (`PackagingWorkbench.tsx`):
+/// 6 tab, tìm mã đơn, phạm vi "Việc của tôi / Tất cả", phân trang 10 dòng.
+library;
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:image_picker/image_picker.dart';
-
-import 'package:uuid/uuid.dart';
-
-import '../../app/mock_providers.dart';
-import '../../app/providers.dart';
-import '../../core/network/api_exception.dart';
-import '../proof/proof_photo_field.dart';
-import '../proof/proof_photo_repository.dart';
-import '../../core/format/deadline.dart';
-import '../../core/format/units.dart';
-import '../../shared/widgets.dart';
-import '../warehouse/scanner_screen.dart';
-import 'packing_repository.dart';
-import 'parcel_3d_screen.dart';
 import '../../app/colors.dart';
+import '../../app/providers.dart';
+import '../../core/format/deadline.dart';
+import '../../core/json.dart';
+import '../../core/network/api_exception.dart';
+import '../../shared/admin_kit.dart';
+import '../../shared/widgets.dart';
+import '../auth/auth_models.dart';
+import 'packing_api.dart';
+import 'packing_group_screen.dart';
+import 'packing_logic.dart';
+import 'plan_widgets.dart';
 
-/// Hàng đợi của Packaging Staff: chờ chấp nhận kế hoạch / đang đóng.
+export 'packing_group_screen.dart';
+
+const _pageSize = 10;
+
 class PackingQueueScreen extends ConsumerStatefulWidget {
   const PackingQueueScreen({super.key});
 
@@ -28,55 +32,274 @@ class PackingQueueScreen extends ConsumerStatefulWidget {
 }
 
 class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
-  PackingStage _stage = PackingStage.pendingApproval;
+  QueueTab _tab = QueueTab.picked;
+  bool _tabChosen = false;
+  bool _mineOnly = true;
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _all = const [];
+  List<Map<String, dynamic>> _blocked = const [];
+  Map<String, Map<String, dynamic>> _summaries = const {};
+  final _search = TextEditingController();
+  List<Map<String, dynamic>>? _remote;
+  bool _searching = false;
+  int _page = 1;
+  int _request = 0;
+  Timer? _searchTimer;
+  late final Timer _clock;
+  late final Timer _blockedTimer;
+
+  PackingApi get _api => ref.read(packingApiProvider);
+
+  @override
+  void initState() {
+    super.initState();
+    // Đếm ngược đơn hỏa tốc; nhóm kẹt tự làm mới như web.
+    _clock = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+    _blockedTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadBlocked());
+    _load();
+    _loadBlocked();
+  }
+
+  @override
+  void dispose() {
+    _clock.cancel();
+    _blockedTimer.cancel();
+    _searchTimer?.cancel();
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadBlocked() async {
+    try {
+      final rows = await _api.listGroups({'packing_blocked': 'true'});
+      if (mounted) setState(() => _blocked = rows);
+    } on ApiException {
+      if (mounted) setState(() => _blocked = const []);
+    }
+  }
+
+  Future<void> _load() async {
+    final request = ++_request;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final user = ref.read(authControllerProvider).user;
+      final List<Map<String, dynamic>> rows;
+      if (user?.role == UserRole.packagingStaff && _mineOnly) {
+        // Nhóm chưa có kế hoạch thì chưa có người đóng: lọc theo người đóng sẽ làm các tab này luôn trống.
+        final lists = await Future.wait([
+          _api.listGroups({'assigned_packer_id': user!.id}),
+          for (final status in unassignedQueueStatuses) _api.listGroups({'fulfillment_status': status}),
+        ]);
+        rows = {for (final row in lists.expand((l) => l)) pickString(row, ['id']): row}.values.toList();
+      } else {
+        rows = await _api.listGroups();
+      }
+      var summaries = <String, Map<String, dynamic>>{};
+      try {
+        summaries = await _api.summaries([for (final r in rows) pickString(r, ['id'])]);
+      } on ApiException {
+        // Không có tóm tắt thì chỉ thiếu số kiện trên thẻ.
+      }
+      if (!mounted || request != _request) return;
+      setState(() {
+        _all = rows;
+        _summaries = summaries;
+        _loading = false;
+        if (!_tabChosen) {
+          _tab = initialTab(rows);
+          _tabChosen = true;
+        }
+      });
+    } catch (e) {
+      if (!mounted || request != _request) return;
+      setState(() {
+        _error = errorText(e);
+        _all = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _refresh() => Future.wait([_load(), _loadBlocked()]);
+
+  void _selectTab(QueueTab tab) => setState(() {
+        _tab = tab;
+        _page = 1;
+        _remote = null;
+        _onSearchChanged(_search.text);
+      });
+
+  /// Lọc tại chỗ trước; không ra kết quả mới hỏi BE (mã đơn sàn / đuôi mã nhóm).
+  void _onSearchChanged(String text) {
+    _searchTimer?.cancel();
+    setState(() {
+      _page = 1;
+      _remote = null;
+      _searching = false;
+    });
+    final query = text.trim();
+    final local = groupsForTab(_tab, _all, _blocked).where((g) => matchesSearch(g, query));
+    if (query.length < 4 || local.isNotEmpty) return;
+    _searchTimer = Timer(const Duration(milliseconds: 400), () async {
+      setState(() => _searching = true);
+      var rows = <Map<String, dynamic>>[];
+      try {
+        rows = await _api.listGroups({'q': query});
+      } on ApiException {
+        rows = [];
+      }
+      if (mounted && _search.text.trim() == query) {
+        setState(() {
+          _remote = rows;
+          _searching = false;
+        });
+      }
+    });
+  }
+
+  Future<void> _open(Map<String, dynamic> group) async {
+    await openPage<void>(context, PackingGroupScreen(groupId: pickString(group, ['id']), fromTab: _tab));
+    if (mounted) await _refresh();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(packingQueueProvider(_stage));
+    final user = ref.watch(authControllerProvider).user;
+    final isStaff = user?.role == UserRole.packagingStaff;
+    final groups = groupsForTab(_tab, _all, _blocked);
+    final local = [for (final g in groups) if (matchesSearch(g, _search.text)) g];
+    final visible = _remote != null && local.isEmpty ? _remote! : local;
+    final totalPages = visible.isEmpty ? 1 : (visible.length + _pageSize - 1) ~/ _pageSize;
+    final page = _page.clamp(1, totalPages);
+    final paged = visible.skip((page - 1) * _pageSize).take(_pageSize);
+    final empty = emptyCopy(
+      _tab,
+      awaiting: groupsForTab(QueueTab.awaiting, _all, _blocked).length,
+      picked: groupsForTab(QueueTab.picked, _all, _blocked).length,
+    );
+
     return Column(
       children: [
-        const MockBanner(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: SegmentedButton<PackingStage>(
-            segments: const [
-              ButtonSegment(value: PackingStage.pendingApproval, label: Text('Chờ chấp nhận')),
-              ButtonSegment(value: PackingStage.packing, label: Text('Đang đóng')),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: Row(
+            children: [
+              for (final tab in QueueTab.values)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    showCheckmark: false,
+                    avatar: tab.viewOnly ? const Icon(Icons.visibility_outlined, size: 16) : null,
+                    label: Text('${tab.label} · ${groupsForTab(tab, _all, _blocked).length}'),
+                    selected: tab == _tab,
+                    onSelected: (_) => _selectTab(tab),
+                  ),
+                ),
             ],
-            selected: {_stage},
-            onSelectionChanged: (s) => setState(() => _stage = s.first),
           ),
         ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: () async => ref.invalidate(packingQueueProvider(_stage)),
-            child: async.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(packingQueueProvider(_stage))),
-              data: (items) => items.isEmpty
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
-                        SizedBox(height: 80),
-                        EmptyState(icon: Icons.inventory_2_outlined, text: 'Không có nhóm nào.'),
-                      ],
-                    )
-                  : ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      itemCount: items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, i) => _QueueCard(
-                        group: items[i],
-                        onTap: () async {
-                          await Navigator.of(context).push<void>(
-                            MaterialPageRoute(builder: (_) => PackingGroupScreen(groupId: items[i].id)),
-                          );
-                          ref.invalidate(packingQueueProvider(PackingStage.pendingApproval));
-                          ref.invalidate(packingQueueProvider(PackingStage.packing));
-                        },
-                      ),
+            onRefresh: _refresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text('Hàng đợi · ${visible.length}${_tab.viewOnly ? ' · Chỉ xem' : ''}', style: boldText),
                     ),
+                    IconButton(tooltip: 'Tải lại', onPressed: _refresh, icon: const Icon(Icons.refresh)),
+                  ],
+                ),
+                TextField(
+                  controller: _search,
+                  textInputAction: TextInputAction.search,
+                  onChanged: _onSearchChanged,
+                  decoration: InputDecoration(
+                    hintText: 'Tìm mã đơn…',
+                    isDense: true,
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searching
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                          )
+                        : null,
+                  ),
+                ),
+                if (isStaff)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: SegmentedButton<bool>(
+                      segments: const [
+                        ButtonSegment(value: true, label: Text('Việc của tôi')),
+                        ButtonSegment(value: false, label: Text('Tất cả')),
+                      ],
+                      selected: {_mineOnly},
+                      onSelectionChanged: (s) {
+                        setState(() {
+                          _mineOnly = s.first;
+                          _page = 1;
+                        });
+                        _load();
+                      },
+                    ),
+                  ),
+                const SizedBox(height: 10),
+                if (_loading) const LinearProgressIndicator(),
+                if (_error != null) Text(_error!, style: TextStyle(color: AppColors.danger)),
+                if (!_loading && _error == null && visible.isEmpty)
+                  if (groups.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Column(
+                        children: [
+                          Text(empty.title, style: boldText, textAlign: TextAlign.center),
+                          const SizedBox(height: 6),
+                          Text(empty.body, style: subtle(13), textAlign: TextAlign.center),
+                        ],
+                      ),
+                    )
+                  else
+                    emptyNote('Không có đơn khớp «${_search.text.trim()}».'),
+                if (_error == null)
+                  for (final g in paged)
+                    QueueCard(
+                      group: g,
+                      summary: _summaries[pickString(g, ['id'])],
+                      myUserId: isStaff ? user!.id : null,
+                      onTap: () => _open(g),
+                    ),
+                if (visible.length > _pageSize)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        tooltip: 'Trang trước',
+                        onPressed: page > 1 ? () => setState(() => _page = page - 1) : null,
+                        icon: const Icon(Icons.chevron_left),
+                      ),
+                      Text(
+                        '${(page - 1) * _pageSize + 1}–${(page * _pageSize).clamp(0, visible.length)} / ${visible.length}',
+                        style: subtle(13),
+                      ),
+                      IconButton(
+                        tooltip: 'Trang sau',
+                        onPressed: page < totalPages ? () => setState(() => _page = page + 1) : null,
+                        icon: const Icon(Icons.chevron_right),
+                      ),
+                    ],
+                  ),
+              ],
             ),
           ),
         ),
@@ -85,582 +308,108 @@ class _PackingQueueScreenState extends ConsumerState<PackingQueueScreen> {
   }
 }
 
-class _QueueCard extends StatelessWidget {
-  const _QueueCard({required this.group, required this.onTap});
+class QueueCard extends StatelessWidget {
+  const QueueCard({super.key, required this.group, required this.onTap, this.summary, this.myUserId});
 
-  final PackingGroup group;
+  final Map<String, dynamic> group;
+  final Map<String, dynamic>? summary;
+  final String? myUserId;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final d = group.isExpress && group.deadline != null ? deadlineLabel(group.deadline!, DateTime.now()) : null;
-    final done = group.parcels.where((p) => p.status != ParcelStatus.pending).length;
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(group.shortId,
-                      style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w800, fontSize: 16)),
-                  const SizedBox(width: 8),
-                  Text(group.platform, style: TextStyle(color: AppColors.inkSubtle)),
-                  const Spacer(),
-                  const Icon(Icons.chevron_right),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  if (group.isExpress) const Pill('Hỏa tốc', Colors.deepOrange),
-                  if (d != null)
-                    Pill(
-                      d.text,
-                      switch (d.tone) {
-                        DeadlineTone.late => AppColors.danger,
-                        DeadlineTone.soon => AppColors.warning,
-                        DeadlineTone.ok => Colors.deepOrange,
-                      },
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                group.stage == PackingStage.packing
-                    ? '${group.parcels.length} kiện · đã niêm phong $done/${group.parcels.length}'
-                    : '${group.parcels.length} kiện · chờ bạn chấp nhận kế hoạch',
-                style: TextStyle(color: AppColors.inkSubtle),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Một nhóm đơn: xem kế hoạch rồi chấp nhận / từ chối; sau khi chấp nhận thì quét món và niêm phong từng kiện.
-class PackingGroupScreen extends ConsumerStatefulWidget {
-  const PackingGroupScreen({super.key, required this.groupId});
-
-  final String groupId;
-
-  @override
-  ConsumerState<PackingGroupScreen> createState() => _PackingGroupScreenState();
-}
-
-class _PackingGroupScreenState extends ConsumerState<PackingGroupScreen> {
-  int _parcelIndex = 0;
-  final _code = TextEditingController();
-  final _weight = TextEditingController();
-  bool _busy = false;
-
-  /// Ảnh kiện chụp trước khi niêm phong, theo số kiện — tải lên lúc bấm niêm phong.
-  final Map<int, List<XFile>> _sealPhotos = {};
-
-  @override
-  void dispose() {
-    _code.dispose();
-    _weight.dispose();
-    super.dispose();
-  }
-
-  void _refresh() => ref.invalidate(packingGroupProvider(widget.groupId));
-
-  Future<void> _approve() async {
-    final ok = await confirmDialog(
-      context,
-      title: 'Chấp nhận kế hoạch?',
-      message: 'Bắt đầu đóng gói theo kế hoạch này.',
-      confirmLabel: 'Chấp nhận',
-    );
-    if (!ok || !mounted) return;
-    await _run(() => ref.read(packingRepositoryProvider).approve(widget.groupId));
-  }
-
-  Future<void> _reject() async {
-    final result = await showModalBottomSheet<({RejectReason reason, String note})>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => const _RejectSheet(),
-    );
-    if (result == null || !mounted) return;
-    final ok = await _run(
-      () => ref.read(packingRepositoryProvider).reject(widget.groupId, result.reason, result.note),
-    );
-    if (ok && mounted) {
-      showToast(context, 'Đã từ chối kế hoạch.');
-      Navigator.pop(context);
-    }
-  }
-
-  Future<bool> _run(Future<void> Function() action) async {
-    setState(() => _busy = true);
-    try {
-      await action();
-      _refresh();
-      return true;
-    } on PackingException catch (e) {
-      if (mounted) showToast(context, e.message, error: true);
-      return false;
-    } on ApiException catch (e) {
-      // Lỗi tải ảnh lỗi kiện.
-      if (mounted) showToast(context, e.message, error: true);
-      return false;
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _scan(Parcel parcel, String code) async {
-    if (code.trim().isEmpty) return;
-    final repo = ref.read(packingRepositoryProvider);
-    final eventId = const Uuid().v4();
-    try {
-      await repo.scan(widget.groupId, parcel.no, code, eventId: eventId);
-      HapticFeedback.mediumImpact();
-      _refresh();
-    } on PackingException catch (e) {
-      HapticFeedback.heavyImpact();
-      if (!mounted) return;
-      // Mất mạng: lưu lần quét trên máy, có mạng tự gửi (cùng mã thao tác nên BE không ghi trùng).
-      final queued = e.retryable ? repo.buildScanAction(widget.groupId, parcel.no, code, eventId) : null;
-      if (queued != null) {
-        await ref.read(syncControllerProvider.notifier).enqueue(queued);
-        if (mounted) showToast(context, 'Đang ngoại tuyến: đã lưu "${queued.label}", sẽ gửi khi có mạng.');
-        return;
-      }
-      showToast(context, e.message, error: true);
-    }
-  }
-
-  Future<void> _scanCamera(Parcel parcel) async {
-    final code = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const ScannerScreen()),
-    );
-    if (code != null && mounted) await _scan(parcel, code);
-  }
-
-  Future<void> _seal(Parcel parcel) async {
-    final kg = double.tryParse(_weight.text.trim().replaceAll(',', '.'));
-    if (kg == null || kg <= 0) {
-      showToast(context, 'Nhập cân nặng thật của kiện (kg).', error: true);
-      return;
-    }
-    final ok = await confirmDialog(
-      context,
-      title: 'Niêm phong kiện ${parcel.no}?',
-      message: 'Cân thật ${formatKg(kg)} (ước tính ${formatKg(parcel.expectedWeightKg)}).',
-      confirmLabel: 'Niêm phong',
-    );
-    if (!ok || !mounted) return;
-    setState(() => _busy = true);
-    try {
-      final urls = await ref.read(proofPhotoRepositoryProvider).upload(_sealPhotos[parcel.no] ?? const []);
-      final res = await ref.read(packingRepositoryProvider).seal(widget.groupId, parcel.no, kg, photoUrls: urls);
-      _weight.clear();
-      _sealPhotos.remove(parcel.no);
-      _refresh();
-      if (!mounted) return;
-      if (res.outcome == SealOutcome.held) {
-        HapticFeedback.heavyImpact();
-        showToast(context, 'Cân lệch quá 20% — kiện bị giữ, cần người khác xem lại.', error: true);
-      } else {
-        HapticFeedback.mediumImpact();
-        showToast(context, 'Đã niêm phong kiện ${parcel.no}.');
-      }
-    } on PackingException catch (e) {
-      if (mounted) showToast(context, e.message, error: true);
-    } on ApiException catch (e) {
-      if (mounted) showToast(context, e.message, error: true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _reportIssue(Parcel parcel) async {
-    final result = await showModalBottomSheet<({String sku, PackIssue issue, List<XFile> photos, bool toPicking})>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => _IssueSheet(parcel: parcel),
-    );
-    if (result == null || !mounted) return;
-    final photos = ref.read(proofPhotoRepositoryProvider);
-    final ok = await _run(() async => ref.read(packingRepositoryProvider).reportIssue(
-          widget.groupId,
-          parcel.no,
-          result.sku,
-          result.issue,
-          photoUrls: await photos.upload(result.photos),
-          returnToPicking: result.toPicking,
-        ));
-    if (ok && mounted) {
-      showToast(
-        context,
-        result.toPicking
-            ? 'Đã trả nhóm về bước lấy hàng.'
-            : 'Đã báo ${result.issue.label.toLowerCase()} món ${result.sku}.',
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final async = ref.watch(packingGroupProvider(widget.groupId));
-    final group = async.valueOrNull;
-    return Scaffold(
-      appBar: AppBar(title: Text(group != null ? 'Nhóm ${group.shortId}' : 'Đóng gói')),
-      body: Column(
-        children: [
-          const MockBanner(),
-          Expanded(
-            child: async.when(
-              skipLoadingOnRefresh: true,
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => ErrorState(error: e, onRetry: () => ref.invalidate(packingGroupProvider(widget.groupId))),
-              data: (g) => g.stage == PackingStage.pendingApproval ? _planView(g) : _sessionView(g),
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: group != null && group.stage == PackingStage.pendingApproval
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Row(
+    final express = group['orderPriority'] == 'express';
+    final packer = pickString(group, ['assignedPackerName']);
+    final mine = myUserId != null && group['assignedPackerId'] == myUserId;
+    final active = activeOrders(group);
+    final total = pickInt(group, ['orderCount']);
+    final clock = expressClock(group, DateTime.now());
+    final skus = blockedSkus(group);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Card(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
                     Expanded(
-                      child: OutlinedButton(onPressed: _busy ? null : _reject, child: const Text('Từ chối')),
+                      child: Text(tail(pickString(group, ['id'])),
+                          style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w800, fontSize: 15)),
                     ),
-                    const SizedBox(width: 12),
+                    if (express)
+                      Pill('Hỏa tốc', AppColors.warning)
+                    else
+                      Text(pickString(group, ['platform']), style: subtle()),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 11,
+                      backgroundColor: AppColors.primary.withValues(alpha: 0.14),
+                      child: Text(packer.isEmpty ? '' : packer.trim()[0].toUpperCase(),
+                          style: TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: FilledButton(onPressed: _busy ? null : _approve, child: const Text('Chấp nhận')),
+                      child: Text(
+                        '${packer.isEmpty ? 'Chưa giao' : packer}${mine ? ' (bạn)' : ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12.5, fontStyle: packer.isEmpty ? FontStyle.italic : null),
+                      ),
+                    ),
+                    Text(
+                      '${active == total ? '$total' : '$active/$total'} đơn'
+                      '${summary == null ? '' : ' · ${pickInt(summary, ['parcels'])} kiện'}',
+                      style: subtle(),
                     ),
                   ],
                 ),
-              ),
-            )
-          : null,
-    );
-  }
-
-  Widget _planView(PackingGroup g) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text('${g.parcels.length} kiện — xem kế hoạch rồi chấp nhận hoặc từ chối.',
-            style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 12),
-        for (final p in g.parcels) ...[
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Kiện ${p.no} · ${p.boxName} (${p.boxCode})',
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                  Text(
-                    'Lòng thùng ${formatDimsCm(p.innerL, p.innerW, p.innerH)} · ước tính ${formatKg(p.expectedWeightKg)}',
-                    style: TextStyle(color: AppColors.inkSubtle, fontSize: 13),
+                if (express)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Text.rich(TextSpan(children: [
+                      TextSpan(text: '${pickString(group, ['platform'])} · ', style: subtle()),
+                      if (clock != null)
+                        TextSpan(
+                          text: clock.text,
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: clockColor(clock.tone)),
+                        ),
+                    ])),
                   ),
-                  if (p.cutFromH != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        'Cắt hạ thùng còn ${formatCm(p.innerH)} cm (gốc ${formatCm(p.cutFromH!)} cm) trước khi xếp.',
-                        style: TextStyle(color: AppColors.warningText, fontWeight: FontWeight.w700, fontSize: 13),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                  ParcelLayoutCard(groupId: g.id, parcel: p),
-                  const SizedBox(height: 8),
-                  for (final e in p.needed.entries)
-                    Text('• ${e.value} × ${e.key}', style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ],
-    );
-  }
-
-  Widget _sessionView(PackingGroup g) {
-    final index = _parcelIndex.clamp(0, g.parcels.length - 1);
-    final parcel = g.parcels[index];
-    final pending = parcel.status == ParcelStatus.pending;
-    final photoRequired = ref.watch(sealPhotoRequiredProvider).valueOrNull ?? false;
-    final missingPhoto = photoRequired && (_sealPhotos[parcel.no] ?? const []).isEmpty;
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (var i = 0; i < g.parcels.length; i++) ...[
-                ChoiceChip(
-                  label: Text('Kiện ${g.parcels[i].no}${g.parcels[i].status == ParcelStatus.pending ? '' : ' ✓'}'),
-                  selected: i == index,
-                  onSelected: (_) => setState(() => _parcelIndex = i),
-                ),
-                const SizedBox(width: 8),
+                if (isPartiallyCanceled(group))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Một phần đơn đã hủy',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.warningText)),
+                  ),
+                if (skus.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Chưa đo: ${skus.join(', ')}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.danger)),
+                  ),
               ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text('${parcel.boxName} (${parcel.boxCode})',
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-        if (parcel.cutFromH != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text('Cắt hạ thùng còn ${formatCm(parcel.innerH)} cm trước khi xếp.',
-                style: TextStyle(color: AppColors.warningText, fontWeight: FontWeight.w700)),
-          ),
-        if (parcel.status != ParcelStatus.pending)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Pill(
-              parcel.status == ParcelStatus.held
-                  ? 'Đang bị giữ — cân thật ${formatKg(parcel.sealedWeightKg ?? 0)} lệch so với ước tính'
-                  : 'Đã niêm phong · ${formatKg(parcel.sealedWeightKg ?? 0)}',
-              parcel.status == ParcelStatus.held ? AppColors.danger : AppColors.good,
             ),
           ),
-        const SizedBox(height: 12),
-        Text('Đã quét ${parcel.totalScanned}/${parcel.totalNeeded} món',
-            style: const TextStyle(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 6),
-        LinearProgressIndicator(
-          minHeight: 8,
-          value: parcel.totalNeeded == 0 ? 0 : parcel.totalScanned / parcel.totalNeeded,
-          color: AppColors.good,
-          backgroundColor: AppColors.hairline,
-        ),
-        const SizedBox(height: 12),
-        for (final e in parcel.needed.entries)
-          Card(
-            child: ListTile(
-              leading: Icon(
-                (parcel.scanned[e.key] ?? 0) >= e.value ? Icons.check_circle : Icons.radio_button_unchecked,
-                color: (parcel.scanned[e.key] ?? 0) >= e.value ? AppColors.good : null,
-              ),
-              title: Text(e.key, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700)),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('${parcel.scanned[e.key] ?? 0}/${e.value}',
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
-                  if (pending && (parcel.scanned[e.key] ?? 0) > 0)
-                    IconButton(
-                      tooltip: 'Gỡ một lần quét nhầm',
-                      icon: const Icon(Icons.undo),
-                      onPressed: () async {
-                        await ref.read(packingRepositoryProvider).unscan(widget.groupId, parcel.no, e.key);
-                        _refresh();
-                      },
-                    ),
-                ],
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        ExpansionTile(
-          title: const Text('Xem cách xếp'),
-          children: [ParcelLayoutCard(groupId: widget.groupId, parcel: parcel)],
-        ),
-        if (pending) ...[
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _code,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (v) {
-                    _scan(parcel, v);
-                    _code.clear();
-                  },
-                  decoration: const InputDecoration(
-                    labelText: 'Quét / nhập SKU món',
-                    hintText: 'Máy quét Bluetooth gõ vào đây',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              IconButton.filled(
-                style: IconButton.styleFrom(minimumSize: const Size(56, 56)),
-                onPressed: () => _scanCamera(parcel),
-                icon: const Icon(Icons.qr_code_scanner),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _weight,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: 'Cân thật của kiện (kg)',
-              helperText: 'Ước tính ${formatKg(parcel.expectedWeightKg)}. Lệch quá 20% thì kiện bị giữ.',
-            ),
-          ),
-          const SizedBox(height: 12),
-          ProofPhotoField(
-            label: 'Ảnh kiện',
-            required: photoRequired,
-            enabled: !_busy,
-            photos: _sealPhotos[parcel.no] ?? const [],
-            onChanged: (p) => setState(() => _sealPhotos[parcel.no] = p),
-          ),
-          const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: parcel.allScanned && !_busy && !missingPhoto ? () => _seal(parcel) : null,
-            icon: const Icon(Icons.inventory_2),
-            label: Text(!parcel.allScanned
-                ? 'Quét đủ món để niêm phong'
-                : missingPhoto
-                    ? 'Chụp ảnh kiện để niêm phong'
-                    : 'Niêm phong kiện ${parcel.no}'),
-          ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: _busy ? null : () => _reportIssue(parcel),
-            icon: const Icon(Icons.report_gmailerrorred_outlined),
-            label: const Text('Báo lỗi kiện (hỏng / thiếu / nhầm)'),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _RejectSheet extends StatefulWidget {
-  const _RejectSheet();
-
-  @override
-  State<_RejectSheet> createState() => _RejectSheetState();
-}
-
-class _RejectSheetState extends State<_RejectSheet> {
-  RejectReason? _reason;
-  final _note = TextEditingController();
-
-  @override
-  void dispose() {
-    _note.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 0, 20, 16 + MediaQuery.viewInsetsOf(context).bottom),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Vì sao từ chối kế hoạch?',
-                textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<RejectReason>(
-              initialValue: _reason,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Lý do (bắt buộc)'),
-              items: [for (final r in RejectReason.values) DropdownMenuItem(value: r, child: Text(r.label))],
-              onChanged: (v) => setState(() => _reason = v),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _note,
-              maxLines: 2,
-              decoration: const InputDecoration(labelText: 'Ghi chú (không bắt buộc)'),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _reason == null ? null : () => Navigator.pop(context, (reason: _reason!, note: _note.text.trim())),
-              child: const Text('Từ chối kế hoạch'),
-            ),
-          ],
         ),
       ),
     );
   }
 }
 
-class _IssueSheet extends StatefulWidget {
-  const _IssueSheet({required this.parcel});
-
-  final Parcel parcel;
-
-  @override
-  State<_IssueSheet> createState() => _IssueSheetState();
-}
-
-class _IssueSheetState extends State<_IssueSheet> {
-  String? _sku;
-  PackIssue _issue = PackIssue.damaged;
-  List<XFile> _photos = const [];
-  bool _toPicking = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text('Báo lỗi kiện',
-                textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _sku,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Món bị lỗi'),
-              items: [for (final s in widget.parcel.needed.keys) DropdownMenuItem(value: s, child: Text(s))],
-              onChanged: (v) => setState(() => _sku = v),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<PackIssue>(
-              segments: [for (final i in PackIssue.values) ButtonSegment(value: i, label: Text(i.label))],
-              selected: {_issue},
-              onSelectionChanged: (s) => setState(() => _issue = s.first),
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Trả cả nhóm về bước lấy hàng'),
-              subtitle: const Text('Dùng khi cần lấy lại hàng. Chỉ được khi chưa niêm phong kiện nào.'),
-              value: _toPicking,
-              onChanged: (v) => setState(() => _toPicking = v),
-            ),
-            const SizedBox(height: 4),
-            ProofPhotoField(
-              label: 'Ảnh lỗi',
-              photos: _photos,
-              onChanged: (p) => setState(() => _photos = p),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _sku == null ? null : () => Navigator.pop(context, (sku: _sku!, issue: _issue, photos: _photos, toPicking: _toPicking)),
-              child: const Text('Gửi báo cáo'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+Color clockColor(DeadlineTone tone) => switch (tone) {
+      DeadlineTone.late => AppColors.danger,
+      DeadlineTone.soon => AppColors.warningText,
+      DeadlineTone.ok => AppColors.inkMuted,
+    };

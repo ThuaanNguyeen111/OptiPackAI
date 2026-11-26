@@ -42,6 +42,12 @@ Set<String> defaultFeaturesFor(UserRole role) => switch (role) {
       UserRole.admin => allFeatures,
     };
 
+/// Chủ cửa hàng dùng chung màn quản lý với Admin nhưng được làm ít hơn (như web): màn nào có thao tác
+/// chỉ dành cho Admin thì ẩn theo cờ này. Quyền thật vẫn do BE kiểm.
+final isStoreOwnerProvider = Provider<bool>(
+  (ref) => ref.watch(authControllerProvider.select((s) => s.user?.role)) == UserRole.storeOwner,
+);
+
 /// Đọc `{ role, features: [...] }` của `GET /role-permissions/me`. Sai dạng → null.
 Set<String>? parseFeatures(Object? response) {
   final list = asMap(response)?['features'];

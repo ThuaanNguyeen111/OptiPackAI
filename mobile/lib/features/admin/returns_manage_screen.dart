@@ -8,6 +8,7 @@ import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
+import '../auth/role_permissions.dart';
 
 const returnStatusLabels = {
   'requested': 'Chờ duyệt',
@@ -179,7 +180,7 @@ class _ReturnsManageScreenState extends ConsumerState<ReturnsManageScreen> {
                 mono: true,
                 title: '${pickInt(q, ['quantity'])} × ${pickString(q, ['sku', 'sellerSku'])}',
                 lines: ['Phiếu ${pickString(q, ['rmaCode'])}', pickString(q, ['note'])],
-                actions: [
+                actions: ref.watch(isStoreOwnerProvider) ? const [] : [
                   CardAction('Nhập lại ô bán',
                       () => _resolve(pickString(q, ['returnId', 'id']), pickInt(q, ['lineIndex', 'line_index']), true),
                       icon: Icons.move_to_inbox),

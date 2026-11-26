@@ -9,6 +9,7 @@ import '../../core/network/api_exception.dart';
 import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
 import '../auth/auth_models.dart';
+import '../auth/role_permissions.dart';
 
 final _roleOptions = {for (final r in UserRole.values) '${r.value}': r.label};
 
@@ -138,7 +139,13 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
         if (mustChange) Pill('Chưa đổi mật khẩu tạm', AppColors.warning),
         if (onLeave) Pill('Đang nghỉ', AppColors.warning),
       ],
-      actions: [
+      actions: ref.read(isStoreOwnerProvider)
+          ? [
+              if (active && role != UserRole.admin && role != UserRole.storeOwner)
+                CardAction(onLeave ? 'Đi làm lại' : 'Cho nghỉ phép', () => _leave(id, onLeave),
+                    icon: Icons.beach_access_outlined),
+            ]
+          : [
         CardAction('Sửa thông tin', () => _edit(u, id), icon: Icons.edit_outlined),
         CardAction('Đặt lại mật khẩu', () => _resetPassword(id, name), icon: Icons.key_outlined),
         if (mfa)
@@ -169,13 +176,16 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
   @override
   Widget build(BuildContext context) {
     final myId = ref.watch(authControllerProvider.select((s) => s.user?.id));
+    final owner = ref.watch(isStoreOwnerProvider);
     return SubPage(
-      title: 'Người dùng',
-      floatingAction: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.person_add_alt),
-        label: const Text('Thêm'),
-      ),
+      title: owner ? 'Nhân viên' : 'Người dùng',
+      floatingAction: owner
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _create,
+              icon: const Icon(Icons.person_add_alt),
+              label: const Text('Thêm'),
+            ),
       child: LoadList<List<Map<String, dynamic>>>(
         key: _list,
         load: _load,

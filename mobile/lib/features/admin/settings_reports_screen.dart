@@ -7,6 +7,7 @@ import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
+import '../auth/role_permissions.dart';
 
 /// Cài đặt đóng gói & kết nối AI.
 class PackingSettingsScreen extends ConsumerStatefulWidget {
@@ -17,7 +18,7 @@ class PackingSettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _PackingSettingsScreenState extends ConsumerState<PackingSettingsScreen> {
-  final _list = GlobalKey<LoadListState<(Map<String, dynamic>, Map<String, dynamic>?)>>();
+  final _list = GlobalKey<LoadListState<(Map<String, dynamic>, Map<String, dynamic>?, Map<String, dynamic>?)>>();
 
   ApiClient get _api => ref.read(apiClientProvider);
 
@@ -27,13 +28,32 @@ class _PackingSettingsScreenState extends ConsumerState<PackingSettingsScreen> {
     return asMap(m['settings']) ?? m;
   }
 
-  Future<(Map<String, dynamic>, Map<String, dynamic>?)> _load() async {
+  /// (cài đặt đóng gói, kết nối AI — chỉ Admin, người gửi — chỉ chủ cửa hàng; Admin sửa ở Quản lý vận chuyển).
+  Future<(Map<String, dynamic>, Map<String, dynamic>?, Map<String, dynamic>?)> _load() async {
+    final owner = ref.read(isStoreOwnerProvider);
     final packing = _unwrap(await _api.get('/packing/settings'));
     Map<String, dynamic>? ai;
-    try {
-      ai = _unwrap(await _api.get('/ai-settings'));
-    } catch (_) {}
-    return (packing, ai);
+    Map<String, dynamic>? sender;
+    if (owner) {
+      try {
+        sender = asMap(_unwrap(await _api.get('/shipping/settings'))['sender']) ?? {};
+      } catch (_) {}
+    } else {
+      try {
+        ai = _unwrap(await _api.get('/ai-settings'));
+      } catch (_) {}
+    }
+    return (packing, ai, sender);
+  }
+
+  Future<void> _editSender(Map<String, dynamic> sender) async {
+    final v = await showFormSheet(context, title: 'Người gửi trên nhãn', fields: [
+      FormFieldSpec('sender_name', 'Tên shop', initial: sender['name'], sendEmpty: true),
+      FormFieldSpec('sender_phone', 'Số điện thoại', initial: sender['phone'], sendEmpty: true),
+      FormFieldSpec('sender_address', 'Địa chỉ', initial: sender['address'], sendEmpty: true),
+    ]);
+    if (v == null || !mounted) return;
+    await _run(() => _api.put('/shipping/settings', body: v), 'Đã lưu người gửi.');
   }
 
   Future<void> _run(Future<Object?> Function() call, String success) async {
@@ -115,11 +135,11 @@ class _PackingSettingsScreenState extends ConsumerState<PackingSettingsScreen> {
   Widget build(BuildContext context) {
     return SubPage(
       title: 'Cài đặt đóng gói & AI',
-      child: LoadList<(Map<String, dynamic>, Map<String, dynamic>?)>(
+      child: LoadList<(Map<String, dynamic>, Map<String, dynamic>?, Map<String, dynamic>?)>(
         key: _list,
         load: _load,
         builder: (context, data, _) {
-          final (packing, ai) = data;
+          final (packing, ai, sender) = data;
           return [
             RecordCard(
               title: 'Đóng gói',
@@ -147,11 +167,23 @@ class _PackingSettingsScreenState extends ConsumerState<PackingSettingsScreen> {
               ),
               OutlinedButton.icon(onPressed: _testAi, icon: const Icon(Icons.bolt), label: const Text('Thử kết nối AI')),
             ],
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text('Người gửi và hãng vận chuyển nằm ở Quản lý vận chuyển.',
-                  style: TextStyle(color: AppColors.inkSubtle, fontSize: 12)),
-            ),
+            if (sender != null)
+              RecordCard(
+                title: 'Người gửi trên nhãn',
+                lines: [
+                  'Tên: ${pickString(sender, ['name'], '—')}',
+                  'SĐT: ${pickString(sender, ['phone'], '—')}',
+                  'Địa chỉ: ${pickString(sender, ['address'], '—')}',
+                ],
+                onTap: () => _editSender(sender),
+                actions: [CardAction('Sửa', () => _editSender(sender), icon: Icons.edit_outlined)],
+              )
+            else if (!ref.watch(isStoreOwnerProvider))
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text('Người gửi và hãng vận chuyển nằm ở Quản lý vận chuyển.',
+                    style: TextStyle(color: AppColors.inkSubtle, fontSize: 12)),
+              ),
           ];
         },
       ),

@@ -25,7 +25,7 @@ void main() {
       expect(tabLabelsFor(UserRole.shippingCoordinator, defaultFeaturesFor(UserRole.shippingCoordinator)),
           ['Giao hàng', 'Lịch sử', 'Thông báo']);
       expect(tabLabelsFor(UserRole.storeOwner, defaultFeaturesFor(UserRole.storeOwner)),
-          ['Tổng quan', 'Duyệt hoàn', 'Lịch sử', 'Thông báo']);
+          ['Tổng quan', 'Duyệt hoàn', 'Lịch sử', 'Thêm', 'Thông báo']);
       expect(tabLabelsFor(UserRole.admin, allFeatures),
           ['Tổng quan', 'Lấy hàng', 'Đóng gói', 'Thêm', 'Thông báo']);
     });

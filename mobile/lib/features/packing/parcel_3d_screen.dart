@@ -5,7 +5,6 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../app/colors.dart';
 import '../../app/providers.dart';
 import '../../core/config/env.dart';
-import 'packing_repository.dart';
 
 /// Địa chỉ trang nhúng khung 3D của web. Phiên đăng nhập đi qua **fragment** (`#...`): fragment không
 /// gửi lên máy chủ và không vào log; web ghi vào localStorage của WebView rồi xoá khỏi thanh địa chỉ.
@@ -31,11 +30,11 @@ Uri embedPackingUri({
 }
 
 /// Mở màn web nhúng (3D hoặc hướng dẫn) của một kiện.
-Future<void> openParcelWeb(BuildContext context, String groupId, Parcel parcel, EmbedView view,
+Future<void> openParcelWeb(BuildContext context, String groupId, int parcelNo, EmbedView view,
     {bool replace = false}) {
   final route = MaterialPageRoute<void>(
     fullscreenDialog: !replace,
-    builder: (_) => ParcelWebScreen(groupId: groupId, parcel: parcel, view: view),
+    builder: (_) => ParcelWebScreen(groupId: groupId, parcelNo: parcelNo, view: view),
   );
   final nav = Navigator.of(context);
   return replace ? nav.pushReplacement(route) : nav.push(route);
@@ -43,10 +42,10 @@ Future<void> openParcelWeb(BuildContext context, String groupId, Parcel parcel, 
 
 /// Một kiện: hai nút mở khung 3D và trang hướng dẫn của web.
 class ParcelLayoutCard extends StatelessWidget {
-  const ParcelLayoutCard({super.key, required this.groupId, required this.parcel});
+  const ParcelLayoutCard({super.key, required this.groupId, required this.parcelNo});
 
   final String groupId;
-  final Parcel parcel;
+  final int parcelNo;
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +53,7 @@ class ParcelLayoutCard extends StatelessWidget {
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => openParcelWeb(context, groupId, parcel, EmbedView.scene),
+            onPressed: () => openParcelWeb(context, groupId, parcelNo, EmbedView.scene),
             icon: const Icon(Icons.view_in_ar_outlined),
             label: const Text('Xem 3D'),
           ),
@@ -62,7 +61,7 @@ class ParcelLayoutCard extends StatelessWidget {
         const SizedBox(width: 8),
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: () => openParcelWeb(context, groupId, parcel, EmbedView.guide),
+            onPressed: () => openParcelWeb(context, groupId, parcelNo, EmbedView.guide),
             icon: const Icon(Icons.menu_book_outlined),
             label: const Text('Hướng dẫn'),
           ),
@@ -75,10 +74,10 @@ class ParcelLayoutCard extends StatelessWidget {
 /// Khung 3D hoặc trang hướng dẫn đóng gói của web trong WebView. Tải lỗi (mất mạng, web chưa chạy) thì báo lỗi
 /// kèm nút thử lại.
 class ParcelWebScreen extends ConsumerStatefulWidget {
-  const ParcelWebScreen({super.key, required this.groupId, required this.parcel, this.view = EmbedView.scene});
+  const ParcelWebScreen({super.key, required this.groupId, required this.parcelNo, this.view = EmbedView.scene});
 
   final String groupId;
-  final Parcel parcel;
+  final int parcelNo;
   final EmbedView view;
 
   @override
@@ -133,7 +132,7 @@ class _ParcelWebScreenState extends ConsumerState<ParcelWebScreen> {
         embedPackingUri(
           webBaseUrl: Env.webBaseUrl,
           groupId: widget.groupId,
-          parcelNo: widget.parcel.no,
+          parcelNo: widget.parcelNo,
           accessToken: token,
           role: role,
           view: widget.view,
@@ -162,8 +161,8 @@ class _ParcelWebScreenState extends ConsumerState<ParcelWebScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.view == EmbedView.guide
-            ? 'Kiện ${widget.parcel.no} · Hướng dẫn'
-            : 'Kiện ${widget.parcel.no} · 3D'),
+            ? 'Kiện ${widget.parcelNo} · Hướng dẫn'
+            : 'Kiện ${widget.parcelNo} · 3D'),
         actions: [
           // Chuyển qua lại giữa khung 3D và hướng dẫn của cùng kiện.
           IconButton(
@@ -172,7 +171,7 @@ class _ParcelWebScreenState extends ConsumerState<ParcelWebScreen> {
             onPressed: () => openParcelWeb(
               context,
               widget.groupId,
-              widget.parcel,
+              widget.parcelNo,
               widget.view == EmbedView.guide ? EmbedView.scene : EmbedView.guide,
               replace: true,
             ),

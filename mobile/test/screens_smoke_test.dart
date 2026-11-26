@@ -5,7 +5,6 @@ import 'package:optipack_mobile/app/mock_providers.dart';
 import 'package:optipack_mobile/app/theme.dart';
 import 'package:optipack_mobile/features/notifications/notifications_screen.dart';
 import 'package:optipack_mobile/features/overview/overview_screen.dart';
-import 'package:optipack_mobile/features/packing/packing_screens.dart';
 import 'package:optipack_mobile/features/returns/returns_screens.dart';
 import 'package:optipack_mobile/features/shipping/shipping_screen.dart';
 import 'package:optipack_mobile/features/stock/stock_screen.dart';
@@ -95,41 +94,6 @@ void main() {
     expect(find.text('RMA-261108-0001'), findsOneWidget);
     expect(find.text('Duyệt'), findsWidgets);
     expect(find.text('Từ chối'), findsWidgets);
-  });
-
-  testWidgets('Đóng gói: hàng đợi và màn xem kế hoạch có nút chấp nhận / từ chối', (tester) async {
-    await pumpScreen(tester, const PackingQueueScreen());
-    expect(find.text('6ae76ee49b'), findsOneWidget);
-    expect(find.text('Hỏa tốc'), findsOneWidget);
-
-    await tester.tap(find.text('6ae76ee49b'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Chấp nhận'), findsWidgets);
-    expect(find.text('Từ chối'), findsOneWidget);
-    expect(find.textContaining('Cắt hạ thùng còn'), findsOneWidget, reason: 'BOX-M có cắt hạ');
-    // Sơ đồ 2D theo lớp đã ẩn; còn hai nút mở 3D và hướng dẫn.
-    expect(find.textContaining('Đang hiện'), findsNothing);
-    expect(find.text('Xem 3D'), findsWidgets);
-    expect(find.text('Hướng dẫn'), findsWidgets);
-  });
-
-  testWidgets('Đóng gói: phiên đóng quét món rồi niêm phong', (tester) async {
-    await pumpScreen(tester, const PackingGroupScreen(groupId: 'pg2'));
-
-    expect(find.text('Quét đủ món để niêm phong'), findsOneWidget);
-    expect(find.text('Báo lỗi kiện (hỏng / thiếu / nhầm)'), findsOneWidget);
-
-    for (final sku in ['AOPOLO-030-BE-M', 'QJEAN-012-XA-30']) {
-      await tester.enterText(find.widgetWithText(TextField, 'Quét / nhập SKU món'), sku);
-      await tester.testTextInput.receiveAction(TextInputAction.done);
-      // Repository giả trễ 200 ms khi quét rồi 200 ms khi tải lại: phải tua thời gian thì mới chạy.
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pumpAndSettle();
-    }
-    expect(find.text('Đã quét 2/2 món'), findsOneWidget);
-    expect(find.text('Niêm phong kiện 1'), findsOneWidget);
   });
 
   testWidgets('Giao hàng: tạo vận đơn; shop tự giao phải có ảnh mới xác nhận được', (tester) async {

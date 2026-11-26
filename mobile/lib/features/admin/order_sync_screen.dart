@@ -7,6 +7,7 @@ import '../../core/json.dart';
 import '../../core/network/api_client.dart';
 import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
+import '../auth/role_permissions.dart';
 import 'marketplace_screen.dart';
 
 const _rulesBase = '/order-sync-settings/rules';
@@ -254,11 +255,13 @@ class _OrderSyncScreenState extends ConsumerState<OrderSyncScreen> {
         key: _list,
         load: _load,
         builder: (context, data, _) {
+          final readOnly = ref.watch(isStoreOwnerProvider);
           final s = data.settings;
           final sync = asMap(s['sync']) ?? {};
           final c = asMap(s['consolidation']) ?? {};
           final rules = rowsOf(data.rules['rules']);
           return [
+            if (readOnly) emptyNote('Chỉ xem — Admin mới sửa được cấu hình đồng bộ.'),
             RecordCard(
               title: 'Đồng bộ tự động',
               lines: [
@@ -266,8 +269,8 @@ class _OrderSyncScreenState extends ConsumerState<OrderSyncScreen> {
                 for (final p in rowsOf(sync['platforms']))
                   '${platformNames[p['platform']] ?? p['platform']}: ${p['autoSyncEnabled'] == true ? 'bật' : 'tắt'}',
               ],
-              actions: [CardAction('Sửa', () => _editSync(s), icon: Icons.edit_outlined)],
-              onTap: () => _editSync(s),
+              actions: [if (!readOnly) CardAction('Sửa', () => _editSync(s), icon: Icons.edit_outlined)],
+              onTap: readOnly ? null : () => _editSync(s),
             ),
             RecordCard(
               title: 'Gộp đơn & trạng thái',
@@ -276,8 +279,10 @@ class _OrderSyncScreenState extends ConsumerState<OrderSyncScreen> {
                 'Trường gộp: ${_strings(c['keyFields']).join(', ')}',
                 c['timeWindowHours'] == null ? 'Không giới hạn thời gian' : 'Trong ${c['timeWindowHours']} giờ',
               ],
-              actions: [CardAction('Sửa', () => _editConsolidation(s), icon: Icons.edit_outlined)],
-              onTap: () => _editConsolidation(s),
+              actions: [
+                if (!readOnly) CardAction('Sửa', () => _editConsolidation(s), icon: Icons.edit_outlined),
+              ],
+              onTap: readOnly ? null : () => _editConsolidation(s),
             ),
             sectionTitle('Quy tắc gộp'),
             if (data.rules.isEmpty) emptyNote('Không tải được quy tắc gộp.'),
@@ -289,11 +294,13 @@ class _OrderSyncScreenState extends ConsumerState<OrderSyncScreen> {
                 ],
                 pills: [Pill(r['enabled'] == true ? 'Đang bật' : 'Đang tắt', r['enabled'] == true ? AppColors.good : AppColors.inkSubtle)],
                 actions: [
-                  CardAction('Sửa', () => _editRule(data.rules, r), icon: Icons.edit_outlined),
-                  CardAction('Xóa', () => _deleteRule(data.rules, r), icon: Icons.delete_outline, danger: true),
+                  if (!readOnly) ...[
+                    CardAction('Sửa', () => _editRule(data.rules, r), icon: Icons.edit_outlined),
+                    CardAction('Xóa', () => _deleteRule(data.rules, r), icon: Icons.delete_outline, danger: true),
+                  ],
                 ],
               ),
-            if (data.rules.isNotEmpty)
+            if (!readOnly && data.rules.isNotEmpty)
               Wrap(
                 spacing: 8,
                 children: [
