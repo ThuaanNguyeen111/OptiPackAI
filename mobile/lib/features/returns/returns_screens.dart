@@ -417,7 +417,7 @@ class _InspectReturnScreenState extends ConsumerState<InspectReturnScreen> {
                   TextField(
                     controller: _material,
                     textCapitalization: TextCapitalization.characters,
-                    decoration: const InputDecoration(labelText: 'Mã thùng thu hồi', hintText: 'VD BOX-M'),
+                    decoration: const InputDecoration(labelText: 'Mã thùng thu hồi', hintText: 'VD CTN-001'),
                   ),
                 ],
                 if (_grade == PackagingGrade.a)

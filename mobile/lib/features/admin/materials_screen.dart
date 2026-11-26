@@ -10,32 +10,7 @@ import '../../shared/admin_kit.dart';
 import '../../shared/widgets.dart';
 import '../auth/role_permissions.dart';
 import 'intake_sheet.dart';
-
-const materialTypeLabels = {
-  'foam_corner': 'Góc xốp',
-  'corrugated_divider': 'Vách ngăn carton',
-  'air_pillow': 'Túi khí',
-  'bubble_wrap': 'Xốp hơi',
-  'fragile_tape': 'Băng keo hàng dễ vỡ',
-  'kraft_paper': 'Giấy kraft',
-  'tissue_paper': 'Giấy pelure',
-};
-
-const _ruleScopes = {
-  'fragile': 'Hàng dễ vỡ',
-  'shoes': 'Giày',
-  'fragile_or_shoes': 'Dễ vỡ hoặc giày',
-  'any': 'Mọi hàng',
-  'bag': 'Túi xách',
-  'dress_or_bag': 'Đầm hoặc túi xách',
-};
-
-const _ruleBases = {
-  'per_unit': 'Theo từng món',
-  'per_extra_unit': 'Theo món thêm',
-  'per_carton': 'Theo thùng',
-  'void_band': 'Theo tỉ lệ khoảng trống',
-};
+import 'material_rules.dart';
 
 enum _Tab { boxes, bags, cushions, reuse, rules }
 
@@ -117,14 +92,27 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
       FormFieldSpec('price_vnd', 'Giá (đ)', type: FieldType.integer, initial: b?['priceVnd']),
       FormFieldSpec('reorder_level', 'Mức cảnh báo tồn', type: FieldType.integer, initial: b?['reorderLevel']),
       FormFieldSpec('storage_location', 'Vị trí cất', initial: b?['storageLocation']),
+      // AOFP-346: kiểu thùng FEFCO + số lớp giấy; sửa mà để trống = xoá giá trị cũ.
+      FormFieldSpec('fefco_code', 'Kiểu thùng (mã FEFCO)',
+          initial: b == null ? '0201' : b['fefcoCode'], hint: '4 chữ số, VD 0201'),
+      FormFieldSpec('ply', 'Số lớp giấy',
+          type: FieldType.choice, options: const {'3': '3 lớp', '5': '5 lớp', '7': '7 lớp'}, initial: b?['ply']),
     ]);
     if (v == null || !mounted) return;
+    final fefco = v.remove('fefco_code') as String?;
+    final ply = int.tryParse('${v.remove('ply') ?? ''}');
+    if (fefco != null && !RegExp(r'^\d{4}$').hasMatch(fefco)) {
+      showToast(context, 'Mã FEFCO là 4 chữ số, VD 0201.', error: true);
+      return;
+    }
     final body = {
       ...v,
       'inner': _size(v, 'inner'),
       'outer': _size(v, 'outer'),
       'tare_g': ((v['tare'] as num) * 1000).round(),
       'max_load_g': ((v['load'] as num) * 1000).round(),
+      if (b != null || fefco != null) 'fefco_code': fefco,
+      if (b != null || ply != null) 'ply': ply,
     }
       ..removeWhere((k, _) => k == 'tare' || k == 'load' || k.startsWith('inner_') || k.startsWith('outer_'));
     await _run(() => b == null ? _api.post('/packaging/boxes', body: body) : _api.patch('/packaging/boxes/${b['id']}', body: body),
@@ -256,40 +244,43 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
 
   // ---- Quy tắc chọn vật tư ----
 
-  static Map<String, dynamic> _ruleBody(Map<String, dynamic> r) => {
-        'material_type': r['materialType'],
-        'applies_to': r['appliesTo'],
-        'min_units': r['minUnits'],
-        'basis': r['basis'],
-        'quantity': r['quantity'],
-        if (r['basis'] == 'void_band')
-          'void_bands': [
-            for (final b in rowsOf(r['voidBands']))
-              {'min_void_ratio': b['minVoidRatio'], 'quantity': b['quantity']},
-          ],
-      };
-
   Future<void> _saveRules(List<Map<String, dynamic>> bodies) =>
       _run(() => _api.put('/packaging/materials/rules', body: {'rules': bodies}), 'Đã lưu quy tắc.');
 
   Future<void> _editRule(List<Map<String, dynamic>> rules, int? index) async {
     final r = index == null ? null : rules[index];
     final bands = [
-      for (final b in rowsOf(r?['voidBands']))
+      for (final b in rowsOfBands(r))
         '${(pickDouble(b, ['minVoidRatio']) * 100).round()}:${pickInt(b, ['quantity'])}',
     ].join(', ');
     final v = await showFormSheet(context, title: index == null ? 'Thêm quy tắc' : 'Sửa quy tắc', fields: [
       FormFieldSpec('material_type', 'Vật tư',
           type: FieldType.choice, required: true, options: materialTypeLabels, initial: r?['materialType']),
-      FormFieldSpec('applies_to', 'Áp cho', type: FieldType.choice, required: true, options: _ruleScopes, initial: r?['appliesTo']),
-      FormFieldSpec('basis', 'Cách tính', type: FieldType.choice, required: true, options: _ruleBases, initial: r?['basis']),
+      FormFieldSpec('applies_to', 'Áp cho', type: FieldType.choice, required: true, options: ruleScopes, initial: r?['appliesTo']),
+      FormFieldSpec('basis', 'Cách tính', type: FieldType.choice, required: true, options: ruleBases, initial: r?['basis']),
       FormFieldSpec('quantity', 'Số lượng', type: FieldType.integer, initial: r?['quantity']),
       FormFieldSpec('min_units', 'Áp khi có ít nhất (món)', type: FieldType.integer, initial: r?['minUnits']),
       FormFieldSpec('bands', 'Dải khoảng trống (chỉ cho cách tính theo khoảng trống)',
           initial: bands, hint: 'Dạng %:số lượng, VD 50:2, 70:4'),
+      FormFieldSpec('fill_percent', 'Chèn đến kín (%) — chỉ cho chèn kín theo thể tích',
+          type: FieldType.integer,
+          initial: (((r?['targetFillRatio'] as num?) ?? defaultTargetFillRatio) * 100).round(),
+          hint: 'Hàng + vật tư chèn chiếm bao nhiêu % lòng thùng (10–100)'),
+      FormFieldSpec('unit_fill', 'Mỗi cái lấp được (ml) — chỉ cho chèn kín theo thể tích',
+          type: FieldType.integer, initial: (r?['unitFillMl'] as num?)?.round() ?? defaultUnitFillMl),
     ]);
     if (v == null || !mounted) return;
     final text = (v.remove('bands') as String?) ?? '';
+    final fillPercent = (v.remove('fill_percent') as int?) ?? (defaultTargetFillRatio * 100).round();
+    final unitFill = (v.remove('unit_fill') as int?) ?? defaultUnitFillMl;
+    if (v['basis'] == 'void_fill') {
+      if (fillPercent < 10 || fillPercent > 100 || unitFill < 1) {
+        showToast(context, 'Độ kín từ 10 đến 100%, thể tích mỗi cái ít nhất 1 ml.', error: true);
+        return;
+      }
+      v['target_fill_ratio'] = fillPercent / 100;
+      v['unit_fill_ml'] = unitFill;
+    }
     if (v['basis'] == 'void_band') {
       final parsed = <Map<String, dynamic>>[];
       for (final part in text.split(',')) {
@@ -304,7 +295,7 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
       }
       v['void_bands'] = parsed;
     }
-    final bodies = [for (final x in rules) _ruleBody(x)];
+    final bodies = [for (final x in rules) ruleBody(x)];
     if (index == null) {
       bodies.add(v);
     } else {
@@ -323,6 +314,11 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
               'Lòng ${_dims(asMap(b['inner']))} · phủ ngoài ${_dims(asMap(b['outer']))}',
               'Bì ${formatGAsKg(pickInt(b, ['tareG']))} · tải ${formatGAsKg(pickInt(b, ['maxLoadG']))}'
                   '${b['priceVnd'] == null ? '' : ' · ${formatVnd(pickDouble(b, ['priceVnd']))}'}',
+              if (b['fefcoCode'] != null || b['ply'] != null)
+                [
+                  if (b['fefcoCode'] != null) 'FEFCO ${b['fefcoCode']}',
+                  if (b['ply'] != null) '${b['ply']} lớp',
+                ].join(' · '),
               if (b['reserved'] != null) 'Giữ chỗ ${b['reserved']} · còn dùng được ${b['available']}',
               pickString(b, ['storageLocation']),
             ], '/packaging/boxes', () => _editBox(b)),
@@ -388,9 +384,9 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
             RecordCard(
               title: materialTypeLabels[rules[i]['materialType']] ?? '${rules[i]['materialType']}',
               lines: [
-                '${_ruleScopes[rules[i]['appliesTo']] ?? rules[i]['appliesTo']} · '
-                    '${_ruleBases[rules[i]['basis']] ?? rules[i]['basis']}'
-                    '${rules[i]['quantity'] == null ? '' : ' · ${rules[i]['quantity']}'}',
+                '${ruleScopes[rules[i]['appliesTo']] ?? rules[i]['appliesTo']} · '
+                    '${ruleBases[rules[i]['basis']] ?? rules[i]['basis']}',
+                describeRule(rules[i]),
               ],
               actions: _readOnly ? const [] : [
                 CardAction('Sửa', () => _editRule(rules, i), icon: Icons.edit_outlined),
@@ -398,7 +394,7 @@ class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
                     'Xóa',
                     () => _saveRules([
                           for (var j = 0; j < rules.length; j++)
-                            if (j != i) _ruleBody(rules[j]),
+                            if (j != i) ruleBody(rules[j]),
                         ]),
                     icon: Icons.delete_outline,
                     danger: true),

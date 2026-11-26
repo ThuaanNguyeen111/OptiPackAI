@@ -85,6 +85,15 @@ function parcelItems(parcel: PackingPlan['parcels'][number]): { itemKey: string;
   return source.map((p) => ({ itemKey: p.itemKey, sku: p.sku, scanned: scanned.has(p.itemKey) }))
 }
 
+/** "SKU#2" của chính SKU đó → "SKU · cái 2" (không lặp mã SKU trong ô chọn). */
+function issueItemLabel(item: { itemKey: string; sku: string; scanned: boolean }, vi: boolean): string {
+  const ordinal = item.itemKey.startsWith(`${item.sku}#`) ? item.itemKey.slice(item.sku.length + 1) : null
+  const name = ordinal ? `${item.sku} · ${vi ? 'cái' : 'unit'} ${ordinal}` : `${item.sku} · ${item.itemKey}`
+  return item.scanned ? `${name} ${vi ? '(đã quét)' : '(scanned)'}` : name
+}
+
+const FIELD_CLASS = 'mt-1 block h-9 w-full min-w-0 rounded-lg border border-hairline bg-canvas px-2 text-sm text-ink'
+
 function weightOk(value: string): number | null {
   const weight = Number(value)
   if (!Number.isFinite(weight) || weight < 0.001 || weight > 100) return null
@@ -258,7 +267,7 @@ export function PackingSessionPanel({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-hairline bg-surface p-4">
+    <div className="min-w-0 space-y-3 rounded-lg border border-hairline bg-surface p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold text-ink">
           {vi ? 'Phiên đóng gói' : 'Packing session'}
@@ -286,7 +295,7 @@ export function PackingSessionPanel({
       {groupParcelsByOrder(plan.parcels).groups.map((bucket) => {
         const layout = groupParcelsByOrder(plan.parcels)
         return (
-          <div key={bucket.key} className="space-y-2">
+          <div key={bucket.key} className="min-w-0 space-y-2">
             {layout.multi ? (
               <p className="text-xs font-semibold text-ink">{parcelOrderHeading(bucket, vi)}</p>
             ) : null}
@@ -312,7 +321,7 @@ export function PackingSessionPanel({
         return (
           <div
             key={parcel.parcelNo}
-            className={`rounded-lg border border-hairline p-3 text-sm ${parcelBorderClass(parcel.recipientName, layout.multi)}`}
+            className={`min-w-0 rounded-lg border border-hairline p-3 text-sm ${parcelBorderClass(parcel.recipientName, layout.multi)}`}
           >
             <p className="font-medium text-ink">
               #{String(parcel.parcelNo)} {parcel.box.code}
@@ -497,54 +506,68 @@ export function PackingSessionPanel({
                 </button>
                   </>
                 ) : null}
-                <select
-                  value={boxCode}
-                  onChange={(event) => setBoxCode(event.target.value)}
-                  className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
-                >
-                  {boxes.map((box) => (
-                    <option key={box.code} value={box.code}>
-                      {box.code}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={boxReason}
-                  onChange={(event) => setBoxReason(event.target.value as AdjustmentReason)}
-                  className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
-                >
-                  {ADJUSTMENT_REASONS.map((reason) => (
-                    <option key={reason} value={reason}>
-                      {vi ? PACKING_REASON_LABELS[reason].vi : PACKING_REASON_LABELS[reason].en}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={oldOutcome}
-                  onChange={(event) => setOldOutcome(event.target.value as 'unused' | 'damaged')}
-                  className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
-                >
-                  <option value="unused">{vi ? 'Thùng cũ chưa dùng' : 'Old box unused'}</option>
-                  <option value="damaged">{vi ? 'Thùng cũ hỏng' : 'Old box damaged'}</option>
-                </select>
-                <button
-                  type="button"
-                  disabled={busy || boxCode.length === 0}
-                  onClick={() =>
-                    void run(() =>
-                      changeParcelBoxInSession(groupId, parcel.parcelNo, {
-                        expectedVersion: plan.version,
-                        boxCode,
-                        reason: boxReason,
-                        oldBoxOutcome: oldOutcome,
-                      }),
-                    )
-                  }
-                  className="rounded-lg border border-hairline px-3 py-2 text-sm disabled:opacity-50"
-                >
-                  {vi ? 'Đổi thùng lúc đóng' : 'Change box while packing'}
-                </button>
               </div>
+            ) : null}
+            {working ? (
+              <details className="mt-2 min-w-0 rounded-lg border border-hairline">
+                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-ink">
+                  {vi ? 'Đổi sang thùng khác' : 'Use a different box'}
+                </summary>
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2 border-t border-hairline p-3">
+                  <label className="min-w-0 text-xs text-ink-muted">
+                    {vi ? 'Thùng thay thế' : 'New box'}
+                    <select value={boxCode} onChange={(event) => setBoxCode(event.target.value)} className={FIELD_CLASS}>
+                      {boxes.map((box) => (
+                        <option key={box.code} value={box.code}>
+                          {box.code}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="min-w-0 text-xs text-ink-muted">
+                    {vi ? 'Lý do đổi' : 'Reason'}
+                    <select
+                      value={boxReason}
+                      onChange={(event) => setBoxReason(event.target.value as AdjustmentReason)}
+                      className={FIELD_CLASS}
+                    >
+                      {ADJUSTMENT_REASONS.map((reason) => (
+                        <option key={reason} value={reason}>
+                          {vi ? PACKING_REASON_LABELS[reason].vi : PACKING_REASON_LABELS[reason].en}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="min-w-0 text-xs text-ink-muted">
+                    {vi ? 'Tình trạng thùng cũ' : 'Old box'}
+                    <select
+                      value={oldOutcome}
+                      onChange={(event) => setOldOutcome(event.target.value as 'unused' | 'damaged')}
+                      className={FIELD_CLASS}
+                    >
+                      <option value="unused">{vi ? 'Thùng cũ chưa dùng' : 'Old box unused'}</option>
+                      <option value="damaged">{vi ? 'Thùng cũ hỏng' : 'Old box damaged'}</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={busy || boxCode.length === 0}
+                    onClick={() =>
+                      void run(() =>
+                        changeParcelBoxInSession(groupId, parcel.parcelNo, {
+                          expectedVersion: plan.version,
+                          boxCode,
+                          reason: boxReason,
+                          oldBoxOutcome: oldOutcome,
+                        }),
+                      )
+                    }
+                    className="col-span-full justify-self-start rounded-lg border border-hairline px-3 py-2 text-sm disabled:opacity-50"
+                  >
+                    {vi ? 'Đổi thùng lúc đóng' : 'Change box while packing'}
+                  </button>
+                </div>
+              </details>
             ) : null}
             {held ? (
               <div className="mt-2 flex flex-wrap items-end gap-2">
@@ -652,49 +675,63 @@ export function PackingSessionPanel({
               </button>
             ) : null}
             {working && parcelItems(parcel).length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-2">
+              <details className="mt-2 min-w-0 rounded-lg border border-hairline">
+                <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-ink">
+                  {vi ? 'Món có vấn đề? Báo sự cố' : 'Problem with an item? Report it'}
+                </summary>
+                <div className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2 border-t border-hairline p-3">
+                <label className="col-span-full min-w-0 text-xs text-ink-muted">
+                {vi ? 'Món bị sự cố' : 'Item with issue'}
                 <select
                   aria-label={vi ? 'Món bị sự cố' : 'Item with issue'}
                   value={issueItem[parcel.parcelNo] ?? parcelItems(parcel)[0]?.itemKey ?? ''}
                   onChange={(event) =>
                     setIssueItem((prev) => ({ ...prev, [parcel.parcelNo]: event.target.value }))
                   }
-                  className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
+                  className={FIELD_CLASS}
                 >
                   {parcelItems(parcel).map((item) => (
                     <option key={item.itemKey} value={item.itemKey}>
-                      {item.sku} · {item.itemKey}
-                      {item.scanned ? (vi ? ' (đã quét)' : ' (scanned)') : ''}
+                      {issueItemLabel(item, vi)}
                     </option>
                   ))}
                 </select>
+                </label>
+                <label className="min-w-0 text-xs text-ink-muted">
+                {vi ? 'Vấn đề' : 'Issue'}
                 <select
                   value={issue}
                   onChange={(event) =>
                     setIssue(event.target.value as 'damaged' | 'missing' | 'wrong_item')
                   }
-                  className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
+                  className={FIELD_CLASS}
                 >
                   <option value="damaged">{vi ? 'Hỏng' : 'Damaged'}</option>
                   <option value="missing">{vi ? 'Thiếu' : 'Missing'}</option>
                   <option value="wrong_item">{vi ? 'Nhầm món' : 'Wrong item'}</option>
                 </select>
+                </label>
+                <label className="min-w-0 text-xs text-ink-muted">
+                {vi ? 'Cách xử lý' : 'Resolution'}
                 <select
                   value={resolution}
                   onChange={(event) =>
                     setResolution(event.target.value as 'replace' | 'back_to_picking')
                   }
-                  className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
+                  className={FIELD_CLASS}
                 >
                   <option value="back_to_picking">{vi ? 'Trả về lấy hàng' : 'Back to picking'}</option>
                   <option value="replace">{vi ? 'Lấy món thay' : 'Replace'}</option>
                 </select>
+                </label>
                 {resolution === 'replace' ? (
+                  <label className="col-span-full min-w-0 text-xs text-ink-muted">
+                  {vi ? 'Kho lấy món thay' : 'Replacement warehouse'}
                   <select
                     aria-label={vi ? 'Kho lấy món thay' : 'Replacement warehouse'}
                     value={warehouseId || (warehouses[0]?.id ?? '')}
                     onChange={(event) => setWarehouseId(event.target.value)}
-                    className="h-9 rounded-lg border border-hairline bg-canvas px-2 text-sm"
+                    className={FIELD_CLASS}
                   >
                     {warehouses.length === 0 ? (
                       <option value="">{vi ? 'Chưa có kho' : 'No warehouse'}</option>
@@ -705,7 +742,17 @@ export function PackingSessionPanel({
                       </option>
                     ))}
                   </select>
+                  </label>
                 ) : null}
+                <div className="col-span-full min-w-0">
+                  <ProofPhotoPicker
+                    vi={vi}
+                    files={issuePhotos[parcel.parcelNo] ?? []}
+                    onChange={(files) => setIssuePhotos((prev) => ({ ...prev, [parcel.parcelNo]: files }))}
+                    disabled={busy}
+                    label={vi ? 'Ảnh món lỗi' : 'Issue photo'}
+                  />
+                </div>
                 <button
                   type="button"
                   disabled={busy || (resolution === 'replace' && !(warehouseId || warehouses[0]?.id))}
@@ -728,20 +775,12 @@ export function PackingSessionPanel({
                       return next
                     })
                   }}
-                  className="rounded-lg border border-hairline px-3 py-2 text-sm disabled:opacity-50"
+                  className="col-span-full justify-self-start rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
                 >
                   {vi ? 'Báo sự cố' : 'Report issue'}
                 </button>
-                <div className="basis-full">
-                  <ProofPhotoPicker
-                    vi={vi}
-                    files={issuePhotos[parcel.parcelNo] ?? []}
-                    onChange={(files) => setIssuePhotos((prev) => ({ ...prev, [parcel.parcelNo]: files }))}
-                    disabled={busy}
-                    label={vi ? 'Ảnh món lỗi' : 'Issue photo'}
-                  />
                 </div>
-              </div>
+              </details>
             ) : null}
             </>}
           </div>

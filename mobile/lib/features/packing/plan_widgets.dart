@@ -334,6 +334,32 @@ class BoxComparisonList extends StatelessWidget {
 
   String _score(num n) => n.toStringAsFixed(1).replaceAll('.', ',');
 
+  /// AOFP-348: vì sao xếp sau thùng ngay trên. Điểm cao hơn mà vẫn xếp sau thì tô vàng.
+  List<Widget> _rankNotes(Map<String, dynamic> row, Map<String, dynamic>? above) {
+    final reason = pickString(row, ['rankReason']);
+    final verdict = pickString(row, ['verdict']);
+    final inverted = above != null && pickDouble(row, ['score']) > pickDouble(above, ['score']);
+    // Thùng ngay trên là thùng đang dùng thì lý do xếp sau đã nói cùng ý với nhận xét.
+    final showVerdict =
+        row['isChosen'] != true && verdict.isNotEmpty && !(reason.isNotEmpty && above?['isChosen'] == true);
+    return [
+      if (reason.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.only(top: 6),
+          padding: inverted ? const EdgeInsets.all(8) : EdgeInsets.zero,
+          decoration: inverted
+              ? BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(8))
+              : null,
+          child: Text(
+            inverted ? '$reason Điểm cao hơn nhưng thua ở tiêu chí này.' : reason,
+            style: inverted ? TextStyle(fontSize: 12.5, color: AppColors.warningText) : subtle(),
+          ),
+        ),
+      if (showVerdict) Padding(padding: const EdgeInsets.only(top: 4), child: Text(verdict, style: subtle())),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = rowsOf(comparison['rows']);
@@ -353,10 +379,12 @@ class BoxComparisonList extends StatelessWidget {
         if (comparison['scoresConsistent'] == false)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Text('Có thùng điểm cao hơn nhưng xếp sau: thứ hạng mới là quyết định, điểm chỉ để so nhanh.',
+            child: Text(
+                'Có thùng điểm cao hơn mà xếp sau — dòng tô vàng ghi rõ nó thua ở tiêu chí nào. '
+                'Thứ hạng quyết định, điểm chỉ để so nhanh.',
                 style: TextStyle(color: AppColors.warningText, fontSize: 12.5)),
           ),
-        for (final r in usable)
+        for (final (index, r) in usable.indexed)
           Container(
             margin: const EdgeInsets.only(top: 8),
             padding: const EdgeInsets.all(12),
@@ -413,8 +441,7 @@ class BoxComparisonList extends StatelessWidget {
                         style: TextStyle(fontSize: 12.5, color: r['available'] == 0 ? AppColors.danger : null)),
                   ],
                 ),
-                if (r['isChosen'] != true && pickString(r, ['verdict']).isNotEmpty)
-                  Padding(padding: const EdgeInsets.only(top: 4), child: Text(pickString(r, ['verdict']), style: subtle())),
+                ..._rankNotes(r, index > 0 ? usable[index - 1] : null),
               ],
             ),
           ),
