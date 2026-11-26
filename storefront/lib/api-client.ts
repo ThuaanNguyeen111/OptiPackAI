@@ -1,4 +1,4 @@
-import type { AdminCategory, AdminProduct, Category, Customer, SaveAdminCategory, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
+import type { AdminCategory, AdminExpressOrder, DeliveryOptionView, AdminProduct, Category, Customer, SaveAdminCategory, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -81,9 +81,25 @@ export async function logoutCustomer() {
   return request<{ message: string }>('/customer-auth/logout', { method: 'POST' })
 }
 
-export async function checkout(input: { items: { variant_id: string; quantity: number }[]; shippingAddress: Record<string, string>; paymentMethod: 'cod'; customerNote?: string; clientOrderId?: string }) {
-  return request<StorefrontOrder>('/storefront/orders/checkout', { method: 'POST', body: JSON.stringify({ items: input.items, shipping_address: input.shippingAddress, payment_method: input.paymentMethod, customer_note: input.customerNote, client_order_id: input.clientOrderId }) })
+export async function checkout(input: { items: { variant_id: string; quantity: number }[]; shippingAddress: Record<string, string>; paymentMethod: 'cod'; customerNote?: string; clientOrderId?: string; deliveryOption?: 'standard' | 'express' }) {
+  return request<StorefrontOrder>('/storefront/orders/checkout', { method: 'POST', body: JSON.stringify({ items: input.items, shipping_address: input.shippingAddress, payment_method: input.paymentMethod, customer_note: input.customerNote, client_order_id: input.clientOrderId, delivery_option: input.deliveryOption }) })
 }
+
+/** 29/10/2026 — cách giao + phí cho địa chỉ (tên tỉnh, tên phường) và tạm tính. */
+export function getDeliveryOptions(input: { province?: string; ward?: string; subtotal: number }) {
+  const query = new URLSearchParams({ subtotal: String(input.subtotal) })
+  if (input.province) query.set('province', input.province)
+  if (input.ward) query.set('ward', input.ward)
+  return request<{ options: DeliveryOptionView[]; freeShippingThreshold: number }>(`/storefront/delivery-options?${query.toString()}`)
+}
+
+/** 29/10/2026 — Admin: phường giao hỏa tốc + đơn hỏa tốc. */
+export function getAdminExpressWards() { return request<{ wards: string[]; isDefault: boolean }>('/storefront/admin/express/wards') }
+export function saveAdminExpressWards(wards: string[]) {
+  return request<{ wards: string[]; isDefault: boolean }>('/storefront/admin/express/wards', { method: 'PUT', body: JSON.stringify({ wards }) })
+}
+export function resetAdminExpressWards() { return request<{ wards: string[]; isDefault: boolean }>('/storefront/admin/express/wards', { method: 'DELETE' }) }
+export function getAdminExpressOrders(days = 7) { return request<AdminExpressOrder[]>(`/storefront/admin/express/orders?days=${String(days)}`) }
 
 export async function getOrders() {
   return request<StorefrontOrder[]>('/storefront/orders')

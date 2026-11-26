@@ -45,6 +45,9 @@ export default function OrdersPage() {
             {/* 23/10/2026 — cùng 1 nhãn với trang chi tiết (BE trả displayStatus); bản cũ không có thì dùng cách cũ */}
             <span className={`order-status order-status-tone-${order.displayStatus?.tone ?? 'info'}`}>{order.displayStatus?.label ?? (order.status === 'cancelled' ? getOrderStatusLabel(order.status, order.cancelSource) : getFulfillmentStatusLabel(order.fulfillmentStatus))}</span>
             {order.activeReturn && <span className="order-status order-status-return">Đang yêu cầu trả hàng</span>}
+            {/* 29/10/2026 — hỏa tốc: nhãn riêng + "Trễ" khi quá giờ hẹn */}
+            {order.deliveryOption === 'express' && <span className="order-status order-status-express">Hỏa tốc</span>}
+            {order.isLate && <span className="order-status order-status-late">Trễ</span>}
           </div>
           <div className="order-total">
             <span>Tổng thanh toán</span>

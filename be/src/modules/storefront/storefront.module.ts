@@ -10,7 +10,9 @@ import { StorefrontController } from './storefront.controller';
 import { StorefrontOrdersService } from './storefront-orders.service';
 import { StorefrontReturnsService } from './storefront-returns.service';
 import { StorefrontSeedService } from './storefront-seed.service';
-import { Customer, CustomerAddress, CustomerAddressSchema, CustomerSchema, StorefrontCart, StorefrontCartItem, StorefrontCartItemSchema, StorefrontCartSchema, StorefrontCategory, StorefrontCategorySchema, StorefrontCounter, StorefrontCounterSchema, StorefrontInventoryStock, StorefrontInventoryStockSchema, StorefrontOrder, StorefrontOrderItem, StorefrontOrderItemSchema, StorefrontOrderSchema, StorefrontPayment, StorefrontPaymentSchema, StorefrontProduct, StorefrontProductSchema, StorefrontProductVariant, StorefrontProductVariantSchema, StorefrontShipment, StorefrontShipmentSchema, StorefrontOrderEvent, StorefrontOrderEventSchema, StorefrontReturnRequest, StorefrontReturnRequestSchema } from './schemas/storefront.schema';
+import { Customer, CustomerAddress, CustomerAddressSchema, CustomerSchema, StorefrontCart, StorefrontCartItem, StorefrontCartItemSchema, StorefrontCartSchema, StorefrontCategory, StorefrontCategorySchema, StorefrontCounter, StorefrontCounterSchema, StorefrontInventoryStock, StorefrontInventoryStockSchema, StorefrontOrder, StorefrontOrderItem, StorefrontOrderItemSchema, StorefrontOrderSchema, StorefrontPayment, StorefrontPaymentSchema, StorefrontProduct, StorefrontProductSchema, StorefrontProductVariant, StorefrontProductVariantSchema, StorefrontShipment, StorefrontShipmentSchema, StorefrontOrderEvent, StorefrontOrderEventSchema, StorefrontReturnRequest, StorefrontReturnRequestSchema, StorefrontSetting, StorefrontSettingSchema } from './schemas/storefront.schema';
+import { StorefrontExpressService } from './storefront-express.service';
+import { StorefrontAdminExpressController } from './storefront-admin-express.controller';
 import { StorefrontCartService } from './storefront-cart.service';
 import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
 import { StorefrontAdminAuthController } from './storefront-admin-auth.controller';
@@ -31,12 +33,13 @@ import { Color, ColorSchema } from '../master-skus/schemas/color.schema';
     { name: StorefrontOrderEvent.name, schema: StorefrontOrderEventSchema },
     { name: StorefrontReturnRequest.name, schema: StorefrontReturnRequestSchema },
     { name: StorefrontImage.name, schema: StorefrontImageSchema },
+    { name: StorefrontSetting.name, schema: StorefrontSettingSchema }, // 29/10/2026 — phường giao hỏa tốc
     // 22/10/2026 — chỉ ĐỌC danh mục cấp 2 + màu của OptiPack để SKU website theo đúng quy tắc
     // OptiPack (bản demo chung DB; tách AURELLE riêng thì đổi thành gọi API danh mục).
     { name: Category.name, schema: CategorySchema },
     { name: Color.name, schema: ColorSchema },
   ])],
-  controllers: [StorefrontController, CustomerAuthController, StorefrontAdminAuthController, StorefrontAdminController, StorefrontAdminCategoriesController, StorefrontImagesController],
-  providers: [CatalogService, CustomerAuthService, CustomerJwtStrategy, StorefrontOrdersService, StorefrontReturnsService, StorefrontCartService, StorefrontSeedService, AurelleWebhookPublisher, StorefrontAdminAuthService, StorefrontAdminGuard, StorefrontAdminOriginGuard, StorefrontAdminService],
+  controllers: [StorefrontController, CustomerAuthController, StorefrontAdminAuthController, StorefrontAdminController, StorefrontAdminCategoriesController, StorefrontImagesController, StorefrontAdminExpressController],
+  providers: [CatalogService, CustomerAuthService, CustomerJwtStrategy, StorefrontOrdersService, StorefrontReturnsService, StorefrontCartService, StorefrontSeedService, AurelleWebhookPublisher, StorefrontAdminAuthService, StorefrontAdminGuard, StorefrontAdminOriginGuard, StorefrontAdminService, StorefrontExpressService],
 })
 export class StorefrontModule {}

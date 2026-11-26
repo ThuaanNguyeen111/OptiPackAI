@@ -280,8 +280,6 @@ Hàm dùng chung: `be/src/modules/storefront/aurelle-return-api.ts` (`applyExcha
 
 ## 14. Bổ sung 29/10/2026 — Giao hỏa tốc 3 giờ (shop tự giao)
 
-> ❌ **22/11/2026 — đã gỡ.** Website chỉ còn Giao tiêu chuẩn (GHN); API, trang Admin "Giao hỏa tốc" và nhãn hỏa tốc/trễ ở đơn của khách đã xoá. Mục dưới chỉ còn để tra lịch sử.
-
 **Khách:** trang thanh toán có 2 lựa chọn lấy từ `GET /storefront/delivery-options` (tên tỉnh, tên phường, tạm tính): Giao tiêu chuẩn 30.000₫ (GHN) và Giao hỏa tốc 45.000₫ (shop giao trong 3 giờ); đơn từ 1 triệu miễn phí cả hai. Hỏa tốc bị khoá kèm lý do khi thiếu địa chỉ, phường ngoài danh sách, hoặc ngoài 8:00–14:00 thứ 2 – thứ 7 (giờ VN); trang tải lại lựa chọn mỗi phút. Checkout gửi `delivery_option`; BE kiểm lại, không đạt → 400 `SF_EXPRESS_UNAVAILABLE`.
 
 **Theo dõi đơn:** đơn hỏa tốc lưu `promised_delivery_at` = giờ đặt + 3 giờ. Trang chi tiết hiện "Giao hỏa tốc — dự kiến giao trước HH:mm", tên + SĐT người giao (OptiPack gửi `shipper_name`, `shipper_phone` cùng cập nhật trạng thái). Quá giờ hẹn mà chưa giao (hoặc giao sau giờ hẹn) → `isLate: true`: khung vàng "Giao chậm hơn dự kiến", danh sách đơn có nhãn "Trễ". Không hoàn tiền khi trễ.
