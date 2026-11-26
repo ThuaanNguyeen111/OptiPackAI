@@ -125,6 +125,9 @@ describe('compareBoxes — bảng so sánh thùng cho 1 kiện', () => {
     expect(second?.score).toBeGreaterThan(first?.score ?? 0);
     expect(result.scores_consistent).toBe(false);
     expect(result.summary).toContain('Lưu ý');
+    // AOFP-348: dòng xếp sau nói đúng bậc nó thua thùng ngay trên (cước), dù điểm cao hơn.
+    expect(first?.rank_reason).toBeNull();
+    expect(second?.rank_reason).toBe('Xếp sau A: cân tính cước 1 kg so với 0,5 kg.');
   });
 
   it('thùng không chứa hết trong 1 kiện vẫn được so: chia nhiều thùng cùng loại, xếp sau vì nhiều kiện', () => {

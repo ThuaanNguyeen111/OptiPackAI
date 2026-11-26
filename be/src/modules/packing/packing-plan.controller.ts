@@ -103,6 +103,8 @@ export interface BoxComparisonResponse {
     estimatedWeightG: number | null;
     available: number | null;
     verdict: string;
+    /** AOFP-348: "Xếp sau CTN-005: giá thùng + vật tư 3.600 đ so với 3.300 đ."; null = hạng 1 / dữ liệu cũ. */
+    rankReason: string | null;
   }[];
   /** false = có thùng điểm tổng cao hơn thùng xếp trên nó (điểm chỉ tham khảo). */
   scoresConsistent: boolean;
@@ -134,6 +136,7 @@ export function toBoxComparisonResponse(c: PlanBoxComparison | null | undefined)
       estimatedWeightG: r.estimated_weight_g,
       available: r.available,
       verdict: r.verdict,
+      rankReason: r.rank_reason ?? null,
     })),
     scoresConsistent: c.scores_consistent,
     summary: c.summary,

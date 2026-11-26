@@ -273,6 +273,8 @@ export class PlanBoxComparisonRow {
   @Prop({ type: Number, default: null }) estimated_weight_g!: number | null;
   @Prop({ type: Number, default: null }) available!: number | null;
   @Prop({ required: true }) verdict!: string;
+  /** AOFP-348: vì sao xếp sau thùng ngay trên; null = hạng 1 / dữ liệu cũ. */
+  @Prop({ type: String, default: null }) rank_reason!: string | null;
 }
 export const PlanBoxComparisonRowSchema = SchemaFactory.createForClass(PlanBoxComparisonRow);
 

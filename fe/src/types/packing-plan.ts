@@ -236,6 +236,8 @@ export type BoxComparisonRow = {
   /** Thùng trống còn lại. null = không xét tồn. */
   available: number | null
   verdict: string
+  /** AOFP-348: vì sao xếp sau thùng ngay trên, VD "Xếp sau CTN-005: giá thùng + vật tư …". null/thiếu = hạng 1 / dữ liệu cũ. */
+  rankReason?: string | null
 }
 
 export type BoxComparison = {
