@@ -2,7 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
+  Matches,
   IsOptional,
   IsString,
   Max,
@@ -96,6 +98,16 @@ export class CreatePackagingBoxDto {
   @IsOptional()
   @IsString({ message: 'storage_location phải là chuỗi' })
   storage_location?: string | null;
+
+  @ApiPropertyOptional({ example: '0201', nullable: true, description: 'AOFP-346: kiểu thùng theo mã FEFCO (4 chữ số)' })
+  @IsOptional()
+  @Matches(/^\d{4}$/, { message: 'fefco_code là 4 chữ số, VD 0201' })
+  fefco_code?: string | null;
+
+  @ApiPropertyOptional({ example: 3, nullable: true, description: 'AOFP-346: số lớp giấy (3, 5, 7)' })
+  @IsOptional()
+  @IsIn([3, 5, 7], { message: 'ply là 3, 5 hoặc 7' })
+  ply?: number | null;
 }
 
 export class UpdatePackagingBoxDto {
@@ -159,6 +171,16 @@ export class UpdatePackagingBoxDto {
   @IsOptional()
   @IsString({ message: 'storage_location phải là chuỗi' })
   storage_location?: string | null;
+
+  @ApiPropertyOptional({ example: '0201', nullable: true, description: 'AOFP-346: kiểu thùng theo mã FEFCO (4 chữ số)' })
+  @IsOptional()
+  @Matches(/^\d{4}$/, { message: 'fefco_code là 4 chữ số, VD 0201' })
+  fefco_code?: string | null;
+
+  @ApiPropertyOptional({ example: 3, nullable: true, description: 'AOFP-346: số lớp giấy (3, 5, 7)' })
+  @IsOptional()
+  @IsIn([3, 5, 7], { message: 'ply là 3, 5 hoặc 7' })
+  ply?: number | null;
 }
 
 /**

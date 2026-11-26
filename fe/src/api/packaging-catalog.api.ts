@@ -31,6 +31,9 @@ export type PackagingBox = {
   available: number
   reorderLevel: number
   storageLocation: string | null
+  /** AOFP-346: kiểu FEFCO (VD 0201) và số lớp giấy; null = chưa khai. */
+  fefcoCode: string | null
+  ply: number | null
   stockStatus: StockStatus
 }
 
@@ -185,6 +188,8 @@ function mapBox(raw: unknown): PackagingBox | null {
     available: num(row.available),
     reorderLevel: num(row.reorderLevel ?? row.reorder_level),
     storageLocation: str(row.storageLocation ?? row.storage_location),
+    fefcoCode: str(row.fefcoCode ?? row.fefco_code),
+    ply: typeof (row.ply ?? null) === 'number' ? (row.ply as number) : null,
     stockStatus: stockStatus(row.stockStatus ?? row.stock_status),
   }
 }
@@ -222,6 +227,8 @@ export type CreateBoxInput = {
   priceVnd?: number | null
   reorderLevel?: number
   storageLocation?: string | null
+  fefcoCode?: string | null
+  ply?: number | null
 }
 
 function sizeBody(sizeInput: BoxSizeInput): Record<string, number> {
@@ -248,6 +255,8 @@ export async function createPackagingBox(
       price_vnd: input.priceVnd ?? null,
       reorder_level: input.reorderLevel,
       storage_location: input.storageLocation?.trim() || null,
+      ...(input.fefcoCode ? { fefco_code: input.fefcoCode } : {}),
+      ...(input.ply ? { ply: input.ply } : {}),
     },
   })
   const item = mapBox(res)
@@ -263,11 +272,15 @@ export async function updatePackagingBox(
     isActive?: boolean
     reorderLevel?: number
     storageLocation?: string | null
+    fefcoCode?: string | null
+    ply?: number | null
   },
 ): Promise<PackagingBox> {
   const body: Record<string, unknown> = {}
   if (input.name !== undefined) body.name = input.name.trim()
   if (input.priceVnd !== undefined) body.price_vnd = input.priceVnd
+  if (input.fefcoCode !== undefined) body.fefco_code = input.fefcoCode
+  if (input.ply !== undefined) body.ply = input.ply
   if (input.isActive !== undefined) body.is_active = input.isActive
   if (input.reorderLevel !== undefined) body.reorder_level = input.reorderLevel
   if (input.storageLocation !== undefined) {

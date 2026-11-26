@@ -146,6 +146,8 @@ export class PackagingMaterialsService {
         width_cm: dto.kind === 'box' ? dto.width_cm : null,
         height_cm: dto.kind === 'box' ? dto.height_cm : null,
         match_material_type: dto.kind === 'cushioning' ? dto.match_material_type : null,
+        fefco_code: dto.kind === 'box' ? (dto.fefco_code ?? null) : null,
+        ply: dto.kind === 'box' ? (dto.ply ?? null) : null,
         ...(dto.kind === 'mailer' ? mailerFields(dto) : {}),
       });
     } catch (error: unknown) {
@@ -173,6 +175,8 @@ export class PackagingMaterialsService {
     if (dto.reusable !== undefined) set.reusable = dto.reusable;
     if (dto.max_reuse_cycles !== undefined) set.max_reuse_cycles = dto.max_reuse_cycles;
     if (dto.reorder_level !== undefined) set.reorder_level = dto.reorder_level;
+    if (dto.fefco_code !== undefined) set.fefco_code = dto.fefco_code;
+    if (dto.ply !== undefined) set.ply = dto.ply;
     if (Object.keys(set).length === 0) this.fail(E.NOTHING_TO_UPDATE, 'Không có trường nào để cập nhật.', HttpStatus.BAD_REQUEST);
     const before = await this.get(code);
     const updated = (await this.materialModel.findOneAndUpdate({ code }, { $set: set }, { returnDocument: 'after' })) ?? (await this.get(code));

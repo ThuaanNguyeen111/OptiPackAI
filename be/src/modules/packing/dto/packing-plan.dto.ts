@@ -67,7 +67,7 @@ export class RecomputePlanDto {
   @Min(1, { message: 'expected_version phải ≥ 1' })
   expected_version?: number;
 
-  @ApiProperty({ required: false, type: [String], example: ['BOX-L'], description: 'Không dùng các thùng này.' })
+  @ApiProperty({ required: false, type: [String], example: ['CTN-011'], description: 'Không dùng các thùng này.' })
   @IsOptional()
   @IsArray({ message: 'exclude_box_codes phải là mảng' })
   @IsString({ each: true, message: 'Mỗi mã thùng phải là chuỗi' })
@@ -92,7 +92,7 @@ export class ApprovePlanDto extends VersionedDto {
 }
 
 export class ChangeBoxDto extends VersionedDto {
-  @ApiProperty({ example: 'BOX-L', description: 'Mã thùng trong danh mục (đang dùng).' })
+  @ApiProperty({ example: 'CTN-011', description: 'Mã thùng trong danh mục (đang dùng).' })
   @IsString({ message: 'box_code phải là chuỗi' })
   @MinLength(1, { message: 'box_code không được trống' })
   box_code!: string;
@@ -177,7 +177,7 @@ export class ManualParcelDto {
   @IsMongoId({ message: 'order_id phải là ObjectId hợp lệ' })
   order_id!: string;
 
-  @ApiProperty({ example: 'BOX-M', description: 'Thùng nhân viên THỰC TẾ dùng (trong danh mục, còn tồn).' })
+  @ApiProperty({ example: 'CTN-009', description: 'Thùng nhân viên THỰC TẾ dùng (trong danh mục, còn tồn).' })
   @IsString({ message: 'box_code phải là chuỗi' })
   @MinLength(1, { message: 'box_code không được trống' })
   box_code!: string;

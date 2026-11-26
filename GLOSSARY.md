@@ -66,6 +66,10 @@ _Tránh_: reject (trong UI), huỷ kế hoạch
 Trọng lượng vải của một lớp, tính bằng g/m²; hệ thống dùng nó để tính độ dày gói quần áo khi kho không đo độ dày.
 _Tránh_: định lượng vải (trong UI), độ dày vải
 
+**Mã thùng**:
+Mã vật tư ngắn, cố định của một loại thùng carton rỗng (`CTN-001`…), đánh số theo thể tích lòng tăng dần, không chứa kích thước. Kích thước, kiểu FEFCO và số lớp nằm trong thông tin thùng. Khác với mã nhãn của từng kiện đã đóng.
+_Tránh_: mã kiện, BOX-S/BOX-302015 (mã cũ trước AOFP-346)
+
 **Khuôn gấp**:
 Dài × rộng chuẩn mà mọi món quần áo cùng loại được gấp về trước khi cho vào túi zip, dùng chung cho mọi size; size chỉ đổi cân nặng.
 _Tránh_: số đo áo, kích thước theo size
