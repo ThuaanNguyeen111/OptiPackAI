@@ -660,7 +660,27 @@ export function ProfilePage() {
                           >
                             {verifyingMfa ? (
                               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                            ) : mfaEnabled ? (
+                            ) : (
+                              <ShieldCheck className="mr-1.5 h-4 w-4" />
+                            )}
+                            {vi ? 'Kích hoạt MFA' : 'Enable MFA'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="h-9 min-h-9"
+                            onClick={() => {
+                              setMfaSetupUrl(null)
+                              setMfaVerifyToken('')
+                            }}
+                          >
+                            {vi ? 'Hủy' : 'Cancel'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </form>
+                ) : mfaEnabled ? (
                   <div className="rounded-lg border border-success/20 bg-success-bg/40 px-3 py-2.5">
                     <p className="text-sm text-ink">
                       {vi
@@ -721,26 +741,6 @@ export function ProfilePage() {
                       </form>
                     )}
                   </div>
-                ) : (
-                              <ShieldCheck className="mr-1.5 h-4 w-4" />
-                            )}
-                            {vi ? 'Kích hoạt MFA' : 'Enable MFA'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            className="h-9 min-h-9"
-                            onClick={() => {
-                              setMfaSetupUrl(null)
-                              setMfaVerifyToken('')
-                            }}
-                          >
-                            {vi ? 'Hủy' : 'Cancel'}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </form>
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-surface-2 px-3 py-2.5">
                     <div>
