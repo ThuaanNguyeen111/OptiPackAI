@@ -52,20 +52,46 @@ class WarehouseRepository {
             if (asMap(row) case final m?) OrderGroupSummary.fromJson(m),
       ];
 
-  /// `GET /order-groups?assigned_staff_id=…` rồi lọc lại phía máy (xem [pickableStatuses]).
-  Future<Loaded<List<OrderGroupSummary>>> myGroups(String userId) => _liveOrCache(
-        key: 'groups:$userId',
-        fetch: () => api.get('/order-groups', query: {
-          'assigned_staff_id': userId,
-          'limit': 100,
-        }),
+  /// `GET /order-groups` (100 nhóm mới nhất, giống web) — app tự chia theo mục (xem [queueGroups]).
+  Future<Loaded<List<OrderGroupSummary>>> queue() => _liveOrCache(
+        key: 'groups:queue',
+        fetch: () => api.get('/order-groups', query: {'limit': 100}),
         parse: _parseGroups,
       );
+
+  /// `GET /order-groups?q=` — tìm ở mọi trạng thái theo mã đơn sàn (nhập đủ) hoặc đuôi mã nhóm.
+  Future<List<OrderGroupSummary>> searchGroups(String query) async =>
+      _parseGroups(await api.get('/order-groups', query: {'q': query}));
+
+  /// `GET /order-groups/staff/search` — nhân viên kho kèm số việc đang xử lý.
+  Future<List<StaffOption>> staff() async {
+    final raw = await api.get('/order-groups/staff/search');
+    return [
+      if (raw is List)
+        for (final row in raw)
+          if (asMap(row) case final m?)
+            if (pickStringOrNull(m, ['staffId', 'staff_id']) case final id?)
+              StaffOption(
+                id: id,
+                name: pickString(m, ['fullName', 'name', 'email'], id),
+                workload: pickInt(m, ['activeWorkload']),
+                onLeave: pickBool(m, ['onLeave']),
+              ),
+    ];
+  }
+
+  /// `POST /order-groups/:id/assign` — không truyền [staffId] = BE tự chọn người ít việc nhất.
+  Future<void> assign(String groupId, {String? staffId}) async {
+    await api.post(
+      '/order-groups/${Uri.encodeComponent(groupId)}/assign',
+      body: {'staff_id': ?staffId},
+    );
+  }
 
   /// `GET /warehouse/:warehouseId/picking-list/:groupId` — đã sắp theo lộ trình kệ.
   Future<Loaded<List<PickLine>>> pickingList(String warehouseId, String groupId) =>
       _liveOrCache(
-        key: 'picking:$groupId',
+        key: 'picking:$groupId:$warehouseId',
         fetch: () => api.get(
           '/warehouse/${Uri.encodeComponent(warehouseId)}/picking-list/${Uri.encodeComponent(groupId)}',
         ),
@@ -77,24 +103,30 @@ class WarehouseRepository {
         ],
       );
 
-  /// Kho mặc định khi nhóm chưa có `warehouseId`: kho đầu tiên đang hoạt động.
-  Future<String?> defaultWarehouseId() async {
-    final loaded = await _liveOrCache<String?>(
+  /// `GET /warehouse/warehouses` — chỉ giữ kho đang hoạt động. Có mạng thì luôn đọc mới.
+  Future<List<WarehouseOption>> activeWarehouses() async {
+    final loaded = await _liveOrCache<List<WarehouseOption>>(
       key: 'warehouses',
       fetch: () => api.get('/warehouse/warehouses'),
-      parse: (raw) {
-        if (raw is! List) return null;
-        for (final row in raw) {
-          final m = asMap(row);
-          if (m == null) continue;
-          if (m['isActive'] == false || m['is_active'] == false) continue;
-          final id = pickStringOrNull(m, ['id', '_id']);
-          if (id != null) return id;
-        }
-        return null;
-      },
+      parse: (raw) => [
+        if (raw is List)
+          for (final row in raw)
+            if (asMap(row) case final m? when m['isActive'] != false && m['is_active'] != false)
+              if (pickStringOrNull(m, ['id', '_id']) case final id?)
+                WarehouseOption(
+                  id: id,
+                  code: pickString(m, ['warehouseCode', 'warehouse_code']),
+                  name: pickString(m, ['warehouseName', 'warehouse_name']),
+                ),
+      ],
     );
     return loaded.data;
+  }
+
+  /// Kho mặc định khi nhóm chưa có `warehouseId`: kho đầu tiên đang hoạt động.
+  Future<String?> defaultWarehouseId() async {
+    final list = await activeWarehouses();
+    return list.isEmpty ? null : list.first.id;
   }
 
   /// Tạo thao tác lấy hàng chờ gửi. `id` chính là `client_event_id`, sinh ngay lúc bấm.
@@ -156,8 +188,8 @@ class WarehouseRepository {
   }
 
   /// Nhóm trong danh sách đã lưu (dùng khi mở lúc mất mạng).
-  Future<OrderGroupSummary?> cachedGroup(String userId, String groupId) async {
-    final cached = await cache.read('groups:$userId');
+  Future<OrderGroupSummary?> cachedGroup(String groupId) async {
+    final cached = await cache.read('groups:queue');
     if (cached == null) return null;
     for (final g in _parseGroups(cached.value)) {
       if (g.id == groupId) return g;

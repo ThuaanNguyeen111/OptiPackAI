@@ -6,16 +6,52 @@ import 'package:image_picker/image_picker.dart';
 import 'package:printing/printing.dart';
 
 import '../../app/mock_providers.dart';
+import '../../app/providers.dart';
+import '../../core/json.dart';
+import '../../shared/admin_kit.dart';
+import '../auth/auth_models.dart';
+import 'create_shipment_sheet.dart';
+import 'shipment_detail_screen.dart';
+import 'shipping_tools.dart';
 import '../../core/network/api_exception.dart';
 import '../proof/proof_photo_field.dart';
 import '../proof/proof_photo_repository.dart';
 import '../warehouse/scanner_screen.dart';
 import '../../core/format/deadline.dart';
+import '../admin/shipping_admin_screen.dart';
+import 'handover_slip.dart';
 import '../../shared/widgets.dart';
 import 'shipping_repository.dart';
 import '../../app/colors.dart';
 
-/// Shipping Coordinator: tạo vận đơn cho kiện đã đóng, rồi ghi nhận giao thành công / thất bại / giao lại.
+/// Mã tab nhóm đã đóng gói, chưa có vận đơn.
+const readyTab = 'packed';
+
+/// 9 tab giống `TABS` của web.
+final shippingTabs = <(String, String)>[
+  (readyTab, 'Chờ giao'),
+  ('awaiting_pickup', 'Chờ hãng lấy'),
+  ('in_transit', 'Trung chuyển'),
+  ('out_for_delivery', 'Đang giao'),
+  ('delivery_failed', 'Giao thất bại'),
+  ('returning_to_warehouse', 'Đang hoàn về'),
+  ('delivered', 'Đã giao'),
+  ('returned_to_warehouse', 'Đã về kho'),
+  ('cancelled', 'Đã huỷ'),
+];
+
+String tabLabel(String code) => shippingTabs.where((t) => t.$1 == code).firstOrNull?.$2 ?? code;
+
+bool _has(String needle, List<String?> values) => values.any((v) => (v ?? '').toLowerCase().contains(needle));
+
+bool matchesShipGroup(ShipGroup g, String needle) => _has(needle, [g.id, g.recipientName, g.address, g.platform]);
+
+bool matchesShipment(ShipmentView v, String needle) =>
+    _has(needle, [v.code, v.trackingCode, v.groupId, v.groupShortId, v.recipientName, v.recipientPhone]) ||
+    // QR trên nhãn có thể ghép nhiều mã bằng dấu "|".
+    needle.split('|').any((part) => part.trim() == v.code.toLowerCase() || part.trim() == v.trackingCode.toLowerCase());
+
+/// Shipping Coordinator: tạo vận đơn cho kiện đã đóng, theo dõi và ghi nhận giao hàng.
 class ShippingScreen extends ConsumerStatefulWidget {
   const ShippingScreen({super.key});
 
@@ -24,33 +60,255 @@ class ShippingScreen extends ConsumerStatefulWidget {
 }
 
 class _ShippingScreenState extends ConsumerState<ShippingScreen> {
-  bool _showReady = true;
+  String _tab = readyTab;
+  String _search = '';
+  final _searchField = TextEditingController();
+
+  /// Nhóm chọn để giao chung chuyến.
+  final Set<String> _batch = {};
+
+  @override
+  void dispose() {
+    _searchField.dispose();
+    super.dispose();
+  }
 
   void _refresh() {
     ref.invalidate(readyToShipProvider);
     ref.invalidate(shipmentsProvider);
   }
 
+  void _setSearch(String value) => setState(() => _search = value.trim().toLowerCase());
+
+  Future<void> _scan() async {
+    final code = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const ScannerScreen(title: 'Quét mã vận đơn / nhãn kiện')),
+    );
+    if (code == null || !mounted) return;
+    _searchField.text = code;
+    _setSearch(code);
+  }
+
+  Future<void> _create(ShipGroup group) async {
+    final done = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (_) => CreateShipmentSheet(group: group),
+    );
+    if (done == true) {
+      _batch.remove(group.id);
+      _refresh();
+    }
+  }
+
+  Future<void> _createBatch(List<String> ids) async {
+    if (await createShipmentBatch(context, ref.read(apiClientProvider), ids)) {
+      setState(_batch.clear);
+      _refresh();
+    }
+  }
+
+  /// Web: "Vận đơn của nhóm" (gồm cả vận đơn đã huỷ ở hãng).
+  Future<void> _openGroupShipment(String groupId) async {
+    Map<String, dynamic>? found;
+    final ok = await runAction(context, () async {
+      found = asMap(await ref.read(apiClientProvider).get('/shipments/group/${Uri.encodeComponent(groupId)}'));
+    });
+    if (!ok || !mounted) return;
+    final id = pickString(found, ['id', '_id']);
+    if (id.isEmpty) {
+      showToast(context, 'Nhóm chưa có vận đơn.');
+      return;
+    }
+    await openPage(context, ShipmentDetailScreen(shipmentId: id));
+    _refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final ready = ref.watch(readyToShipProvider);
+    final shipments = ref.watch(shipmentsProvider);
+    final mine = ref.watch(shipmentsMineOnlyProvider);
+    final mock = ref.watch(useMockDataProvider);
+    final groups = ready.valueOrNull ?? const <ShipGroup>[];
+    final all = shipments.valueOrNull ?? const <ShipmentView>[];
+    final searching = _search.isNotEmpty;
+
+    // Đang tìm thì tìm ở mọi tab; không thì chỉ tab đang chọn.
+    final shownGroups = searching
+        ? [for (final g in groups) if (matchesShipGroup(g, _search)) g]
+        : (_tab == readyTab ? groups : const <ShipGroup>[]);
+    final shownShipments = searching
+        ? [for (final v in all) if (matchesShipment(v, _search)) v]
+        : [for (final v in all) if (v.status.code == _tab) v];
+
+    final AsyncValue<Object?> current = searching || _tab != readyTab ? shipments : ready;
+    final batchIds = [
+      for (final g in groups)
+        if (_batch.contains(g.id)) g.id,
+    ];
+
+    int countOf(String tab) => tab == readyTab ? groups.length : all.where((v) => v.status.code == tab).length;
+
     return Column(
       children: [
         const MockBanner(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: SegmentedButton<bool>(
-            segments: const [
-              ButtonSegment(value: true, label: Text('Cần tạo vận đơn')),
-              ButtonSegment(value: false, label: Text('Đang giao')),
-            ],
-            selected: {_showReady},
-            onSelectionChanged: (s) => setState(() => _showReady = s.first),
-          ),
-        ),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async => _refresh(),
-            child: _showReady ? _ReadyList(onChanged: _refresh) : _ShipmentList(onChanged: _refresh),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              children: [
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final (code, label) in shippingTabs)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text('$label ${countOf(code)}'),
+                            selected: !searching && _tab == code,
+                            onSelected: (_) {
+                              _searchField.clear();
+                              setState(() {
+                                _tab = code;
+                                _search = '';
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchField,
+                        onChanged: _setSearch,
+                        decoration: const InputDecoration(
+                            hintText: 'Mã vận đơn, mã nhóm, người nhận', prefixIcon: Icon(Icons.search), isDense: true),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      tooltip: 'Quét mã',
+                      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                      onPressed: _scan,
+                      icon: const Icon(Icons.qr_code_scanner),
+                    ),
+                  ],
+                ),
+                Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    FilterChip(
+                      label: const Text('Của tôi'),
+                      selected: mine,
+                      onSelected: (v) => ref.read(shipmentsMineOnlyProvider.notifier).state = v,
+                    ),
+                    TextButton.icon(
+                      onPressed: () => saveCsvFile(context, 'shipping-queue-${searching ? 'tim-kiem' : _tab}.csv',
+                          shipmentQueueCsv(shownGroups, shownShipments)),
+                      icon: const Icon(Icons.save_alt),
+                      label: const Text('Lưu CSV'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => printHandoverSlip(
+                        context,
+                        rows: handoverRows(shownGroups, shownShipments, tabLabel),
+                        queueLabel: searching ? 'Kết quả tìm kiếm' : tabLabel(_tab),
+                        preparedBy: ref.read(authControllerProvider).user?.name ?? '—',
+                      ),
+                      icon: const Icon(Icons.print_outlined),
+                      label: const Text('In phiếu bàn giao'),
+                    ),
+                    if (!mock)
+                      TextButton.icon(
+                        onPressed: () => showShippingSettings(
+                          context,
+                          ref.read(apiClientProvider),
+                          // Như web: chỉ Admin sửa hãng và chiến lược.
+                          onManage: ref.read(authControllerProvider).user?.role == UserRole.admin
+                              ? () async {
+                                  await openPage(context, const ShippingAdminScreen(openCarriers: true));
+                                  _refresh();
+                                }
+                              : null,
+                        ),
+                        icon: const Icon(Icons.local_shipping_outlined),
+                        label: const Text('Hãng & người gửi'),
+                      ),
+                  ],
+                ),
+                if (mine)
+                  Text('Chỉ đếm vận đơn giao cho bạn.', style: TextStyle(fontSize: 12, color: AppColors.inkSubtle)),
+                if (!mock && batchIds.isNotEmpty && (_tab == readyTab || searching)) ...[
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: () => _createBatch(batchIds),
+                    icon: const Icon(Icons.alt_route),
+                    label: Text('Giao chung chuyến (${batchIds.length})'),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                if (current.hasError && !current.isLoading)
+                  ErrorState(error: current.error!, onRetry: _refresh)
+                else if (current.isLoading && !current.hasValue)
+                  const Padding(padding: EdgeInsets.all(48), child: Center(child: CircularProgressIndicator()))
+                else if (shownGroups.isEmpty && shownShipments.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 48),
+                    child: EmptyState(
+                      icon: Icons.local_shipping_outlined,
+                      text: searching
+                          ? 'Không thấy mã này trong hàng đợi đã tải.'
+                          : _tab == readyTab
+                              ? 'Chưa có nhóm đã đóng gói nào chờ giao.'
+                              : 'Không có vận đơn ở trạng thái này.',
+                    ),
+                  )
+                else ...[
+                  for (final g in shownGroups) ...[
+                    _ReadyCard(
+                      group: g,
+                      selected: _batch.contains(g.id),
+                      // Đơn hỏa tốc và đơn Tiki không gộp chuyến.
+                      onSelect: mock || g.requiresSelfDelivery || g.platform.toLowerCase() == 'tiki'
+                          ? null
+                          : (v) => setState(() => v ? _batch.add(g.id) : _batch.remove(g.id)),
+                      onCreate: () => _create(g),
+                      onLabel: mock
+                          ? null
+                          : () => printPdf(context, ref.read(apiClientProvider),
+                              '/documents/shipping-label/${g.id}', 'nhan-kien'),
+                      onShipment: mock ? null : () => _openGroupShipment(g.id),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  for (final v in shownShipments) ...[
+                    _ShipmentCard(
+                      key: ValueKey(v.id),
+                      shipment: v,
+                      onChanged: _refresh,
+                      onDetail: mock
+                          ? null
+                          : () async {
+                              await openPage(context, ShipmentDetailScreen(shipmentId: v.id));
+                              _refresh();
+                            },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ],
+            ),
           ),
         ),
       ],
@@ -58,163 +316,73 @@ class _ShippingScreenState extends ConsumerState<ShippingScreen> {
   }
 }
 
-class _ReadyList extends ConsumerWidget {
-  const _ReadyList({required this.onChanged});
-
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(readyToShipProvider);
-    return async.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => ErrorState(error: e, onRetry: onChanged),
-      data: (items) => items.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: const [
-                SizedBox(height: 80),
-                EmptyState(icon: Icons.local_shipping_outlined, text: 'Không có kiện nào chờ giao.'),
-              ],
-            )
-          : ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (context, i) {
-                final g = items[i];
-                final d = g.isExpress && g.deadline != null ? deadlineLabel(g.deadline!, DateTime.now(), what: 'giao') : null;
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(g.shortId,
-                                style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w800, fontSize: 16)),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Text(g.platform,
-                                  overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.inkSubtle)),
-                            ),
-                            const Spacer(),
-                            if (g.isExpress) const Pill('Hỏa tốc', Colors.deepOrange),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(g.recipientName, style: const TextStyle(fontWeight: FontWeight.w700)),
-                        if (g.address.isNotEmpty) Text(g.address, style: TextStyle(color: AppColors.inkSubtle)),
-                        const SizedBox(height: 4),
-                        Text('${g.parcelCount} kiện${d != null ? ' · ${d.text}' : ''}',
-                            style: TextStyle(color: AppColors.inkSubtle)),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                          onPressed: () async {
-                            final done = await showModalBottomSheet<bool>(
-                              context: context,
-                              isScrollControlled: true,
-                              showDragHandle: true,
-                              builder: (_) => _CarrierSheet(group: g),
-                            );
-                            if (done == true) onChanged();
-                          },
-                          child: const Text('Tạo vận đơn'),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-    );
-  }
-}
-
-class _CarrierSheet extends ConsumerStatefulWidget {
-  const _CarrierSheet({required this.group});
+class _ReadyCard extends StatelessWidget {
+  const _ReadyCard({
+    required this.group,
+    required this.selected,
+    required this.onSelect,
+    required this.onCreate,
+    required this.onLabel,
+    required this.onShipment,
+  });
 
   final ShipGroup group;
-
-  @override
-  ConsumerState<_CarrierSheet> createState() => _CarrierSheetState();
-}
-
-class _CarrierSheetState extends ConsumerState<_CarrierSheet> {
-  late final Future<List<CarrierQuote>> _quotes = ref.read(shippingRepositoryProvider).quote(widget.group.id);
-  String? _selected;
-  bool _busy = false;
-
-  Future<void> _create() async {
-    final code = _selected;
-    if (code == null) return;
-    setState(() => _busy = true);
-    try {
-      final v = await ref.read(shippingRepositoryProvider).create(widget.group.id, code);
-      if (!mounted) return;
-      HapticFeedback.mediumImpact();
-      showToast(context, 'Đã tạo ${v.code}');
-      Navigator.pop(context, true);
-    } on ShippingException catch (e) {
-      if (mounted) showToast(context, e.message, error: true);
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  final bool selected;
+  final ValueChanged<bool>? onSelect;
+  final VoidCallback onCreate;
+  final VoidCallback? onLabel;
+  final VoidCallback? onShipment;
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+    final g = group;
+    final d = g.isExpress && g.deadline != null ? deadlineLabel(g.deadline!, DateTime.now(), what: 'giao') : null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Chọn đơn vị vận chuyển',
-                textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 12),
-            FutureBuilder<List<CarrierQuote>>(
-              future: _quotes,
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text('${snap.error}', textAlign: TextAlign.center, style: TextStyle(color: AppColors.danger)),
-                  );
-                }
-                if (!snap.hasData) {
-                  return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-                }
-                return RadioGroup<String>(
-                  groupValue: _selected,
-                  onChanged: (v) => setState(() => _selected = v),
-                  child: Column(
-                    children: [
-                      for (final q in snap.data!)
-                        Card(
-                          child: RadioListTile<String>(
-                            value: q.code,
-                            enabled: q.unavailableReason == null,
-                            title: Text('${q.name} · ${q.service}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                            subtitle: Text(
-                              q.unavailableReason ??
-                                  (q.code == selfDeliveryQuoteCode ? q.eta : '${formatVnd(q.feeVnd)} · ${q.eta}'),
-                              style: q.unavailableReason == null ? null : TextStyle(color: AppColors.danger),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              },
+            Row(
+              children: [
+                Text(g.shortId, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w800, fontSize: 16)),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(g.platform, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppColors.inkSubtle)),
+                ),
+                const Spacer(),
+                if (g.isExpress) const Pill('Hỏa tốc', Colors.deepOrange),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
+            Text(g.recipientName, style: const TextStyle(fontWeight: FontWeight.w700)),
+            if (g.address.isNotEmpty) Text(g.address, style: TextStyle(color: AppColors.inkSubtle)),
+            const SizedBox(height: 4),
+            Text('${g.parcelCount} kiện${d != null ? ' · ${d.text}' : ''}', style: TextStyle(color: AppColors.inkSubtle)),
+            if (onSelect case final select?)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                dense: true,
+                value: selected,
+                onChanged: (v) => select(v ?? false),
+                title: const Text('Chọn giao chung chuyến'),
+              ),
+            if (onLabel != null || onShipment != null)
+              Wrap(
+                spacing: 4,
+                children: [
+                  if (onLabel != null)
+                    TextButton.icon(onPressed: onLabel, icon: const Icon(Icons.print_outlined), label: const Text('Nhãn PDF')),
+                  if (onShipment != null)
+                    TextButton.icon(
+                        onPressed: onShipment, icon: const Icon(Icons.folder_outlined), label: const Text('Vận đơn của nhóm')),
+                ],
+              ),
+            const SizedBox(height: 8),
             FilledButton(
-              onPressed: _selected == null || _busy ? null : _create,
+              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+              onPressed: onCreate,
               child: const Text('Tạo vận đơn'),
             ),
           ],
@@ -224,65 +392,12 @@ class _CarrierSheetState extends ConsumerState<_CarrierSheet> {
   }
 }
 
-class _ShipmentList extends ConsumerWidget {
-  const _ShipmentList({required this.onChanged});
-
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(shipmentsProvider);
-    final mine = ref.watch(shipmentsMineOnlyProvider);
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-          child: Row(
-            children: [
-              ChoiceChip(
-                label: const Text('Của tôi'),
-                selected: mine,
-                onSelected: (_) => ref.read(shipmentsMineOnlyProvider.notifier).state = true,
-              ),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('Tất cả'),
-                selected: !mine,
-                onSelected: (_) => ref.read(shipmentsMineOnlyProvider.notifier).state = false,
-              ),
-            ],
-          ),
-        ),
-        Expanded(child: _list(async)),
-      ],
-    );
-  }
-
-  Widget _list(AsyncValue<List<ShipmentView>> async) {
-    return async.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => ErrorState(error: e, onRetry: onChanged),
-      data: (items) => items.isEmpty
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: const [SizedBox(height: 80), EmptyState(icon: Icons.local_shipping_outlined, text: 'Chưa có vận đơn.')],
-            )
-          : ListView.separated(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 12),
-              itemBuilder: (context, i) => _ShipmentCard(shipment: items[i], onChanged: onChanged),
-            ),
-    );
-  }
-}
-
 class _ShipmentCard extends ConsumerWidget {
-  const _ShipmentCard({required this.shipment, required this.onChanged});
+  const _ShipmentCard({super.key, required this.shipment, required this.onChanged, this.onDetail});
 
   final ShipmentView shipment;
   final VoidCallback onChanged;
+  final VoidCallback? onDetail;
 
   Color _color() => switch (shipment.status) {
         ShipmentStatus.awaitingPickup || ShipmentStatus.inTransit => AppColors.stageShip,
@@ -326,7 +441,10 @@ class _ShipmentCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final repo = ref.read(shippingRepositoryProvider);
     final s = shipment;
-    final overdue = s.dueAt != null && s.status == ShipmentStatus.outForDelivery && s.dueAt!.isBefore(DateTime.now());
+    final overdue = s.isOverdueAt(DateTime.now());
+    final user = ref.watch(authControllerProvider.select((a) => a.user));
+    // Vận đơn đã giao đích danh người khác thì chỉ Admin ghi nhận được (giống web).
+    final allowed = s.actionsAllowedFor(user?.id, isAdmin: user?.role == UserRole.admin);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -345,6 +463,16 @@ class _ShipmentCard extends ConsumerWidget {
             Text(recipientLine(s), style: const TextStyle(fontWeight: FontWeight.w600)),
             Text('${s.carrierName} · ${s.trackingCode}', style: TextStyle(color: AppColors.inkSubtle)),
             Text('Lần giao ${s.attempt}/$maxDeliveryAttempts', style: TextStyle(color: AppColors.inkSubtle, fontSize: 12)),
+            if (s.dueAt != null && !s.status.isFinal)
+              Text('Hạn giao: ${formatDateTime(s.dueAt!)}', style: TextStyle(color: AppColors.inkSubtle, fontSize: 12)),
+            if (s.shipperName != null)
+              Text('Người giao: ${s.shipperName}', style: TextStyle(color: AppColors.inkSubtle, fontSize: 12)),
+            if (!allowed && !s.status.isFinal && !s.managedByCarrier)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text('Vận đơn giao cho người khác — chỉ người đó hoặc Admin ghi nhận được.',
+                    style: TextStyle(fontSize: 12, color: AppColors.warningText)),
+              ),
             if (s.failureReason != null)
               Text('Lý do thất bại: ${s.failureReason!.label}', style: TextStyle(color: AppColors.warningText, fontSize: 13)),
             if (overdue) Padding(padding: EdgeInsets.only(top: 6), child: Pill('Quá hạn giao', AppColors.danger)),
@@ -359,16 +487,24 @@ class _ShipmentCard extends ConsumerWidget {
                 child: Text('Trạng thái do ${s.carrierName} cập nhật.',
                     style: TextStyle(fontSize: 12, color: AppColors.inkSubtle)),
               ),
-            if (s.groupId.isNotEmpty && s.status != ShipmentStatus.cancelled)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () => _printLabel(context, repo),
-                  icon: const Icon(Icons.print_outlined),
-                  label: const Text('In nhãn kiện'),
-                ),
-              ),
-            if (s.status == ShipmentStatus.outForDelivery && !s.managedByCarrier) ...[
+            Wrap(
+              spacing: 4,
+              children: [
+                if (onDetail != null)
+                  TextButton.icon(
+                    onPressed: onDetail,
+                    icon: const Icon(Icons.info_outline),
+                    label: Text(s.managedByCarrier ? 'Chi tiết & thao tác hãng' : 'Chi tiết'),
+                  ),
+                if (s.groupId.isNotEmpty && s.status != ShipmentStatus.cancelled)
+                  TextButton.icon(
+                    onPressed: () => _printLabel(context, repo),
+                    icon: const Icon(Icons.print_outlined),
+                    label: const Text('In nhãn kiện'),
+                  ),
+              ],
+            ),
+            if (s.status == ShipmentStatus.outForDelivery && !s.managedByCarrier && allowed) ...[
               if (s.selfDelivery)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
@@ -435,7 +571,7 @@ class _ShipmentCard extends ConsumerWidget {
                 ],
               ),
             ],
-            if (s.canRetry && !s.managedByCarrier) ...[
+            if (s.canRetry && !s.managedByCarrier && allowed) ...[
               const SizedBox(height: 12),
               FilledButton(
                 style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),

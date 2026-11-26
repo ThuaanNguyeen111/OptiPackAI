@@ -51,12 +51,71 @@ PickLine line(
     );
 
 void main() {
+  group('Kho lấy hàng', () {
+    const a = WarehouseOption(id: 'a', code: 'A');
+    const b = WarehouseOption(id: 'b', code: 'B');
+
+    test('kho của nhóm còn hoạt động thì giữ nguyên, không cho chọn', () {
+      final r = resolvePickWarehouse('b', [a, b], chosenId: 'a')!;
+      expect(r.id, 'b');
+      expect(r.canChoose, isFalse);
+      expect(r.groupWarehouseInactive, isFalse);
+    });
+
+    test('kho của nhóm đã tắt thì chuyển sang kho đang hoạt động', () {
+      final r = resolvePickWarehouse('old', [a, b])!;
+      expect(r.id, 'a');
+      expect(r.groupWarehouseInactive, isTrue);
+      expect(resolvePickWarehouse('old', [a, b], chosenId: 'b')!.id, 'b');
+    });
+
+    test('nhóm chưa gắn kho thì không báo kho đã tắt; hết kho thì null', () {
+      expect(resolvePickWarehouse(null, [a])!.groupWarehouseInactive, isFalse);
+      expect(resolvePickWarehouse('old', const []), isNull);
+    });
+  });
+
+  group('Mục của màn lấy hàng', () {
+    final groups = [
+      mkGroup('picking', staff: 'other'),
+      mkGroup('mine-awaiting', status: 'awaiting_packaging'),
+      mkGroup('short', status: 'partial_needs_review'),
+      mkGroup('picked', status: 'picked'),
+      mkGroup('approved', status: 'approved_for_packing'),
+      mkGroup('packed', status: 'packed'),
+      mkGroup('dead', orders: 2, active: 0),
+    ];
+    Set<String> ids(WorkTab tab, {WorkFilter filter = WorkFilter.all, String search = ''}) =>
+        queueGroups(groups, tab: tab, filter: filter, userId: 'me', search: search).map((g) => g.id).toSet();
+
+    test('chia mục giống web', () {
+      expect(ids(WorkTab.toPick), {'picking', 'mine-awaiting'});
+      expect(ids(WorkTab.review), {'short'});
+      expect(ids(WorkTab.picked), {'picked', 'approved'});
+      expect(ids(WorkTab.packed), {'packed'});
+      expect(ids(WorkTab.canceled), {'dead'});
+    });
+
+    test('lọc Của tôi và tìm theo mã', () {
+      expect(ids(WorkTab.toPick, filter: WorkFilter.mine), {'mine-awaiting'});
+      expect(ids(WorkTab.toPick, search: 'PICK'), {'picking'});
+    });
+
+    test('tên người lấy hàng', () {
+      expect(assigneeLabel(null, 'me', const {}), 'Chưa phân công');
+      expect(assigneeLabel('me', 'me', const {}), 'Bạn');
+      expect(assigneeLabel('x', 'me', const {'x': 'An'}), 'An');
+      expect(assigneeLabel('y', 'me', const {}), 'Nhân viên khác');
+    });
+  });
+
   group('Việc của tôi', () {
     test('chỉ lấy nhóm giao cho mình, còn phải lấy, còn đơn hợp lệ', () {
       final result = myPickingWork([
         mkGroup('mine-picking'),
         mkGroup('mine-awaiting', status: 'awaiting_packaging'),
         mkGroup('mine-approved', status: 'approved_for_packing'),
+        mkGroup('mine-pending', status: 'pending_approval'),
         mkGroup('other', staff: 'someone'),
         mkGroup('picked-already', status: 'picked'),
         mkGroup('all-canceled', orders: 2, active: 0),
@@ -65,13 +124,28 @@ void main() {
       expect(result.map((g) => g.id).toSet(), {
         'mine-picking',
         'mine-awaiting',
-        'mine-approved',
       });
     });
 
-    test('nhóm "Đã duyệt — chờ đóng gói" vẫn hiện (web cũng coi là cần lấy)', () {
-      expect(pickableStatuses.contains('approved_for_packing'), isTrue);
-      expect(pickableStatuses.contains('pending_approval'), isTrue);
+    test('chỉ quét được khi đang lấy hàng; chờ bắt đầu thì chỉ báo thiếu', () {
+      expect(mkGroup('a').canScan, isTrue);
+      expect(mkGroup('b', status: 'awaiting_packaging').canScan, isFalse);
+      expect(mkGroup('b', status: 'awaiting_packaging').canReportMissing, isTrue);
+      expect(mkGroup('c', status: 'pending_approval').canReportMissing, isFalse);
+      expect(pickBlockedReason('picking'), isNull);
+      expect(pickBlockedReason('pending_approval'), contains('Chờ chấp nhận kế hoạch'));
+    });
+
+    test('đọc phần chia theo đơn của một dòng lấy hàng', () {
+      final l = PickLine.fromJson({
+        'sku': 'A',
+        'quantity': 3,
+        'order_allocations': [
+          {'order_id': 'o1', 'platform_order_id': '111', 'recipient_name': 'An', 'quantity': 2},
+          {'order_id': 'abcdef123456', 'quantity': 1},
+        ],
+      }).copyWith(pickedQuantity: 1);
+      expect(l.allocations.map((a) => a.label).toList(), ['Đơn 111 · An × 2', 'Đơn 123456 × 1']);
     });
 
     test('Hỏa Tốc lên đầu, rồi quá hạn, rồi hạn gần nhất', () {

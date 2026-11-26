@@ -134,11 +134,23 @@ void main() {
     expect(find.text('Nguyễn Văn An'), findsOneWidget);
     expect(find.text('Tạo vận đơn'), findsWidgets);
 
-    await tester.tap(find.text('Đang giao'));
+    // 9 tab giống web, mỗi tab một trạng thái.
+    expect(find.text('Chờ giao 2'), findsOneWidget);
+    expect(find.text('Đang giao 2'), findsOneWidget);
+    expect(find.text('Giao thất bại 1'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Giao thất bại 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Giao thất bại 1'));
+    await tester.pumpAndSettle();
+    expect(find.text('Giao lại'), findsOneWidget, reason: 'ship42 thất bại lần 1 nên giao lại được');
+
+    await tester.ensureVisible(find.text('Đang giao 2'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Đang giao 2'));
     await tester.pumpAndSettle();
     expect(find.text('SHP-261109-000041'), findsOneWidget);
     expect(find.text('Quá hạn giao'), findsOneWidget);
-    expect(find.text('Giao lại'), findsOneWidget, reason: 'ship42 thất bại lần 1 nên giao lại được');
     expect(find.textContaining('giao thành công cần ảnh bằng chứng'), findsOneWidget);
 
     // Vận đơn đầu tiên (ship40) là shop tự giao: chưa có ảnh thì không xác nhận được.

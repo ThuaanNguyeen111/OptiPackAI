@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/config/env.dart';
 import '../features/auth/auth_models.dart';
+import '../features/history/history_repository.dart';
 import '../features/notifications/api_notifications_repository.dart';
 import '../features/notifications/notifications_repository.dart';
 import '../features/overview/api_overview_repository.dart';
@@ -77,6 +78,10 @@ final overviewRepositoryProvider = Provider<OverviewRepository>((ref) => ref.wat
     ? MockOverviewRepository()
     : ApiOverviewRepository(ref.watch(apiClientProvider)));
 
+final historyRepositoryProvider = Provider<HistoryRepository>((ref) => ref.watch(useMockDataProvider)
+    ? MockHistoryRepository()
+    : ApiHistoryRepository(ref.watch(apiClientProvider)));
+
 /// Dùng trong test và bản trình diễn: mọi màn chạy dữ liệu giả.
 final mockDataOverrides = [useMockDataProvider.overrideWithValue(true)];
 
@@ -119,8 +124,8 @@ final readyToShipProvider = FutureProvider.autoDispose<List<ShipGroup>>(
   (ref) => ref.watch(shippingRepositoryProvider).readyToShip(),
 );
 
-/// AOFP-336 — tab Đang giao mặc định chỉ hiện vận đơn giao cho mình (`shipper_id=me`).
-final shipmentsMineOnlyProvider = StateProvider<bool>((ref) => true);
+/// Lọc "Của tôi" (`shipper_id=me`). Mặc định tắt, giống web: đa số vận đơn không gán người giao.
+final shipmentsMineOnlyProvider = StateProvider<bool>((ref) => false);
 
 final shipmentsProvider = FutureProvider.autoDispose<List<ShipmentView>>(
   (ref) => ref.watch(shippingRepositoryProvider).shipments(mine: ref.watch(shipmentsMineOnlyProvider)),

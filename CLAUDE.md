@@ -4982,3 +4982,57 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 **Làm (chỉ FE):** `BoxComparisonTable.tsx` (bảng theo đúng thứ tự BE trả, tô dòng đang dùng, mờ dòng không dùng được, ⚠ khi `scoresConsistent=false`, tooltip 4 điểm con), `GuideFeedback.tsx` (`GuideRating` 👍/👎 + góp ý, toast khi `savedAsExample`; `GuideTraceButton` hộp thoại xem system prompt / JSON gửi / phản hồi thô, chỉ Admin), banner `catalogStale` + `catalogChanges` + nút Tính lại cạnh banner `profileStale`; kiểu `BoxComparison`, `PackingGuideTrace`, hàm `rateParcelGuide`, `getParcelGuideTrace`. Bảng đặt dưới khung 3D (cột phải desktop + khối 3D mobile) của kiện đang chọn.
 **Chưa làm:** nút "Đổi sang thùng này" trên dòng hạng 1 (tuỳ chọn; cần chọn lý do đổi thùng).
 **Kiểm chứng:** `tsc -b`, `vite build` đạt; eslint 2 lỗi `set-state-in-effect` ở PackagingWorkbench là có sẵn. Chưa chạy với kế hoạch thật, chưa xem bằng mắt.
+
+## 📱 Nhật ký 26/11/2026 — Mobile: lấy hàng giống web + bổ sung chức năng Admin (chưa commit)
+
+**[stated] Việt yêu cầu:** sửa lỗi mobile không đổi được kho khi `WH_WAREHOUSE_INACTIVE`; làm đợt 1 cho cả web và mobile; thêm đơn + lịch sử như web; rà trang Admin rồi "bổ sung tất cả cho mobile". Không đổi BE.
+
+**Làm:**
+- Màn lấy hàng mobile: chọn kho đang hoạt động (kho của nhóm đã tắt thì cảnh báo). Web + mobile: chỉ quét / hoàn tất khi `picking`, hàng chờ gồm cả nhóm đã bàn giao đóng gói.
+- Mobile: tab "Lấy hàng" lọc/tìm/người được giao, nhận/đổi việc, lấy chung nhóm liên kết, chữ khay, in picking list, lịch sử + dòng thời gian, hồ sơ (sửa, đổi mật khẩu, MFA).
+- Mobile, tab "Thêm" (Admin, `lib/features/admin/`, khung chung `lib/shared/admin_kit.dart`): người dùng, quyền, sàn, đơn, nhóm đơn, quy tắc gộp, trả hàng, cấu hình kho, danh mục/SKU, tồn kho, vật tư, đóng gói, giao hàng, cài đặt, báo cáo.
+
+**Kiểm chứng:** `flutter test` 183 đạt, `flutter analyze` sạch; web `tsc` + vitest đạt. Màn Admin chỉ được test với server giả, **chưa thử với dữ liệu thật**; một số tên field response được suy ra.
+
+**Mobile còn thiếu:** phiếu nhập nhiều dòng; in tem ô/tem SKU/phiếu nhập; tạo hãng + bậc cước; bảng so sánh thùng, chọn thùng mới/tái sử dụng, đánh giá/xem trace hướng dẫn AI; xem khóa AI; gợi ý ô; đóng gói tay không chia lại món; CSV chỉ sao chép; link kết nối sàn phải tự mở.
+
+**Đã sửa cùng ngày (web):** `WarehousePage.tsx` ép dùng kho của nhóm kể cả khi kho đã tắt; dropdown chỉ có kho hoạt động nên hiện tên kho khác với kho thật gửi đi, và báo nhầm "không còn SKU cần lấy". Nay chỉ theo kho của nhóm khi còn hoạt động, có cảnh báo, ẩn khung rỗng khi có lỗi. `tsc` + 42 vitest đạt; chưa xem trên trình duyệt.
+
+**Sửa tiếp (web):** thêm tab "Đã giao vận" (`shipped` + `delivered`) vì trước đó nhóm đã rời kho không thuộc tab nào; ô chọn nhóm nay hỏi thêm `GET /order-groups?q=` (tìm theo mã đơn sàn, mọi tab) và mở đúng tab. Tab chỉ lấy trong 100 nhóm mới nhất; nhóm cũ hơn tìm bằng mã.
+
+**Mobile (cùng ngày):** thêm mục "Đã giao vận" và tìm mã đơn sàn qua BE (kết quả ở "Ở mục khác"). `flutter analyze` sạch, 184 test đạt.
+
+**Thử thật bằng tài khoản Nhân viên kho (web Edge headless + máy ảo, chỉ xem):** tab "Đã giao vận", tìm mã đơn, mở đơn đã giao, cảnh báo kho tắt đều đúng. **Lỗi phát hiện:** nút "Đổi người" trong `Row` làm màn lấy hàng mobile trắng với mọi đơn còn lấy được (theme đặt nút rộng hết cỡ) — đã sửa, thêm `test/pick_screen_layout_test.dart` (187 test đạt). **Bài học:** test widget phải dùng `theme: buildTheme()` và phải dựng đủ các trạng thái hiện thêm nút. Phần Admin và thao tác quét thật vẫn chưa thử.
+
+**Tab Kho mobile giống web:** hiện sẵn danh sách tồn (Theo ô / Theo lô / Phiếu nhập, chọn kho, lọc khu và còn/hết hàng, tìm hoặc quét mã ô; bấm dòng để nhập thêm/kiểm kê/chuyển ô, xem lô, sổ kho tiếng Việt), thay màn bắt quét ô. `StockScreen` chỉ còn dùng cho chế độ dữ liệu mẫu; menu Admin bỏ mục trùng. 191 test đạt; đã xem trên máy ảo bằng dữ liệu thật, chưa bấm xác nhận thao tác ghi nào.
+
+## 🚚 26/11/2026 — Rà trang Giao hàng: mobile so với web (vai trò Điều phối) — mobile ĐÃ bổ sung cùng ngày (chưa commit), lỗi web chưa sửa
+
+Thử bằng tài khoản Điều phối trên web (Edge headless) và máy ảo, chỉ xem. Mobile CHƯA đủ.
+- **Thiếu:** 9 tab trạng thái (mobile chỉ 2; mục "Đang giao" trộn cả đã giao/đã hủy, mặc định "Của tôi" nên trống vì 0/23 vận đơn có `shipperId`); tìm/quét mã; sửa địa chỉ người nhận + cập nhật báo giá khi tạo vận đơn; chọn shipper đơn hỏa tốc (mobile tự gán người đang đăng nhập); ghi chú lúc tạo; xử lý riêng đơn Tiki; thao tác hãng GHN (mô phỏng, đồng bộ, nhãn hãng, tạo lại, hủy, sửa địa chỉ, mã từng kiện); chi tiết vận đơn (dòng thời gian, hạn giao, cân, phiếu trả); hẹn lịch lấy; giao chung chuyến + bảng kê chuyến; so chi phí thùng; xem chiến lược/người gửi; nhãn PDF cho nhóm chưa có vận đơn; xuất CSV, in phiếu bàn giao.
+- **Mobile hơn web:** thẻ vận đơn hiện người nhận, SĐT, địa chỉ, tiền thu hộ; giao thất bại hẹn được giờ giao lại; quét nhãn bằng camera.
+- **Lỗi web phát hiện thêm:** nút "Phiếu đóng gói" hiện cho Điều phối nhưng BE trả 403; vận đơn GHN vẫn ghi điểm đến "Shop tự giao"; giao diện tối, đầu khung "Tổng hợp kiện đang chọn" chữ gần như không đọc được.
+- `features/admin/shipping_admin_screen.dart` (chỉ Admin) đã có một phần thao tác thiếu, có thể tái dùng.
+
+**Đã bổ sung trên mobile (cùng ngày, không đổi BE/web):** 9 tab trạng thái, tìm/quét mã, "Của tôi" (mặc định TẮT), sao chép CSV, form tạo vận đơn (điền sẵn + sửa địa chỉ, cập nhật báo giá, shipper bắt buộc cho hỏa tốc, ghi chú, đơn Tiki, so chi phí thùng), giao chung chuyến (có giờ hẹn lấy), màn chi tiết vận đơn (tổng hợp, kiện GHN, mô phỏng/đồng bộ/nhãn/tạo lại/hủy, dòng thời gian, phiếu trả, hẹn lấy, nhãn PDF, bảng kê chuyến). "Giao của shop" đơn thường không còn tự gán shipper (giống web).
+**Sửa kèm:** `formatDateTime` mobile không đổi giờ UTC sang giờ máy (thẻ vận đơn, thông báo, yêu cầu hoàn hàng hiện sớm 7 giờ). Thể tích hiện 3 chữ số lẻ (web 2 chữ số, kiện nhỏ ra 0.00).
+**Còn khác web:** chưa có "In phiếu bàn giao"; CSV chỉ sao chép; giao chung chuyến không sửa địa chỉ (BE tự lấy theo đơn); sửa hãng/chiến lược ở màn Admin.
+**Kiểm chứng:** `flutter analyze` sạch, 198 test đạt; máy ảo dữ liệu thật chỉ xem (danh sách, form + địa chỉ + báo giá, chi tiết vận đơn GHN), không lỗi. Chưa bấm thao tác ghi nào trên dữ liệu thật, chưa thử quét camera.
+
+## 🚚 26/11/2026 (tối) — Sửa lỗi web trang Giao hàng + bù phần mobile còn khác web (chưa commit)
+
+**[stated] Việt yêu cầu** sửa lỗi web và làm 6 mục "còn khác web". **[stated] Phiếu đóng gói: giữ quyền BE, chỉ ẩn nút** (không mở cho Điều phối; mục "còn khác web" tương ứng giữ nguyên có chủ đích). Câu "web hiện 2 chữ số, ..., mobile còn khác" ở mục trên được thay bằng mục này.
+
+**Web:** nút "Phiếu đóng gói" chỉ hiện cho Admin/Chủ shop/Kho/Đóng gói; cột Điểm đến hiện địa chỉ gửi hãng hoặc địa chỉ người nhận (đọc thêm `recipientAddress`), nhóm chưa có vận đơn ghi "Chưa tạo vận đơn"; ô xác nhận ghi đúng hãng; sửa đầu khung tổng hợp ở giao diện tối (`teal-shell.css`); tab "Sàn đã kết nối" chỉ hiện cho Admin/Chủ shop; thể tích 4 chữ số lẻ (túi niêm phong 21×21×1 cm ≈ 0,0004 m³, 3 chữ số vẫn ra 0).
+**Mobile:** "Lưu CSV" thành file (`file_picker`); "In phiếu bàn giao" PDF (`pdf` + phông DejaVu trong `assets/fonts/`) gồm bảng dòng đang xem + 2 ô ký (web in cả màn hình bằng trình duyệt); giao chung chuyến điền sẵn + sửa được địa chỉ; "Hãng & người gửi" có lối "Sửa hãng & chiến lược" cho Admin và thêm nút "Thêm hãng mẫu" (Điều phối chỉ xem, như web); thể tích 4 chữ số lẻ.
+**Kiểm chứng:** web `tsc`, 42 vitest, build đạt; xem bằng tài khoản Điều phối (chỉ xem, 0 request ghi). Mobile `flutter analyze` sạch, 201 test đạt, APK build được với 2 thư viện mới. **Chưa xác nhận trên máy ảo:** hộp xem trước phiếu bàn giao (chạm nút chưa thấy mở, chưa rõ nguyên nhân), hộp lưu CSV, form giao chung chuyến, hộp "Hãng & người gửi".
+**Sự cố khi kiểm tra:** 18:06:23 vận đơn GHN `SHP-261119-5C19B7` (mã `LYVLQG`, nhóm `…deaff060b7`) được tạo lại bằng tài khoản Bao_shipper đang đăng nhập trên máy ảo, trong lúc đang kiểm tra "chỉ xem". Script chỉ chạm 1 lần vào giữa màn hình (thẻ báo giá, chỉ chọn dịch vụ), nút tạo nằm ngoài màn hình; màn hình còn đổi tab mà script không làm — chưa xác định được ai/cái gì đã bấm. `CARRIER_MODE=ghn_staging`. Chưa hủy (chờ Việt quyết). **Bài học:** phím Back không đóng được form ở lần đó và script chạm tiếp mà không kiểm màn hình trước; khi thử trên dữ liệu thật phải chụp và xác nhận màn hình sau mỗi bước rồi mới chạm tiếp.
+
+## 📦 26/11/2026 — Rà vì sao đơn kính + túi xách + quần bị chọn thùng quá to (CHỈ phân tích, chưa sửa)
+
+Nhóm `…ace3aeba0e`: BOX-LT cắt còn 50×40×10, lấp 12%. Nguyên nhân chính là **dữ liệu**: `QUANDAI-006-TRANG-M` khai 32×26×**0,5** cm và bật "đã gập đôi trong túi zip" nên engine không gập thêm (`units.ts`); rộng 26 cm > lòng BOX-M 25 cm (hụt 1 cm). Chạy bộ giải trong bộ nhớ: tắt cờ gập túi → BOX-M 35×25×10, lấp 28%; thử số đo giả định 25×24×4 → BOX-M cắt 11 cm, lấp 46%, quần ở đáy, kính nằm trên quần; thêm cỡ 33×28×12 → không đổi; thêm 36×36×10 → lấp 19%. Túi xách không được đặt lên quần do luật `mayRestOn` (chốt 16/11, `PACKAGING_STANDARD.md`). Khối xốp trông như lòi ngoài thùng trong ảnh nhiều khả năng do vách trong suốt (toạ độ nằm trong lòng thùng; chưa dựng lại để xác nhận). **Chờ Việt chốt** hướng làm.
+
+
+**26/11 (tiếp) — Việt: mục tiêu là nhân viên nhìn vào biết ngay đây là cách đóng tối ưu; yêu cầu nêu việc cần chỉnh (chưa code).** Đã đề xuất: (1) dữ liệu số đo + cảnh báo bất thường; (2) chọn thùng/sắp xếp: thêm cỡ thùng, xếp gọn thành một khối để chỗ trống liền nhau, xem lại hướng đặt và sàn cắt hạ 10 cm, luật hàng cứng trên quần (cần chốt); (3) khung 3D: vách trước mờ, góc nhìn từ trên, vật chèn nằm đúng chỗ trống, ghi kích thước và mức cắt hạ; (4) bảng giải thích cạnh 3D: thùng nhỏ hơn hụt bao nhiêu cm, mức lấp đầy tốt nhất đạt được, nhãn tối ưu nói đúng phạm vi (số kiện + giá thùng, không phải ít khoảng trống nhất). Lưu ý: với số đo hiện tại và luật hiện hành, thùng đo ni (34×35×10) cũng chỉ lấp 21%, nên mốc 80% không đạt được.
+
+**26/11 (tiếp) — Bảng thống nhất số đo:** đã lập (40 bản ghi đang bán, 3 đã đo) rồi xóa 2 file theo yêu cầu Việt; quy ước đo và thuộc tính đề xuất CHƯA chốt. **Đính chính mục 2 ở trên:** BE đã có cảnh báo độ dày quần áo theo GSM (`garment-thickness.ts`, lệch > 50%); quần dài ước tính 0,8 cm nên 0,5 cm không bị cảnh báo — công thức này là giả định chưa hiệu chỉnh.

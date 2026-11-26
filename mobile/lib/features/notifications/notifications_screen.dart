@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app/mock_providers.dart';
+import '../../app/providers.dart';
 import '../../shared/widgets.dart';
 import 'notifications_repository.dart';
 import '../../app/colors.dart';
@@ -139,6 +141,11 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 
   void _showDetail(BuildContext context, AppNotification n) {
+    final entityId = n.relatedEntityId ?? '';
+    final isGroup = n.relatedEntityType == 'order_group' && entityId.isNotEmpty;
+    // Chỉ người được lấy hàng mới mở được màn lấy hàng (giống khi bấm thông báo đẩy).
+    final canOpenGroup =
+        isGroup && (ref.read(authControllerProvider).user?.isWarehouse ?? false);
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -166,6 +173,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Đóng'),
           ),
+          if (canOpenGroup)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                context.push('/pick/$entityId');
+              },
+              child: const Text('Mở nhóm đơn'),
+            ),
         ],
       ),
     );

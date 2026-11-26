@@ -121,6 +121,10 @@ class ShipmentView {
     this.recipientAddress,
     this.codVnd = 0,
     this.nextAttemptAt,
+    this.shipperId,
+    this.shipperName,
+    this.tripCode,
+    this.overdueFlag = false,
   });
 
   final String id;
@@ -157,6 +161,20 @@ class ShipmentView {
   /// Còn phải chờ tới [nextAttemptAt] mới được giao lại (theo [now]).
   bool retryTooEarly(DateTime now) => nextAttemptAt != null && now.isBefore(nextAttemptAt!);
 
+  /// Người được giao. Khác người đang đăng nhập thì chỉ Admin được ghi nhận giao.
+  final String? shipperId;
+  final String? shipperName;
+  final String? tripCode;
+  final bool overdueFlag;
+
+  /// Giống `isShipmentDeliveryOverdue` của web, thêm cờ BE đã đánh dấu.
+  bool isOverdueAt(DateTime now) =>
+      !status.isFinal && (overdueFlag || (dueAt != null && dueAt!.isBefore(now)));
+
+  /// Người này có được ghi nhận giao / thất bại / giao lại không.
+  bool actionsAllowedFor(String? userId, {required bool isAdmin}) =>
+      isAdmin || shipperId == null || shipperId == userId;
+
   bool get canRetry => status == ShipmentStatus.deliveryFailed && attempt < maxDeliveryAttempts;
 
   ShipmentView copyWith({ShipmentStatus? status, int? attempt, FailureReason? failureReason}) => ShipmentView(
@@ -178,7 +196,48 @@ class ShipmentView {
         recipientAddress: recipientAddress,
         codVnd: codVnd,
         nextAttemptAt: nextAttemptAt,
+        shipperId: shipperId,
+        shipperName: shipperName,
+        tripCode: tripCode,
+        overdueFlag: overdueFlag,
       );
+}
+
+/// Địa chỉ người nhận gửi hãng (`to_location`). Ô trống thì không gửi.
+class ShipLocation {
+  const ShipLocation({this.street = '', this.wardName = '', this.provinceName = '', this.phone = ''});
+  final String street;
+  final String wardName;
+  final String provinceName;
+  final String phone;
+
+  Map<String, String> toBody() => {
+        if (street.trim().isNotEmpty) 'street': street.trim(),
+        if (wardName.trim().isNotEmpty) 'ward_name': wardName.trim(),
+        if (provinceName.trim().isNotEmpty) 'province_name': provinceName.trim(),
+        if (phone.trim().isNotEmpty) 'phone': phone.trim(),
+      };
+
+  bool get isEmpty => toBody().isEmpty;
+}
+
+/// Địa chỉ BE sẽ gửi hãng (`GET /shipping/recipients/:groupId`).
+class RecipientDraft {
+  const RecipientDraft({this.location = const ShipLocation(), this.isDemo = false, this.error});
+  final ShipLocation location;
+
+  /// Đơn bị che dữ liệu: BE dùng địa chỉ mô phỏng.
+  final bool isDemo;
+
+  /// BE chưa dựng được địa chỉ → người dùng nhập tay.
+  final String? error;
+}
+
+class ShipperOption {
+  const ShipperOption({required this.id, required this.name, this.phone});
+  final String id;
+  final String name;
+  final String? phone;
 }
 
 class ShippingException implements Exception {
@@ -191,8 +250,13 @@ class ShippingException implements Exception {
 
 abstract class ShippingRepository {
   Future<List<ShipGroup>> readyToShip();
-  Future<List<CarrierQuote>> quote(String groupId);
-  Future<ShipmentView> create(String groupId, String carrierCode);
+  Future<List<CarrierQuote>> quote(String groupId, {ShipLocation? location});
+  /// [carrierCode] = `HÃNG|DỊCH_VỤ`, [selfDeliveryQuoteCode] (giao của shop) hoặc rỗng (sàn tự lấy).
+  /// [shipperId] chỉ dùng cho đơn hỏa tốc; [location] chỉ gửi khi đi hãng.
+  Future<ShipmentView> create(String groupId, String carrierCode,
+      {String? note, ShipLocation? location, String? shipperId});
+  Future<RecipientDraft> recipient(String groupId);
+  Future<List<ShipperOption>> shippers();
   /// [mine] = chỉ vận đơn giao cho người đang đăng nhập.
   Future<List<ShipmentView>> shipments({bool mine = false});
   /// AOFP-315 — shop tự giao: `scannedCode` đọc từ QR/mã vạch nhãn kiện, hoặc `scanSkippedReason` khi tem hỏng.
@@ -285,7 +349,19 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<List<CarrierQuote>> quote(String groupId) async {
+  Future<RecipientDraft> recipient(String groupId) async {
+    await _latency();
+    return const RecipientDraft();
+  }
+
+  @override
+  Future<List<ShipperOption>> shippers() async {
+    await _latency();
+    return const [ShipperOption(id: 'u1', name: 'Shipper mẫu')];
+  }
+
+  @override
+  Future<List<CarrierQuote>> quote(String groupId, {ShipLocation? location}) async {
     await _latency();
     return const [
       CarrierQuote(code: 'GHN', name: 'GHN', service: 'Hàng nhẹ', feeVnd: 20900, eta: 'Giao trong ngày'),
@@ -295,7 +371,8 @@ class MockShippingRepository implements ShippingRepository {
   }
 
   @override
-  Future<ShipmentView> create(String groupId, String carrierCode) async {
+  Future<ShipmentView> create(String groupId, String carrierCode,
+      {String? note, ShipLocation? location, String? shipperId}) async {
     await _latency();
     final group = _ready.firstWhere(
       (g) => g.id == groupId,

@@ -856,6 +856,11 @@ html.dark .ship-bench-side {
   padding: 0.75rem;
 }
 
+html.dark .owner-stage .ship-bench-side .pack-bench-head {
+  border-bottom-color: var(--ls-card-border);
+  background: transparent;
+}
+
 .ship-bench-side .pack-bench-kicker {
   color: var(--ls-muted);
   letter-spacing: 0.08em;
