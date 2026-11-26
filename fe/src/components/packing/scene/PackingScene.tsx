@@ -380,6 +380,7 @@ function PlacedItem({
   area,
   floorY,
   pendingFolds,
+  totalFolds,
   bubble,
 }: {
   placement: PackingPlacement
@@ -394,6 +395,8 @@ function PlacedItem({
   floorY: number
   /** Số lần gập đôi (halfFold/zipFold) của món này còn ở SAU bước hiện tại. */
   pendingFolds: number
+  /** Tổng số lần gập đôi của món này trong cả kiện. */
+  totalFolds: number
   /** Món dễ vỡ: bọc xốp hơi. */
   bubble: boolean
 }): ReactNode {
@@ -447,6 +450,15 @@ function PlacedItem({
       s.position.set(ax === 0 ? c : 0, -h / 2 + thickPre / 2, ax === 2 ? c : 0)
       g.updateWorldMatrix(true, false)
       setBend(bend, { axis: ax === 0 ? 0 : 1, hingeA: c, hingeY: -h / 2 + thickPre, angle: Math.PI * e, item: g })
+    } else if (remain === 0 && totalFolds > 0) {
+      // AOFP-349: gập xong thì GIỮ dáng gập (lần gập cuối, góc 180°) khi đặt vào thùng — không bung lại thành áo nguyên chiếc.
+      const before = unfolded(size, 1)
+      const ax = before[0] !== 1 ? 0 : 2
+      const c = size[ax] / 2
+      s.scale.set(before[0], 1 / 2, before[2])
+      s.position.set(ax === 0 ? c : 0, -h / 4, ax === 2 ? c : 0)
+      g.updateWorldMatrix(true, false)
+      setBend(bend, { axis: ax === 0 ? 0 : 1, hingeA: c, hingeY: 0, angle: Math.PI, item: g })
     } else {
       s.scale.set(after[0], 1 / 2 ** remain, after[2])
       s.position.set(0, -(h / 2) * (1 - 1 / 2 ** remain), 0)
@@ -814,6 +826,7 @@ export function PackingScene({
               pendingFolds={steps.filter(
                 (step, j) => j > index && step.item === item && (step.kind === 'halfFold' || step.kind === 'zipFold'),
               ).length}
+              totalFolds={steps.filter((step) => step.item === item && (step.kind === 'halfFold' || step.kind === 'zipFold')).length}
               bubble={needsBubbleSleeve(profileFor(profiles, placement.sku), counts.has('bubble_wrap'))}
             />
           )

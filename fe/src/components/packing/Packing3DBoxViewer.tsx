@@ -31,7 +31,7 @@ import {
   type SceneMode,
 } from '../../utils/packing-layout'
 import { sharedOrderCodes } from '../../lib/parcel-order-display'
-import { bubbleWrapFor } from '../../utils/packing-materials'
+import { bubbleWrapFor, closeNote } from '../../utils/packing-materials'
 import { formatDimsMmAsCm } from '../../utils/units'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
@@ -278,7 +278,7 @@ function ParcelGuidePlayer({
                   : ''}
               </p>
             ) : current?.kind === 'close' ? (
-              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">{actionNote('close', vi)}</p>
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">{closeNote(parcel.materials, vi)}</p>
             ) : current?.kind === 'slip' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
                 {vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng' : 'Place each order\'s packing slip on the stack'}

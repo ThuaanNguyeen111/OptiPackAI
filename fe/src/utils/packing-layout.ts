@@ -159,8 +159,8 @@ export function actionNote(kind: PackStepKind, vi: boolean): string | null {
   switch (kind) {
     case 'close':
       return vi
-        ? 'Chèn vật tư vào khoảng trống, gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
-        : 'Fill gaps with materials, fold short flaps then long flaps, tape the box.'
+        ? 'Gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
+        : 'Fold short flaps then long flaps, tape the box.'
     case 'slip':
       return vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng.' : "Place each order's packing slip on the stack."
     case 'bagIn':
