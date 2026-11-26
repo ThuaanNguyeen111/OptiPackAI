@@ -1,0 +1,72 @@
+@startuml create_stock_receipt
+' Source: receipt-ocr.controller.ts (POST /receipt-ocr)
+'         warehouse.controller.ts (createReceipt)
+'         warehouse.service.ts (createReceipt, resolveReceiptLine, receiveIntoLot, saveReceipt, notifyStockIn)
+title Sequence Diagram - Create Stock Receipt
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Warehouse Staff" as Staff
+participant "Stock Receipt Screen" as UI
+participant "ReceiptOcrService" as Ocr
+participant "WarehouseController" as Ctrl
+participant "WarehouseService" as Svc
+participant "SkuBinAssignment" as Asg
+participant "StockLotLedger" as Lots
+participant "StockReceipt" as Receipt
+participant "OrderGroupsService" as Groups
+
+Staff -> UI : Upload supplier receipt photo
+activate UI
+UI -> Ocr : POST /receipt-ocr (photo)
+Ocr --> UI : ocrScanId, lines read from photo
+Staff -> UI : Enter lot code, received date, lines
+UI -> Ctrl : POST /warehouse/warehouses/{id}/receipts
+activate Ctrl
+Ctrl -> Svc : createReceipt(warehouseId, dto)
+activate Svc
+
+alt clientEventId already used
+  Svc -> Receipt : findOne(clientEventId)
+  Receipt --> Svc : existing receipt
+else new receipt
+  Svc -> Svc : requireReceiptPhotos()
+  Svc -> Ocr : checkPhotos(photoUrls)
+  Ocr --> Svc : reused / suspect
+  loop each line
+    Svc -> Asg : findOne(bin, sku)
+    Asg --> Svc : assignment
+  end
+  alt bin inactive or capacity exceeded (not forced)
+    Svc --> Ctrl : BIN_INACTIVE / BIN_OVER_CAPACITY
+    Ctrl --> UI : 409 Conflict
+    UI --> Staff : Reduce quantity or force
+  else lines valid
+    Svc -> Ocr : resolveChecks(ocrScanId, lines)
+    Ocr --> Svc : ocrStatus (matched / mismatch)
+    group transaction
+      loop each assignment
+        Svc -> Asg : $inc quantityOnHand
+        Svc -> Lots : add(lot, receivedAt, lotCode)
+        Svc -> Svc : recordMovement(receive)
+      end
+      Svc -> Ocr : markPhotosUsed(photoUrls)
+      Svc -> Receipt : create(receiptCode = PN-..., lines)
+    end
+    opt ocrStatus = mismatch or photo suspect
+      Svc -> Ocr : notify Admin
+    end
+  end
+end
+Svc --> Ctrl : receipt
+deactivate Svc
+Ctrl -) Groups : scheduleShortageRecheck()
+note right of Groups : background: reserve stock for\ngroups flagged stock_shortage
+Ctrl --> UI : 201 Created
+deactivate Ctrl
+UI --> Staff : Show receipt PN-...
+deactivate UI
+@enduml

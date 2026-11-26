@@ -1,0 +1,88 @@
+@startuml sync_consolidate_orders
+' Source: lazada-order-sync.scheduler.ts (autoSyncAllConnectedShops)
+'         orders.service.ts (syncShopOrders, runShopSync, ingestMappedOrder, tryConsolidate)
+'         order-groups.service.ts (getOrCreateGroupForOrder, startPickingPhase)
+title Sequence Diagram - Synchronize and Consolidate Orders
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+participant "LazadaOrderSyncScheduler" as Cron
+participant "OrdersService" as Orders
+participant "MarketplaceIntegrationService" as Integ
+participant "LazadaAdapter" as Adapter
+participant "Marketplace\n(Lazada / AURELLE)" as Mkt
+participant "Order" as Order
+participant "OrderGroupsService" as Groups
+participant "StaffAssignmentService" as Staff
+participant "StockReservationService" as Stock
+
+[-> Cron : every minute
+activate Cron
+Cron -> Integ : listConnectedShops(platform)
+Integ --> Cron : shops due for sync
+
+loop each due shop
+  Cron -> Orders : syncShopOrders(platform, shopId)
+  activate Orders
+  Orders -> Orders : acquireLock(shop)
+  opt another sync holds the lock
+    Orders --> Cron : queued (rerun after current sync)
+  end
+  Orders -> Integ : getValidAccessToken(shopId)
+  Integ --> Orders : accessToken
+  Orders -> Adapter : getOrders(updatedAfter = lastPolledAt)
+  Adapter -> Mkt : GET /orders/get
+  Mkt --> Adapter : orders
+  Adapter --> Orders : rawOrders
+
+  loop each raw order
+    Orders -> Adapter : getOrderItems(orderId)
+    Adapter --> Orders : items
+    Orders -> Orders : computeConsolidationKey(recipient)
+    Orders -> Order : findOneAndUpdate(upsert)
+    Order --> Orders : order
+    opt adapter supports acknowledge (AURELLE)
+      Orders -> Adapter : acknowledgeOrder(orderId)
+    end
+
+    Orders -> Orders : tryConsolidate(order)
+    Orders -> Order : find(same shop, same key, unfulfilled)
+    Order --> Orders : candidates
+    opt sibling found in an open group
+      Orders -> Order : update(consolidatedGroupId)
+    end
+
+    Orders -> Groups : getOrCreateGroupForOrder(order)
+    activate Groups
+    alt order joins an existing group
+      Groups -> Stock : reconcile(group, items)
+      opt recipient names differ
+        Groups -> Groups : warnIfRecipientNamesDiffer()
+      end
+    else new group
+      Groups -> Groups : create(status = awaiting_packaging)
+      Groups -> Staff : autoAssign(groupId)
+      Groups -> Stock : reconcile(group, items)
+      opt stock not enough
+        Groups -> Groups : flag stockShortage, notify Store Owner
+      end
+      Groups -> Groups : transition(status = picking)
+    end
+    Groups --> Orders : group
+    deactivate Groups
+
+    opt order canceled or no longer packable
+      Orders -> Groups : handleOrderBecameUnfulfillable(groupId)
+    end
+  end
+
+  Orders -> Integ : markShopPolled(shopId, polledAt, syncFailures)
+  Orders -> Orders : releaseLock(shop)
+  Orders --> Cron : fetched, upserted, newlyConsolidated
+  deactivate Orders
+end
+deactivate Cron
+@enduml

@@ -1,0 +1,56 @@
+@startuml cancel_order_aurelle
+' Source: storefront.controller.ts (POST /storefront/orders/{id}/cancel)
+'         storefront-orders.service.ts (cancel)
+'         aurelle-webhook.publisher.ts (notifyOrderChanged)
+title Sequence Diagram - Cancel Order (AURELLE Website)
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+actor "Customer" as Customer
+participant "My Orders Screen" as UI
+participant "StorefrontController" as Ctrl
+participant "StorefrontOrdersService" as Svc
+participant "StorefrontOrder" as Order
+participant "StorefrontInventoryStock" as Stock
+participant "StorefrontPayment" as Payment
+participant "StorefrontOrderEvent" as Event
+participant "AurelleWebhookPublisher" as Pub
+participant "OptiPack AI" as Opti
+
+Customer -> UI : Click Cancel order, enter reason
+activate UI
+UI -> Ctrl : POST /storefront/orders/{id}/cancel
+activate Ctrl
+Ctrl -> Svc : cancel(customerId, orderId, reason)
+activate Svc
+Svc -> Order : findOneAndUpdate(status = pending and\nawaiting_packaging -> cancelled)
+alt order not found
+  Svc --> Ctrl : ORDER_NOT_FOUND
+  Ctrl --> UI : 404 Not Found
+else order already being processed
+  Svc --> Ctrl : ORDER_NOT_CANCELLABLE
+  Ctrl --> UI : 409 Conflict
+  UI --> Customer : Suggest a return request after delivery
+else cancelled
+  Order --> Svc : cancelled order
+  loop each order item
+    Svc -> Stock : $inc reservedQuantity (- quantity)
+  end
+  Svc -> Payment : update(pending -> failed)
+  Svc -> Event : create(status = canceled, reason)
+  Svc -) Pub : notifyOrderChanged(publicOrderId, canceled)
+  activate Pub
+  Pub -) Opti : POST /marketplace/webhooks/aurelle
+  deactivate Pub
+  ref over Opti : Receive AURELLE webhook
+  Svc --> Ctrl : order
+  Ctrl --> UI : 200 OK
+  UI --> Customer : Show order as cancelled
+end
+deactivate Svc
+deactivate Ctrl
+deactivate UI
+@enduml
