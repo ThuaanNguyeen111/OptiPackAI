@@ -18,6 +18,7 @@ import {
   type Vec3,
   type WorkArea,
 } from '../../../utils/packing-layout'
+import { foldPoseAt, stagedSpread } from '../../../utils/fold-pose'
 import { MAILER_MODEL, boxModelFor, categoryColor, resolveItemModel, type ItemModel } from '../product-models'
 import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock, orientedFit } from './model-rigs'
 import { buildPrimitive, type PrimitiveSpec } from './primitives'
@@ -393,16 +394,6 @@ function ModelBody({
   )
 }
 
-/** Hệ số trải [x, _, z] sau khi mở k lần gập đôi: mỗi lần nhân đôi cạnh đang ngắn hơn. */
-function unfolded(size: Vec3, k: number): Vec3 {
-  const f: Vec3 = [1, 1, 1]
-  for (let i = 0; i < k; i++) {
-    if (size[0] * f[0] <= size[2] * f[2]) f[0] *= 2
-    else f[2] *= 2
-  }
-  return f
-}
-
 function PlacedItem({
   placement,
   profile,
@@ -413,7 +404,8 @@ function PlacedItem({
   tint,
   area,
   floorY,
-  pendingFolds,
+  steps,
+  item,
   bubble,
 }: {
   placement: PackingPlacement
@@ -426,8 +418,9 @@ function PlacedItem({
   tint?: string
   area: WorkArea
   floorY: number
-  /** Số lần gập đôi (halfFold/zipFold) của món này còn ở SAU bước hiện tại. */
-  pendingFolds: number
+  /** Mọi bước của kiện + vị trí món — dáng gập tính bằng foldPoseAt (utils/fold-pose). */
+  steps: PackStep[]
+  item: number
   /** Món dễ vỡ: bọc xốp hơi. */
   bubble: boolean
 }): ReactNode {
@@ -461,36 +454,21 @@ function PlacedItem({
     } else {
       g.position.set(staged[0], staged[1], staged[2])
     }
-    // Khối đo là món SAU mọi lần gập đôi. Trước đó món còn "trải" k lần (k = số lần gập còn lại):
-    // mỗi lần trải nhân đôi cạnh ngắn hơn (gập thật xen kẽ hai chiều), mỏng đi một nửa, đáy luôn sát sàn.
-    // Nhờ vậy túi zip ôm đúng gói chưa gập, và tới bước gập không có cú "kéo giãn".
-    const h = size[1]
-    const foldNow = role === 'staged' && (kind === 'halfFold' || kind === 'zipFold')
-    const remain = role === 'staged' ? pendingFolds : 0
-    const after = unfolded(size, remain)
-    if (foldNow && kind) {
-      // Gập thật: cả gói trải dài nằm trên sàn, nửa phía + uốn quanh bản lề lật 180° đè lên nửa kia.
-      const before = unfolded(size, remain + 1)
-      const ax = before[0] !== after[0] ? 0 : 2
-      const e = easeInOut(elapsed / STEP_SECONDS[kind])
-      const half = size[ax] * after[ax]
-      const thickPre = h / 2 ** (remain + 1)
-      // Bản lề ở giữa gói; gói trượt dần để gập xong nằm đúng tâm khu chuẩn bị.
-      const c = (half / 2) * e
-      s.scale.set(before[0], 1 / 2 ** (remain + 1), before[2])
-      s.position.set(ax === 0 ? c : 0, -h / 2 + thickPre / 2, ax === 2 ? c : 0)
-      g.updateWorldMatrix(true, false)
-      setBend(bend, { axis: ax === 0 ? 0 : 1, hingeA: c, hingeY: -h / 2 + thickPre, angle: Math.PI * e, item: g })
-    } else {
-      s.scale.set(after[0], 1 / 2 ** remain, after[2])
-      s.position.set(0, -(h / 2) * (1 - 1 / 2 ** remain), 0)
-      setBend(bend, null)
-    }
+    const kind0 = steps[index]?.kind
+    const e = kind0 ? easeInOut(elapsed / STEP_SECONDS[kind0]) : 1
+    const pose = foldPoseAt(steps, index, item, size, e)
+    s.scale.set(...pose.scale)
+    s.position.set(...pose.position)
+    if (pose.bend) g.updateWorldMatrix(true, false)
+    setBend(bend, pose.bend ? { ...pose.bend, item: g } : null)
   })
 
   const model = resolveItemModel(profile)
   const color = tint ?? categoryColor(profile?.productCategory)
   const initial = role === 'placed' ? center : staged
+  // AOFP-350: ModelBody nằm TRONG khối đã trải (pose.scale) — khu chuẩn bị nó thấy phải chia cho hệ số trải,
+  // nếu không áo/quần trải phẳng ở bước gấp to gấp 2–4 lần, tràn khỏi tấm thảm.
+  const localArea = area.size / stagedSpread(foldPoseAt(steps, index, item, size, 0))
 
   return (
     <group ref={motionRef} position={initial} visible={role !== 'hidden'}>
@@ -508,7 +486,7 @@ function PlacedItem({
                 role={role}
                 kind={kind}
                 index={index}
-                areaSize={area.size}
+                areaSize={localArea}
                 bend={bend}
               />
             </Suspense>
@@ -848,9 +826,8 @@ export function PackingScene({
               tint={tintOf?.(placement)}
               area={area}
               floorY={floorY}
-              pendingFolds={steps.filter(
-                (step, j) => j > index && step.item === item && (step.kind === 'halfFold' || step.kind === 'zipFold'),
-              ).length}
+              steps={steps}
+              item={item}
               bubble={needsBubbleSleeve(profileFor(profiles, placement.sku), counts.has('bubble_wrap'))}
             />
           )

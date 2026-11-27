@@ -1,4 +1,4 @@
-import { orientedDims } from './units';
+import { foldFields, orientedDims } from './units';
 import type { MailerSpec, Orientation, PackingUnit, Placement } from './types';
 
 /**
@@ -120,6 +120,7 @@ export function stackPlacements(stack: MailerStack): Placement[] {
       dy: f.dy,
       dz: f.dz,
       orientation: f.orientation,
+      ...foldFields(f.unit),
       folded: f.unit.folded === true,
     };
     z += f.dz;

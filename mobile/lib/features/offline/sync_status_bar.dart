@@ -39,9 +39,8 @@ class SyncStatusBar extends ConsumerWidget {
       color = AppColors.stagePick;
       icon = Icons.sync;
     } else {
-      text = 'Đã đồng bộ';
-      color = AppColors.good;
-      icon = Icons.check_circle_outline;
+      // Mọi thứ đã gửi xong: không chiếm chỗ trên màn.
+      return const SizedBox.shrink();
     }
 
     final bar = Container(

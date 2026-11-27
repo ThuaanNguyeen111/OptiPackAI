@@ -147,7 +147,7 @@ class ApiReturnsRepository implements ReturnsRepository {
     }
     final material = packaging?.materialCode.trim() ?? '';
     if (packaging != null && material.isEmpty) {
-      throw const ReturnsException('Nhập mã thùng thu hồi (VD BOX-M).', code: 'RMA_PACKAGING_CODE_REQUIRED');
+      throw const ReturnsException('Nhập mã thùng thu hồi (VD CTN-001).', code: 'RMA_PACKAGING_CODE_REQUIRED');
     }
     await _action(id, 'inspect', {
       'lines': body,

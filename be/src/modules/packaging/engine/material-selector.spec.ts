@@ -82,11 +82,15 @@ function qty(
   units: PackingUnit[],
   fill: number,
   p: MaterialPlanning = planning,
+  innerVolumeMm3 = 0,
 ): Record<string, number> {
   return Object.fromEntries(
-    selectMaterials(units, fill, p).map((l) => [l.code, l.quantity]),
+    selectMaterials(units, fill, p, innerVolumeMm3).map((l) => [l.code, l.quantity]),
   );
 }
+
+/** Lòng thùng 40×30×25 cm = 30 L. */
+const BOX_30L = 400 * 300 * 250;
 
 describe('selectMaterials (28/09/2026)', () => {
   it('1 hộp giày: 4 góc xốp + tem cảnh báo, không có tấm ngăn', () => {
@@ -113,11 +117,31 @@ describe('selectMaterials (28/09/2026)', () => {
     expect(qty([shirt(1), shirt(2)], 0.8)).toEqual({});
   });
 
-  it('thùng trống nhiều (danh mục chưa có giấy): gối hơi chỉ còn dự phòng khi trống ≥ 70% (AOFP-224)', () => {
-    const shirts = [shirt(1)];
-    expect(qty(shirts, 0.6)).toEqual({}); // trống 40%
-    expect(qty(shirts, 0.45)).toEqual({}); // trống 55% — giấy kraft lo, danh mục không có giấy
-    expect(qty(shirts, 0.2)).toEqual({ PILLOW: 2 }); // trống 80% ≥ 70%
+  describe('gối hơi lấp đến độ kín 90% ở kiện có hàng dễ vỡ (AOFP-344, AOFP-345)', () => {
+    const glass = unit('KINH#1', { product_category: 'accessory', is_fragile: true, height_mm: 60, weight_g: 150 });
+    const shirts = [shirt(1), glass];
+
+    it('kiện không có hàng dễ vỡ → không chèn gối', () => {
+      expect(qty([shirt(1)], 0.2, planning, BOX_30L)).toEqual({});
+    });
+
+    it('số gối = phần còn thiếu tới 90% lòng thùng ÷ 800 ml, làm tròn lên', () => {
+      expect(qty(shirts, 0.6, planning, BOX_30L)).toMatchObject({ PILLOW: 12 }); // thiếu 9 L → 11,25
+      expect(qty(shirts, 0.2, planning, BOX_30L)).toMatchObject({ PILLOW: 27 }); // thiếu 21 L → 26,25
+    });
+
+    it('hàng đã kín ≥ 90% → không chèn', () => {
+      expect(qty(shirts, 0.9, planning, BOX_30L).PILLOW).toBeUndefined();
+      expect(qty(shirts, 0.95, planning, BOX_30L).PILLOW).toBeUndefined();
+    });
+
+    it('thiếu đúng bằng 1 gối thì chỉ 1 gối (không làm tròn lên do sai số)', () => {
+      expect(qty(shirts, 0.8, planning, 8_000_000)).toMatchObject({ PILLOW: 1 }); // thiếu 0,8 L
+    });
+
+    it('không biết lòng thùng (túi niêm phong) → không chèn gối', () => {
+      expect(qty(shirts, 0.2, planning).PILLOW).toBeUndefined();
+    });
   });
 
   describe('giấy kraft / giấy pelure (AOFP-224, PACKAGING_STANDARD §7)', () => {
@@ -132,10 +156,8 @@ describe('selectMaterials (28/09/2026)', () => {
     const dress = unit('DAM#1', { product_category: 'dress', height_mm: 30, weight_g: 300 });
     const bag = unit('TUI#1', { product_category: 'bag', weight_g: 600 });
 
-    it('giấy kraft lấp trống theo dải, trước gối hơi', () => {
-      expect(qty([shirt(1)], 0.65, paper)).toEqual({ KRAFT: 1 }); // trống 35%
-      expect(qty([shirt(1)], 0.45, paper)).toEqual({ KRAFT: 2 }); // trống 55%
-      expect(qty([shirt(1)], 0.2, paper)).toEqual({ KRAFT: 3, PILLOW: 2 }); // trống 80%
+    it('giấy kraft không lấp trống nữa (AOFP-344)', () => {
+      expect(qty([shirt(1)], 0.6, paper, BOX_30L).KRAFT).toBeUndefined();
     });
 
     it('đầm được lót giấy pelure; túi xách thêm giấy kraft nhồi giữ form', () => {
@@ -221,10 +243,9 @@ describe('packOrder + vật tư (28/09/2026)', () => {
     const result = packOrder([shoe(1)], [box], { materials: planning });
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
-    // Hộp giày lấp 20% thùng (trống 80%): 4 góc xốp (20 g, 1200đ) + 2 gối hơi dự phòng
-    // (6 g, 800đ — AOFP-224: danh mục test chưa có giấy kraft) + 1 tem (1 g, 200đ) = 27 g, 2200đ.
-    expect(result.materials_weight_g).toBe(27);
-    expect(result.materials_cost_vnd).toBe(2200);
-    expect(result.estimated_package_weight_g).toBe(500 + 200 + 27);
+    // Hộp giày không dễ vỡ nên không chèn gối (AOFP-345): 4 góc xốp (20 g, 1200đ) + 1 tem (1 g, 200đ).
+    expect(result.materials_weight_g).toBe(21);
+    expect(result.materials_cost_vnd).toBe(1400);
+    expect(result.estimated_package_weight_g).toBe(500 + 200 + 21);
   });
 });

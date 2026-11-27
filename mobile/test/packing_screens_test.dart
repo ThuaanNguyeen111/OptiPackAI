@@ -134,6 +134,18 @@ class _FakeApi implements ApiClient {
         'summaries': [
           {'orderGroupId': _gid, 'parcels': 1},
         ],
+        'groups': [
+          {
+            'orderGroupId': _gid,
+            'orderNumbers': ['531054699770722'],
+            'recipientName': 'Nguyễn Thị Phương Anh',
+            'units': 3,
+            'skus': [
+              {'sku': 'TUIXACH-009-XANHDUONG-18', 'quantity': 2},
+              {'sku': 'MATKINH-010-DEN-48', 'quantity': 1},
+            ],
+          },
+        ],
       };
     }
     if (path.endsWith('/box-sources')) {
@@ -228,15 +240,19 @@ void main() {
       await _pump(tester, const PackingQueueScreen(), api);
 
       for (final label in [
-        'Đã lấy hàng · 0',
-        'Chờ chấp nhận kế hoạch · 1',
-        'Kẹt — SKU chưa đo · 0',
+        'Đã lấy · 0',
+        'Chờ duyệt · 1',
+        'Kẹt SKU · 0',
         'Thiếu hàng · 0',
-        'Đang đóng gói · 0',
+        'Đang đóng · 0',
         'Kho đang lấy · 0',
       ]) {
-        expect(find.text(label, skipOffstage: false), findsOneWidget, reason: label);
+        // Không skipOffstage: cả 6 tab phải thấy được ngay, không phải cuộn ngang.
+        expect(find.text(label), findsOneWidget, reason: label);
+        expect(tester.getRect(find.text(label)).right, lessThanOrEqualTo(720), reason: label);
       }
+      expect(find.text('Nguyễn Thị Phương Anh · Đơn 531054699770722'), findsOneWidget);
+      expect(find.text('3 món: TUIXACH-009-XANHDUONG-18 ×2 +1 loại'), findsOneWidget);
       expect(find.text('11112222'), findsOneWidget);
       expect(find.text('Tôi (bạn)'), findsOneWidget);
       expect(find.text('1 đơn · 1 kiện'), findsOneWidget);
@@ -252,6 +268,14 @@ void main() {
     testWidgets('tìm mã không có ở đây thì hỏi BE', (tester) async {
       final api = _FakeApi(group: _group('pending_approval'));
       await _pump(tester, const PackingQueueScreen(), api);
+
+      // Tìm theo tên người nhận trên thẻ thì lọc tại chỗ, không hỏi BE.
+      api.listQueries.clear();
+      await tester.enterText(find.byType(TextField), 'phương anh');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(api.listQueries, isEmpty);
+      expect(find.text('11112222'), findsOneWidget);
 
       await tester.enterText(find.byType(TextField), 'LZ-9999');
       await tester.pump(const Duration(milliseconds: 500));
@@ -274,6 +298,11 @@ void main() {
       await _pump(tester, const PackingGroupScreen(groupId: _gid), api);
 
       expect(find.text('Giao cho tôi'), findsOneWidget);
+      // Thùng cần lấy nằm trên danh sách hàng và thấy ngay khi mở.
+      final box = find.text('#1 Thùng carton cỡ vừa (BOX-M)');
+      expect(box, findsOneWidget);
+      expect(tester.getTopLeft(box).dy, lessThan(tester.getTopLeft(find.text('Hàng cần đóng (2)')).dy));
+      expect(find.text('Vật tư: Gối hơi ×2'), findsOneWidget);
       for (final text in [
         'Hàng cần đóng (2)',
         'Kế hoạch đóng gói',
@@ -510,6 +539,11 @@ void main() {
       expect(manualDraftProblem(units, draft.parcels, draft.assign, 'x'), contains('lý do'));
       draft.assign.remove('AO-001#2');
       expect(manualDraftProblem(units, draft.parcels, draft.assign, 'quá chật'), contains('Còn 1 món'));
+    });
+
+    test('chữ hướng dẫn bỏ mã lặp trong ngoặc, giữ khi mã chưa đứng trước', () {
+      expect(cleanGuideText('Lấy túi TUI-009-18 (TUI-009-18#1), đặt đáy.'), 'Lấy túi TUI-009-18, đặt đáy.');
+      expect(cleanGuideText('Đặt món (TUI-009-18#2) lên trên.'), 'Đặt món (TUI-009-18#2) lên trên.');
     });
 
     test('đã quét hoặc đã niêm phong thì không đóng nhanh', () {

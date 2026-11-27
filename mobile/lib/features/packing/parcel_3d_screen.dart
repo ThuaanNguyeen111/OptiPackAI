@@ -63,7 +63,7 @@ class ParcelLayoutCard extends StatelessWidget {
           child: OutlinedButton.icon(
             onPressed: () => openParcelWeb(context, groupId, parcelNo, EmbedView.guide),
             icon: const Icon(Icons.menu_book_outlined),
-            label: const Text('Hướng dẫn'),
+            label: const Text('Từng thao tác'),
           ),
         ),
       ],
@@ -161,7 +161,7 @@ class _ParcelWebScreenState extends ConsumerState<ParcelWebScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.view == EmbedView.guide
-            ? 'Kiện ${widget.parcelNo} · Hướng dẫn'
+            ? 'Kiện ${widget.parcelNo} · Từng thao tác'
             : 'Kiện ${widget.parcelNo} · 3D'),
         actions: [
           // Chuyển qua lại giữa khung 3D và hướng dẫn của cùng kiện.

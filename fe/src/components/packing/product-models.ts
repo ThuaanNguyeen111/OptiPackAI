@@ -7,15 +7,15 @@
  * hat.glb, glasses.glb) ở đây.
  */
 
-/** Thùng mẫu seed (`BOX-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
 import type { PackingItemProfile } from '../../types/packing-plan'
 import type { PrimitiveSpec } from './scene/primitives'
 
+/** Thùng seed (`CTN-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
 export const BOX_MODELS: Record<string, string> = {
-  'BOX-S': '/models/sampleS.glb',
-  'BOX-M': '/models/sampleM.glb',
-  'BOX-L': '/models/sampleL.glb',
-  'BOX-LT': '/models/sampleLT.glb',
+  'CTN-003': '/models/sampleS.glb', // AOFP-346: mã cũ BOX-S
+  'CTN-009': '/models/sampleM.glb', // BOX-M
+  'CTN-011': '/models/sampleL.glb', // BOX-L
+  'CTN-010': '/models/sampleLT.glb', // BOX-LT
 }
 
 /**

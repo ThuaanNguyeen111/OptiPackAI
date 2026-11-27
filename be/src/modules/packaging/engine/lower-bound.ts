@@ -1,4 +1,4 @@
-import { foldUnit, orientedDims } from './units';
+import { foldShapes, orientedDims } from './units';
 import type { BoxSpec, PackingUnit } from './types';
 
 /**
@@ -19,9 +19,7 @@ import type { BoxSpec, PackingUnit } from './types';
 
 /** Diện tích đáy nhỏ nhất món có thể chiếm (xét mọi hướng được phép, và dạng gập nếu gập được). */
 function minFootprint(unit: PackingUnit): number {
-  const variants = [unit];
-  if (unit.foldable === true && unit.folded !== true)
-    variants.push(foldUnit(unit));
+  const variants = [unit, ...foldShapes(unit)];
   let best = Number.POSITIVE_INFINITY;
   for (const v of variants) {
     for (const o of v.orientations) {

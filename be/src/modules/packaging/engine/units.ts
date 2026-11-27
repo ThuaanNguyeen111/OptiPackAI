@@ -69,18 +69,6 @@ export function minSupportPct(unit: Pick<PackingUnit, 'product_category'>): numb
 }
 
 /**
- * (16/11/2026, user chốt) Hàng cứng không được nằm trên quần áo (áo nhăn, hộp
- * nghiêng); riêng hàng dễ vỡ được nằm trên quần áo vì vải là lớp đệm.
- */
-export function mayRestOn(
-  top: Pick<PackingUnit, 'product_category' | 'is_fragile'>,
-  below: Pick<PackingUnit, 'product_category'>,
-): boolean {
-  const isSoft = (u: Pick<PackingUnit, 'product_category'>): boolean => FLAT_CATEGORIES.has(u.product_category ?? '');
-  return isSoft(top) || top.is_fragile || !isSoft(below);
-}
-
-/**
  * (22/09/2026) Gập đôi 1 món mềm: chia đôi (làm tròn lên) cạnh lớn hơn trong
  * dài/rộng, gấp đôi độ dày, cân giữ nguyên. Số đo do hệ thống tự tính (user
  * chốt), chỉ dùng khi nhờ gập mới vừa thùng nhỏ hơn.
@@ -96,7 +84,53 @@ export function foldUnit(unit: PackingUnit): PackingUnit {
     height_mm: unit.height_mm * 2,
     ...(FLAT_CATEGORIES.has(unit.product_category ?? '') && { orientations: ALL_ORIENTATIONS }),
     folded: true,
+    fold_count: foldCount(unit) + 1,
   };
+}
+
+/**
+ * (AOFP-345, 26/11/2026, user chốt) Quần áo được gập tư (gập đôi lần nữa) để nhét
+ * vào khe trống cạnh hàng cứng — đo được tổ hợp có thể đạt ≥ 70% lấp đầy tăng
+ * 577 → 768/915. Tối đa 2 lần gập.
+ */
+export const MAX_FOLDS = 2;
+
+export const foldCount = (u: Pick<PackingUnit, 'folded' | 'fold_count'>): number =>
+  u.fold_count ?? (u.folded === true ? 1 : 0);
+
+/** Các dạng gập còn được phép của món, từ ít gập tới nhiều gập (rỗng = không gập được nữa). */
+export function foldShapes(unit: PackingUnit): PackingUnit[] {
+  if (unit.foldable !== true) return [];
+  const out: PackingUnit[] = [];
+  let cur = unit;
+  while (foldCount(cur) < MAX_FOLDS) {
+    cur = foldUnit(cur);
+    out.push(cur);
+  }
+  return out;
+}
+
+/** Trường gập ghi vào placement: không gập → {}; gập đôi → folded; gập tư → thêm fold_count. */
+export function foldFields(u: Pick<PackingUnit, 'folded' | 'fold_count'>): { folded?: true; fold_count?: number } {
+  const n = foldCount(u);
+  if (n === 0) return {};
+  return n > 1 ? { folded: true, fold_count: n } : { folded: true };
+}
+
+/** Dạng gập của món khớp ô (dx, dy, dz) — CP-SAT chỉ trả cờ folded nên suy số lần gập từ kích thước. */
+export function foldedShapeFor(unit: PackingUnit, dims: [number, number, number]): PackingUnit {
+  const key = [...dims].sort((a, b) => a - b).join('x');
+  const matches = (s: PackingUnit): boolean =>
+    [s.length_mm, s.width_mm, s.height_mm].sort((a, b) => a - b).join('x') === key;
+  const shapes = foldShapes(unit);
+  return shapes.find(matches) ?? shapes[0] ?? unit;
+}
+
+/** Dựng lại món đã gập `count` lần từ món gốc (dùng khi đọc kế hoạch / kết quả CP-SAT). */
+export function foldTimes(unit: PackingUnit, count: number): PackingUnit {
+  let cur = unit;
+  for (let i = foldCount(cur); i < count; i += 1) cur = foldUnit(cur);
+  return cur;
 }
 
 /**

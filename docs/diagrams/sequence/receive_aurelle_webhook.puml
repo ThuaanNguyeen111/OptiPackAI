@@ -1,0 +1,62 @@
+@startuml receive_aurelle_webhook
+' Source: marketplace-webhooks.controller.ts (handle)
+'         marketplace-webhooks.service.ts (handleWebhook, dispatch, handleOrderChanged, handleAuthorizationRevoked)
+title Sequence Diagram - Receive AURELLE Webhook
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam sequenceMessageAlign center
+autonumber "0:"
+
+participant "AURELLE Website" as Aurelle
+participant "MarketplaceWebhooksController" as Ctrl
+participant "MarketplaceWebhooksService" as Svc
+participant "AurelleAdapter" as Adapter
+participant "ProcessedWebhookEvent" as Event
+participant "MarketplaceIntegrationService" as Integ
+participant "OrdersService" as Orders
+participant "NotificationsService" as Notify
+
+Aurelle -> Ctrl : POST /marketplace/webhooks/aurelle (signature, payload)
+activate Ctrl
+Ctrl -> Svc : handleWebhook(platform, rawBody, signature, payload)
+activate Svc
+Svc -> Adapter : verifyWebhookSignature(rawBody, signature)
+Adapter --> Svc : isValid
+
+alt signature invalid or timestamp off by more than 5 minutes
+  Svc --> Ctrl : WEBHOOK_SIGNATURE_INVALID
+  Ctrl --> Aurelle : 401 Unauthorized
+else request trusted
+  Svc -> Event : create(platform, messageId)
+  alt messageId already processed
+    Event --> Svc : duplicate key
+    Svc --> Ctrl : received
+    Ctrl --> Aurelle : 200 OK
+  else new event
+    Svc -> Svc : dispatch(messageType)
+    alt order_status_changed / order_updated
+      Svc -> Integ : getConnectedShop(sellerId)
+      Integ --> Svc : shop
+      Svc -> Orders : syncSingleOrder(platform, shopId, orderId)
+      activate Orders
+      ref over Orders : Synchronize and consolidate orders
+      Orders --> Svc : syncResult
+      deactivate Orders
+    else authorization_revoked
+      Svc -> Notify : notify(Store Owner, Admin, CONNECTION_LOST)
+    end
+    alt processing failed
+      Svc -> Event : deleteOne(messageId)
+      note right of Event : so the retry from AURELLE is processed again
+      Svc --> Ctrl : error
+      Ctrl --> Aurelle : 5xx (AURELLE retries)
+    else processed
+      Svc --> Ctrl : received
+      Ctrl --> Aurelle : 200 OK
+    end
+  end
+end
+deactivate Svc
+deactivate Ctrl
+@enduml

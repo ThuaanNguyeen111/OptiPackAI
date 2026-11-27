@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { PackingGuide, PackingItemProfile, PackingPlanParcel } from '../../types/packing-plan'
 import { actionNote, packStepsForParcel, stepLabel } from '../../utils/packing-layout'
-import { bubbleWrapFor } from '../../utils/packing-materials'
+import { bubbleWrapFor, closeNote } from '../../utils/packing-materials'
 
 /** Mã món trong lời hướng dẫn (vd DEMO3D-QUAN-DAI#1) — tách ra để in đậm, dễ dò khi cầm hàng. */
 const CODE = /([A-Z0-9]+(?:-[A-Z0-9]+)+(?:#\d+)?)/g
@@ -66,7 +66,7 @@ export function GuideSteps({
         return {
           key: `${step.kind}-${String(i)}`,
           title: stepLabel(step.kind, vi, pack.mailer),
-          body: step.kind === 'prepare' ? (guide?.summary ?? null) : firstOfItem ? (text?.instruction ?? null) : actionNote(step.kind, vi),
+          body: step.kind === 'prepare' ? (guide?.summary ?? null) : firstOfItem ? (text?.instruction ?? null) : step.kind === 'close' ? closeNote(parcel?.materials, vi) : actionNote(step.kind, vi),
           tip: firstOfItem ? (text?.tip || null) : null,
           sku: placement && !firstOfItem ? placement.sku : null,
         }

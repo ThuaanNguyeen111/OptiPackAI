@@ -8,7 +8,7 @@ import {
   packOrder,
   sortBoxesByPreference,
 } from './greedy-packer';
-import { foldUnit } from './units';
+import { foldShapes } from './units';
 import { lowerBoundCartons } from './lower-bound';
 import { consolidateCartons } from './improve';
 import {
@@ -131,9 +131,8 @@ function fillCarton(
     let used: PackingUnit | null = null;
     if (packer.tryPlace(unit)) {
       used = unit;
-    } else if (unit.foldable === true && unit.folded !== true) {
-      const folded = foldUnit(unit);
-      if (packer.tryPlace(folded)) used = folded;
+    } else {
+      used = foldShapes(unit).find((s) => packer.tryPlace(s)) ?? null;
     }
     if (used) {
       keys.add(unit.item_key);

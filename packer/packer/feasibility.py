@@ -45,11 +45,6 @@ def _bears(unit: UnitIn) -> bool:
     return not unit.fragile and unit.max_stack_load_g is not None
 
 
-def _rigid_on_garment(top: UnitIn, below: UnitIn) -> bool:
-    """TS mayRestOn(): garments are the only units sent with min_support_pct < 100."""
-    return top.min_support_pct == 100 and not top.fragile and below.min_support_pct < 100
-
-
 def solve_combo(
     units: list[UnitIn],
     boxes: list[BoxIn],
@@ -232,11 +227,11 @@ def solve_combo(
 
         m.add_bool_or(options)
 
-    # Nothing may touch the top face of a unit that bears nothing, and a rigid non-fragile
-    # unit may not touch the top of a garment (validator rules).
+    # Nothing may touch the top face of a unit that bears nothing (validator rule).
+    # AOFP-345: rigid units may rest on garments.
     for j in range(n):
         for i in range(n):
-            if i == j or (bearing[j] and not _rigid_on_garment(units[i], units[j])):
+            if i == j or bearing[j]:
                 continue
             touch = m.new_bool_var(f"touch_{i}_{j}")
             m.add(z[i] == z[j] + dz[j]).only_enforce_if(touch)

@@ -105,7 +105,7 @@ class PackagingCheck {
   const PackagingCheck({required this.grade, required this.oldLabelRemoved, this.materialCode = ''});
   final PackagingGrade grade;
 
-  /// Mã thùng / vật tư thu hồi (VD `BOX-M`), BE bắt buộc.
+  /// Mã thùng / vật tư thu hồi (VD `CTN-001`), BE bắt buộc.
   final String materialCode;
 
   /// Bắt buộc `true` khi hạng A: nhãn cũ có tên/SĐT khách (dữ liệu cá nhân).

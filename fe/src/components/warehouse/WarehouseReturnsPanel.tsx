@@ -545,7 +545,7 @@ function InspectForm({
           <input
             value={materialCode}
             onChange={(event) => setMaterialCode(event.target.value.toUpperCase())}
-            placeholder="BOX-M"
+            placeholder="CTN-009"
             className="h-8 w-24 rounded-lg border border-slate-200 px-2 font-mono dark:border-slate-700 dark:bg-surface-2"
           />
           <input

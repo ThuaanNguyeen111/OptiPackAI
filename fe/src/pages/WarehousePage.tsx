@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { WarehouseReturnsPanel } from '../components/warehouse/WarehouseReturnsPanel'
+import { ReportMissingDialog, type MissingCandidate } from '../components/warehouse/ReportMissingDialog'
 import { listQuarantine, listReturns } from '../api/returns.api'
 import {
   Dialog,
@@ -629,9 +630,9 @@ export function WarehousePage() {
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => setVisibleInterval(() => setNowMs(Date.now()), 30_000), [])
 
-  const [missingOpen, setMissingOpen] = useState(false)
-  const [missingQty, setMissingQty] = useState(1)
-  const [missingNote, setMissingNote] = useState('')
+  /** Khoá dòng được chọn sẵn khi mở hộp báo thiếu; null = đang đóng. */
+  const [missingKey, setMissingKey] = useState<string | null>(null)
+  const [missingError, setMissingError] = useState<string | null>(null)
 
   const [completeOpen, setCompleteOpen] = useState(false)
   const [returnOpen, setReturnOpen] = useState(false)
@@ -1092,6 +1093,33 @@ export function WarehousePage() {
       !busy,
   )
 
+  // BE chỉ nhận báo thiếu cho SKU còn phải lấy (AOFP-329), số thiếu ≤ số còn cần.
+  const missingCandidates: MissingCandidate[] = lines
+    .filter(
+      (line) =>
+        line.qtyPicked < line.quantity &&
+        isWarehousePickableStatus(
+          pickGroups.find((row) => row.id === line.group_id)?.fulfillmentStatus ?? '',
+        ),
+    )
+    .map((line) => ({
+      key: line.key,
+      groupId: line.group_id,
+      groupLabel: combinedMode ? line.group_id.slice(-8) : undefined,
+      sku: line.sku,
+      binCode: isBinAssigned(line.bin_code) ? line.bin_code : null,
+      ordered: line.quantity,
+      picked: line.qtyPicked,
+    }))
+
+  function openMissing(preferredKey?: string) {
+    const hit =
+      missingCandidates.find((row) => row.key === preferredKey) ?? missingCandidates[0]
+    if (!hit) return
+    setMissingError(null)
+    setMissingKey(hit.key)
+  }
+
   const pickedCount = lines.filter((line) => line.qtyPicked >= line.quantity).length
   const totalUnits = lines.reduce((sum, line) => sum + line.quantity, 0)
   const pickedUnits = lines.reduce((sum, line) => sum + line.qtyPicked, 0)
@@ -1306,8 +1334,7 @@ export function WarehousePage() {
             ? 'Không đủ tồn kho. Dùng «Báo thiếu hàng» để dừng đơn và báo chủ shop.'
             : 'Insufficient stock. Use Report missing to stop this group.',
         )
-        setMissingQty(Math.max(1, remainingForActive))
-        setMissingOpen(true)
+        openMissing(activeLine.key)
       } else if (code === 'ORD_GROUP_ITEM_NOT_IN_GROUP') {
         setActionError(
           vi
@@ -1359,18 +1386,23 @@ export function WarehousePage() {
     }
   }
 
-  async function handleReportMissing() {
-    if (!activeLine || !warehouseId) return
-    const target = pickGroups.find((row) => row.id === activeLine.group_id) ?? group
+  async function handleReportMissing(
+    candidate: MissingCandidate,
+    quantity: number,
+    note: string,
+  ) {
+    if (!warehouseId) return
+    const target = pickGroups.find((row) => row.id === candidate.groupId) ?? group
     if (!target) return
     setBusy(true)
     setActionError(null)
+    setMissingError(null)
     try {
       const latest = await reportMissingOrderGroupItem(target.id, {
-        sku: activeLine.sku,
-        missing_quantity: missingQty,
+        sku: candidate.sku,
+        missing_quantity: quantity,
         warehouse_id: warehouseId,
-        note: missingNote.trim() || undefined,
+        note: note.trim() || undefined,
         expected_version: target.version,
       })
       setGroup((current) => (current?.id === latest.id ? latest : current))
@@ -1378,8 +1410,7 @@ export function WarehousePage() {
       setCombinedGroups((prev) =>
         prev.map((row) => (row.id === latest.id ? latest : row)),
       )
-      setMissingOpen(false)
-      setMissingNote('')
+      setMissingKey(null)
       showToast(
         vi
           ? 'Đã báo thiếu hàng. Nhóm đơn tạm dừng, chờ nhân viên đóng gói quyết định.'
@@ -1392,10 +1423,11 @@ export function WarehousePage() {
         await refreshGroupAfterWrite(target.id)
       }
       if (getApiErrorCode(err) === 'ORD_GROUP_INVALID_TRANSITION') {
-        setMissingOpen(false)
+        setMissingKey(null)
         setActionError(bePickGateMessage(vi, 'missing'))
       } else {
-        setActionError(formatApiError(err))
+        // Hiện ngay trong hộp thoại — thông báo ở trang nằm sau lớp phủ.
+        setMissingError(formatApiError(err))
       }
     } finally {
       setBusy(false)
@@ -2126,12 +2158,16 @@ export function WarehousePage() {
                     {isWarehousePickableStatus(status) ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          setMissingQty(Math.max(1, remainingForActive || 1))
-                          setMissingOpen(true)
-                        }}
-                        disabled={!activeLine || !warehouseId || busy}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 cursor-pointer hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                        onClick={() => openMissing(activeLine?.key)}
+                        disabled={!warehouseId || busy || missingCandidates.length === 0}
+                        title={
+                          missingCandidates.length === 0
+                            ? vi
+                              ? 'Đã lấy đủ, không còn sản phẩm nào để báo thiếu.'
+                              : 'Everything is picked — nothing to report.'
+                            : undefined
+                        }
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 cursor-pointer hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
                       >
                         <Flag className="h-3.5 w-3.5" />
                         {vi ? 'Báo thiếu hàng' : 'Report missing'}
@@ -2658,57 +2694,20 @@ export function WarehousePage() {
         </div>
       ) : null}
 
-      <Dialog open={missingOpen} onOpenChange={setMissingOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{vi ? 'Báo thiếu hàng' : 'Report missing item'}</DialogTitle>
-            <DialogDescription>
-              {vi
-                ? 'Đơn sẽ chuyển sang «Thiếu hàng — cần duyệt». Chủ shop nhận thông báo ngay. Bạn không tự quyết định giao thiếu.'
-                : 'The group moves to partial review. Store Owner is notified. You cannot ship short on your own.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <p className="font-mono font-semibold">{activeLine?.sku}</p>
-            <label className="block text-xs font-medium">
-              {vi ? 'Số lượng còn thiếu' : 'Missing quantity'}
-              <input
-                type="number"
-                min={1}
-                value={missingQty}
-                onChange={(e) => setMissingQty(Math.max(1, Number(e.target.value) || 1))}
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2.5 dark:border-slate-700 dark:bg-surface-2"
-              />
-            </label>
-            <label className="block text-xs font-medium">
-              {vi ? 'Ghi chú (không bắt buộc)' : 'Note (optional)'}
-              <textarea
-                value={missingNote}
-                onChange={(e) => setMissingNote(e.target.value)}
-                rows={3}
-                className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-2 dark:border-slate-700 dark:bg-surface-2"
-              />
-            </label>
-          </div>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setMissingOpen(false)}
-              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
-            >
-              {vi ? 'Hủy' : 'Cancel'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleReportMissing()}
-              disabled={busy || !warehouseId}
-              className="h-9 rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-amber-700 disabled:opacity-50"
-            >
-              {vi ? 'Gửi báo cáo' : 'Submit'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {missingKey ? (
+        <ReportMissingDialog
+          vi={vi}
+          candidates={missingCandidates}
+          initialKey={missingKey}
+          busy={busy}
+          canSubmit={Boolean(warehouseId)}
+          error={missingError}
+          onClose={() => setMissingKey(null)}
+          onSubmit={(candidate, quantity, note) =>
+            void handleReportMissing(candidate, quantity, note)
+          }
+        />
+      ) : null}
 
       <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
         <DialogContent className="max-w-md">

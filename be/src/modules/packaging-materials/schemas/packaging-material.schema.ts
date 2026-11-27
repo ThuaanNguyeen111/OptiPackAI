@@ -24,7 +24,7 @@ export type PackagingMaterialKind = (typeof PACKAGING_MATERIAL_KINDS)[number];
 
 @Schema({ collection: 'packaging_materials', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class PackagingMaterial {
-  @Prop({ required: true, unique: true }) code!: string; // VD BOX-M — KHÓA sau khi tạo
+  @Prop({ required: true, unique: true }) code!: string; // VD CTN-001 — KHÓA sau khi tạo (AOFP-346: không chứa kích thước)
   @Prop({ required: true }) name!: string;
   @Prop({ type: String, enum: PACKAGING_MATERIAL_KINDS, required: true }) kind!: PackagingMaterialKind;
 
@@ -47,6 +47,9 @@ export class PackagingMaterial {
   @Prop({ type: BoxDimensionsMmSchema, default: null }) outer!: BoxDimensionsMm | null;
   @Prop({ type: Number, default: null, min: 0 }) tare_g!: number | null;
   @Prop({ type: Number, default: null, min: 1 }) max_load_g!: number | null;
+  // AOFP-346: kiểu kết cấu thùng theo mã FEFCO (VD 0201 thùng nắp gập) và số lớp giấy (3, 5, 7).
+  @Prop({ type: String, default: null }) fefco_code!: string | null;
+  @Prop({ type: Number, default: null }) ply!: number | null;
   // Túi niêm phong: rộng × dài trải phẳng (mm). Dùng chung tare_g/max_load_g ở trên.
   @Prop({ type: MailerFlatMmSchema, default: null }) flat!: MailerFlatMm | null;
   // Vật tư chèn: loại theo luật chọn vật tư + khối lượng mỗi đơn vị.

@@ -7,6 +7,7 @@ import '../core/push/push_service.dart';
 import '../core/storage/json_cache.dart';
 import '../core/storage/token_store.dart';
 import '../features/auth/auth_controller.dart';
+import '../features/auth/auth_models.dart';
 import '../features/auth/auth_repository.dart';
 import '../features/auth/google_sign_in_service.dart';
 import '../features/offline/action_queue.dart';
@@ -75,6 +76,10 @@ final pushServiceProvider = Provider<PushService>((ref) => PushService(
       api: ref.read(apiClientProvider),
       router: ref.read(routerProvider),
       canPick: () => ref.read(authControllerProvider).user?.isWarehouse ?? false,
+      canPack: () {
+        final role = ref.read(authControllerProvider).user?.role;
+        return role == UserRole.packagingStaff || role == UserRole.admin;
+      },
     ));
 
 final syncControllerProvider =

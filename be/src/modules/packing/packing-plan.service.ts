@@ -28,7 +28,7 @@ import {
   DEFAULT_FRAGILE_CUSHION_MM,
   describePackingSteps,
   expandToUnits,
-  foldUnit,
+  foldTimes,
   type BoxSpec,
   type ExpandOptions,
   type Orientation,
@@ -242,6 +242,7 @@ function toPlanParcel(
     placements: p.placements.map((q) => ({
       ...q,
       folded: q.folded === true,
+      fold_count: q.fold_count ?? null,
       order_id: shared.placementOwner ? shared.placementOwner(q.item_key) : null,
     })),
     fill_ratio: p.fill_ratio,
@@ -1797,8 +1798,12 @@ export class PackingPlanService {
         dz: q.dz,
         orientation: ALL_ORIENTATIONS.includes(q.orientation as Orientation) ? (q.orientation as Orientation) : 'LWH',
         folded: q.folded,
+        ...(q.fold_count != null && q.fold_count > 1 && { fold_count: q.fold_count }),
       }));
-      const shaped = ordered.map((u, i) => (p.placements[i]?.folded === true && u.foldable === true ? foldUnit(u) : u));
+      const shaped = ordered.map((u, i) => {
+        const q = p.placements[i];
+        return q?.folded === true && u.foldable === true ? foldTimes(u, q.fold_count ?? 1) : u;
+      });
       const solved = summarizePlacements(boxSpecOf(p), shaped, placements, materials, charge);
       return {
         ...(p as Plain<PlanParcel>),
@@ -1941,6 +1946,7 @@ export class PackingPlanService {
       dz: p.dz,
       orientation: ALL_ORIENTATIONS.includes(p.orientation as Orientation) ? (p.orientation as Orientation) : 'LWH',
       folded: p.folded,
+      ...(p.fold_count != null && p.fold_count > 1 && { fold_count: p.fold_count }),
     }));
     let units: PackingUnit[] = [];
     try {

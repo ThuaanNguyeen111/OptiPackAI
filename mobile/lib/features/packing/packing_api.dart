@@ -26,10 +26,14 @@ class PackingApi {
       asMap(await api.get('/order-groups/${Uri.encodeComponent(id)}')) ??
       (throw const ApiException(message: 'Server không trả đủ dữ liệu nhóm đơn.'));
 
-  Future<Map<String, Map<String, dynamic>>> summaries(List<String> ids) async {
-    if (ids.isEmpty) return {};
+  /// `summaries`: số kiện theo kế hoạch. `groups`: người nhận, mã đơn sàn, món — để nhận ra nhóm.
+  Future<({Map<String, Map<String, dynamic>> plans, Map<String, Map<String, dynamic>> groups})> summaries(
+      List<String> ids) async {
+    if (ids.isEmpty) return (plans: <String, Map<String, dynamic>>{}, groups: <String, Map<String, dynamic>>{});
     final res = await api.get('/packing-plans/summary', query: {'group_ids': ids.take(200).join(',')});
-    return {for (final s in rowsOf(res, 'summaries')) pickString(s, ['orderGroupId']): s};
+    Map<String, Map<String, dynamic>> byGroup(String key) =>
+        {for (final s in rowsOf(asMap(res)?[key])) pickString(s, ['orderGroupId']): s};
+    return (plans: byGroup('summaries'), groups: byGroup('groups'));
   }
 
   Future<Map<String, dynamic>?> plan(String groupId) async => asMap(asMap(await api.get(_path(groupId)))?['plan']);

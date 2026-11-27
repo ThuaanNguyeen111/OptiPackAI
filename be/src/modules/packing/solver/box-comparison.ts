@@ -76,6 +76,8 @@ export interface BoxComparisonRow {
   /** Số thùng trống còn lại; null = không xét tồn. */
   available: number | null;
   verdict: string;
+  /** AOFP-348: bậc đầu tiên thua thùng xếp ngay trên — lý do của thứ hạng; null = hạng 1 / không dùng được. */
+  rank_reason: string | null;
 }
 
 export interface BoxComparison {
@@ -305,6 +307,11 @@ export function compareBoxes(
               : `Tốt hơn thùng ${chosen.box.code}: ${why} — có thể đổi thùng cho kiện này.`;
       if (n > 1 && diff !== null && diff.sign > 0) verdict = `Cần ${String(n)} thùng. ${verdict}`;
     }
+    const above = i > 0 ? ranked[i - 1] : undefined;
+    const lost = above ? describeDifference(objective, above.objective, prefer) : null;
+    const rankReason = above
+      ? `Xếp sau ${above.box.code}: ${lost ?? 'ngang mọi tiêu chí, xếp theo mã'}.`
+      : null;
     return {
       box_code: c.box.code,
       box_name: c.box.name,
@@ -322,6 +329,7 @@ export function compareBoxes(
       estimated_weight_g: t.estimated,
       available: c.available,
       verdict,
+      rank_reason: rankReason,
     };
   });
 
@@ -345,6 +353,7 @@ export function compareBoxes(
       estimated_weight_g: t?.estimated ?? null,
       available: c.available,
       verdict: c.ineligibleReason,
+      rank_reason: null,
     });
   }
 

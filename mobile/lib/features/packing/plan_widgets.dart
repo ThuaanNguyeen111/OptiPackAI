@@ -82,6 +82,7 @@ List<Widget> sharedOrderWidgets(Map<String, dynamic> parcel, Map<String, dynamic
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(line, style: const TextStyle(fontSize: 12.5))),
     ];
 
+/// Vật tư của kiện: dòng chữ (không đóng khung để khỏi bị tưởng là nút).
 class MaterialTags extends StatelessWidget {
   const MaterialTags({super.key, required this.materials});
 
@@ -91,12 +92,9 @@ class MaterialTags extends StatelessWidget {
   Widget build(BuildContext context) => materials.isEmpty
       ? const SizedBox.shrink()
       : Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [for (final m in materials) Pill(materialLabel(m), AppColors.primary)],
-          ),
+          padding: const EdgeInsets.only(top: 6),
+          child: Text('Vật tư: ${materials.map(materialLabel).join(', ')}',
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.primary)),
         );
 }
 
@@ -336,6 +334,32 @@ class BoxComparisonList extends StatelessWidget {
 
   String _score(num n) => n.toStringAsFixed(1).replaceAll('.', ',');
 
+  /// AOFP-348: vì sao xếp sau thùng ngay trên. Điểm cao hơn mà vẫn xếp sau thì tô vàng.
+  List<Widget> _rankNotes(Map<String, dynamic> row, Map<String, dynamic>? above) {
+    final reason = pickString(row, ['rankReason']);
+    final verdict = pickString(row, ['verdict']);
+    final inverted = above != null && pickDouble(row, ['score']) > pickDouble(above, ['score']);
+    // Thùng ngay trên là thùng đang dùng thì lý do xếp sau đã nói cùng ý với nhận xét.
+    final showVerdict =
+        row['isChosen'] != true && verdict.isNotEmpty && !(reason.isNotEmpty && above?['isChosen'] == true);
+    return [
+      if (reason.isNotEmpty)
+        Container(
+          margin: const EdgeInsets.only(top: 6),
+          padding: inverted ? const EdgeInsets.all(8) : EdgeInsets.zero,
+          decoration: inverted
+              ? BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(8))
+              : null,
+          child: Text(
+            inverted ? '$reason Điểm cao hơn nhưng thua ở tiêu chí này.' : reason,
+            style: inverted ? TextStyle(fontSize: 12.5, color: AppColors.warningText) : subtle(),
+          ),
+        ),
+      if (showVerdict) Padding(padding: const EdgeInsets.only(top: 4), child: Text(verdict, style: subtle())),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final rows = rowsOf(comparison['rows']);
@@ -355,10 +379,12 @@ class BoxComparisonList extends StatelessWidget {
         if (comparison['scoresConsistent'] == false)
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: Text('Có thùng điểm cao hơn nhưng xếp sau: thứ hạng mới là quyết định, điểm chỉ để so nhanh.',
+            child: Text(
+                'Có thùng điểm cao hơn mà xếp sau — dòng tô vàng ghi rõ nó thua ở tiêu chí nào. '
+                'Thứ hạng quyết định, điểm chỉ để so nhanh.',
                 style: TextStyle(color: AppColors.warningText, fontSize: 12.5)),
           ),
-        for (final r in usable)
+        for (final (index, r) in usable.indexed)
           Container(
             margin: const EdgeInsets.only(top: 8),
             padding: const EdgeInsets.all(12),
@@ -415,8 +441,7 @@ class BoxComparisonList extends StatelessWidget {
                         style: TextStyle(fontSize: 12.5, color: r['available'] == 0 ? AppColors.danger : null)),
                   ],
                 ),
-                if (r['isChosen'] != true && pickString(r, ['verdict']).isNotEmpty)
-                  Padding(padding: const EdgeInsets.only(top: 4), child: Text(pickString(r, ['verdict']), style: subtle())),
+                ..._rankNotes(r, index > 0 ? usable[index - 1] : null),
               ],
             ),
           ),
@@ -462,6 +487,22 @@ class BoxComparisonList extends StatelessWidget {
   }
 }
 
+/// Câu hướng dẫn đã bỏ mã lặp, mã hàng in đậm để dò khi cầm hàng.
+Widget guideSentence(String text, {TextStyle? style}) {
+  final clean = cleanGuideText(text);
+  final spans = <TextSpan>[];
+  var last = 0;
+  for (final m in guideCodePattern.allMatches(clean)) {
+    spans
+      ..add(TextSpan(text: clean.substring(last, m.start)))
+      ..add(TextSpan(text: m[0], style: const TextStyle(fontWeight: FontWeight.w800)));
+    last = m.end;
+  }
+  spans.add(TextSpan(text: clean.substring(last)));
+  return Text.rich(TextSpan(style: style, children: spans));
+}
+
+
 /// Lời hướng dẫn của kiện (tóm tắt + từng món). Các bước thao tác đầy đủ đi cùng hoạt ảnh nằm trong khung 3D.
 class GuideText extends StatelessWidget {
   const GuideText({super.key, required this.guide});
@@ -481,7 +522,7 @@ class GuideText extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (summary.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text(summary)),
+        if (summary.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: guideSentence(summary)),
         for (final (i, step) in steps.indexed)
           Padding(
             padding: const EdgeInsets.only(top: 10),
@@ -499,8 +540,9 @@ class GuideText extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(pickString(step, ['instruction'])),
-                      if (pickString(step, ['tip']).isNotEmpty) Text('Lưu ý: ${pickString(step, ['tip'])}', style: subtle()),
+                      guideSentence(pickString(step, ['instruction'])),
+                      if (pickString(step, ['tip']).isNotEmpty)
+                        guideSentence('Lưu ý: ${pickString(step, ['tip'])}', style: subtle()),
                     ],
                   ),
                 ),

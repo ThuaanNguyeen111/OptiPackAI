@@ -91,7 +91,7 @@ class MockNotificationsRepository implements NotificationsRepository {
         id: 'n4',
         type: 'low_box_stock',
         severity: NotificationSeverity.warning,
-        title: 'Thùng BOX-M sắp hết',
+        title: 'Thùng CTN-005 sắp hết',
         message: 'Còn 12, ngưỡng cảnh báo 10.',
         createdAt: now.subtract(const Duration(hours: 5)),
         isRead: true,

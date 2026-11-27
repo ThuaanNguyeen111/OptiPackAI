@@ -65,7 +65,8 @@ describe('Bộ giải BRKGA + EMS', () => {
     });
 
     it('đơn ≤ 3 món vét cạn, đơn lớn hơn dùng BRKGA', () => {
-      expect(solve([tee(2), jean(1)]).strategy).toBe('exhaustive');
+      // AOFP-345: quần áo có 3 dạng (nguyên, gập đôi, gập tư) nên vét cạn dừng ở 2 món quần áo.
+      expect(solve([tee(1), jean(1)]).strategy).toBe('exhaustive');
       expect(solve([tee(4), jean(2)], { maxEvaluations: 300 }).strategy).toBe('brkga');
     });
 
