@@ -1,7 +1,7 @@
 import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { ContactShadows, Edges, useGLTF } from '@react-three/drei'
-import { Box3, MathUtils, Matrix4, Mesh, Quaternion, Vector3, type Group, type Material } from 'three'
+import { Box3, MathUtils, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector3, type Group, type Material } from 'three'
 import type { PackingItemProfile, PackingMm, PackingPlacement } from '../../../types/packing-plan'
 import {
   FOLD_CLIP_SHARE,
@@ -18,9 +18,10 @@ import {
   type Vec3,
   type WorkArea,
 } from '../../../utils/packing-layout'
-import { foldPoseAt, stagedSpread } from '../../../utils/fold-pose'
-import { MAILER_MODEL, boxModelFor, categoryColor, itemModelFor, type ItemModel } from '../product-models'
-import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock } from './model-rigs'
+import { foldPoseAt, sideFoldAt, sideFoldAxis, stagedSpread } from '../../../utils/fold-pose'
+import { MAILER_MODEL, boxModelFor, categoryColor, resolveItemModel, type ItemModel } from '../product-models'
+import { CartonRig, ItemRig, MailerRig, StepClock, easeInOut, fitToBlock, orientedFit } from './model-rigs'
+import { buildPrimitive, type PrimitiveSpec } from './primitives'
 import { BubbleSleeve, CloseMaterials, PrepareTray, WrapAnimation } from './MaterialsScene'
 import { materialCounts, needsBubbleSleeve } from '../../../utils/packing-materials'
 
@@ -68,6 +69,14 @@ type BendUniforms = {
   uAngle: { value: number }
   uToItem: { value: Matrix4 }
   uFromItem: { value: Matrix4 }
+  /** Đợt 2 — gập hai mép (file áo trải phẳng): bản lề tại uSideC ± uSideHinge, lật trái uSideL / phải uSideR. */
+  uSideOn: { value: number }
+  uSideAxis: { value: number }
+  uSideC: { value: number }
+  uSideHinge: { value: number }
+  uSideY: { value: number }
+  uSideL: { value: number }
+  uSideR: { value: number }
 }
 
 const BEND_DECL = `
@@ -78,14 +87,47 @@ uniform float uHingeY;
 uniform float uAngle;
 uniform mat4 uToItem;
 uniform mat4 uFromItem;
+uniform float uSideOn;
+uniform float uSideAxis;
+uniform float uSideC;
+uniform float uSideHinge;
+uniform float uSideY;
+uniform float uSideL;
+uniform float uSideR;
 `
 
 const BEND_PROJECT = `
 vec4 bendWorld = modelMatrix * vec4( transformed, 1.0 );
-if ( uBendOn > 0.5 ) {
+if ( uBendOn > 0.5 || uSideOn > 0.5 ) {
   vec3 bp = ( uToItem * bendWorld ).xyz;
+  vec3 bn = vec3( 0.0, 1.0, 0.0 );
+  #ifdef BEND_NORMAL
+    bn = mat3( uToItem ) * normalize( mat3( modelMatrix ) * objectNormal );
+  #endif
+  bool bent = false;
+  if ( uSideOn > 0.5 ) {
+    // Gập mép: soi gương nửa trái sang phải để dùng chung một công thức lật quanh bản lề.
+    float sa = ( uSideAxis < 0.5 ? bp.x : bp.z ) - uSideC;
+    float sg = sa >= 0.0 ? 1.0 : -1.0;
+    float sm = sa * sg;
+    float sAng = sa >= 0.0 ? uSideR : uSideL;
+    if ( sm > uSideHinge && sAng > 0.0 ) {
+      float c = cos( sAng );
+      float s = sin( sAng );
+      float ra = sm - uSideHinge;
+      float ry = bp.y - uSideY;
+      float na = uSideC + sg * ( uSideHinge + ra * c - ry * s );
+      bp.y = uSideY + ra * s + ry * c + 0.0006 * ( sAng / 3.14159265 );
+      if ( uSideAxis < 0.5 ) bp.x = na; else bp.z = na;
+      float nA = ( uSideAxis < 0.5 ? bn.x : bn.z ) * sg;
+      float nnA = sg * ( nA * c - bn.y * s );
+      bn.y = nA * s + bn.y * c;
+      if ( uSideAxis < 0.5 ) bn.x = nnA; else bn.z = nnA;
+      bent = true;
+    }
+  }
   float ba = uBendAxis < 0.5 ? bp.x : bp.z;
-  if ( ba > uHingeA ) {
+  if ( uBendOn > 0.5 && ba > uHingeA ) {
     float bc = cos( uAngle );
     float bs = sin( uAngle );
     float ra = ba - uHingeA;
@@ -95,14 +137,16 @@ if ( uBendOn > 0.5 ) {
     float ny = uHingeY + ra * bs + ry * bc + 0.0006 * ( uAngle / 3.14159265 );
     if ( uBendAxis < 0.5 ) bp.x = na; else bp.z = na;
     bp.y = ny;
+    float bna = uBendAxis < 0.5 ? bn.x : bn.z;
+    float nna = bna * bc - bn.y * bs;
+    float nny = bna * bs + bn.y * bc;
+    if ( uBendAxis < 0.5 ) bn.x = nna; else bn.z = nna;
+    bn.y = nny;
+    bent = true;
+  }
+  if ( bent ) {
     bendWorld = uFromItem * vec4( bp, 1.0 );
-    #ifndef FLAT_SHADED
-      vec3 bn = mat3( uToItem ) * normalize( mat3( modelMatrix ) * objectNormal );
-      float bna = uBendAxis < 0.5 ? bn.x : bn.z;
-      float nna = bna * bc - bn.y * bs;
-      float nny = bna * bs + bn.y * bc;
-      if ( uBendAxis < 0.5 ) bn.x = nna; else bn.z = nna;
-      bn.y = nny;
+    #if defined( BEND_NORMAL ) && !defined( FLAT_SHADED )
       vNormal = normalize( mat3( viewMatrix ) * ( mat3( uFromItem ) * bn ) );
     #endif
   }
@@ -120,33 +164,61 @@ function makeBendUniforms(): BendUniforms {
     uAngle: { value: 0 },
     uToItem: { value: new Matrix4() },
     uFromItem: { value: new Matrix4() },
+    uSideOn: { value: 0 },
+    uSideAxis: { value: 0 },
+    uSideC: { value: 0 },
+    uSideHinge: { value: 0 },
+    uSideY: { value: 0 },
+    uSideL: { value: 0 },
+    uSideR: { value: 0 },
   }
 }
 
 /** Cập nhật uniform mỗi khung hình (null = tắt uốn). Đặt ngoài component để không đụng luật bất biến của React. */
 function setBend(
   bend: BendUniforms,
-  next: { axis: number; hingeA: number; hingeY: number; angle: number; item: Group } | null,
+  next: { axis: number; hingeA: number; hingeY: number; angle: number } | null,
+  item: Group,
 ): void {
   bend.uBendOn.value = next ? 1 : 0
-  if (!next) return
-  bend.uBendAxis.value = next.axis
-  bend.uHingeA.value = next.hingeA
-  bend.uHingeY.value = next.hingeY
-  bend.uAngle.value = next.angle
-  bend.uFromItem.value.copy(next.item.matrixWorld)
-  bend.uToItem.value.copy(next.item.matrixWorld).invert()
+  if (next) {
+    bend.uBendAxis.value = next.axis
+    bend.uHingeA.value = next.hingeA
+    bend.uHingeY.value = next.hingeY
+    bend.uAngle.value = next.angle
+  }
+  // Gập mép (đợt 2) cũng cần khung món — cập nhật cả khi không gập đôi.
+  if (!next && bend.uSideOn.value < 0.5) return
+  bend.uFromItem.value.copy(item.matrixWorld)
+  bend.uToItem.value.copy(item.matrixWorld).invert()
+}
+
+/** Đợt 2 — uniform gập mép. Ngoài component như setBend. */
+function setSideFold(bend: BendUniforms, axis: 0 | 2, center: number, hinge: number, y: number, [left, right]: [number, number]): void {
+  bend.uSideOn.value = 1
+  bend.uSideAxis.value = axis === 0 ? 0 : 1
+  bend.uSideC.value = center
+  bend.uSideHinge.value = hinge
+  bend.uSideY.value = y
+  bend.uSideL.value = left
+  bend.uSideR.value = right
+}
+
+function setOpacity(material: Material, opacity: number): void {
+  material.opacity = opacity
 }
 
 function withBend(material: Material, bend: BendUniforms): Material {
   const patched = material.clone()
   patched.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, bend)
+    // Vật liệu không có pháp tuyến (unlit / MeshBasic của file tải lên) thì chỉ uốn vị trí.
+    const normals = shader.vertexShader.includes('#include <normal_vertex>') ? '#define BEND_NORMAL\n' : ''
     shader.vertexShader = shader.vertexShader
-      .replace('void main() {', `${BEND_DECL}\nvoid main() {`)
+      .replace('void main() {', `${normals}${BEND_DECL}\nvoid main() {`)
       .replace('#include <project_vertex>', BEND_PROJECT)
   }
-  patched.customProgramCacheKey = () => 'pack-fold-bend'
+  patched.customProgramCacheKey = () => `pack-fold-bend-${material.type}`
   return patched
 }
 
@@ -177,8 +249,102 @@ function clipRange(
   }
 }
 
+/** AOFP-352 — hình cơ bản dựng trong khối đơn vị, xoay theo orientation rồi giãn khớp khối. */
+function PrimitiveBody({ spec, size, orientation }: { spec: PrimitiveSpec; size: Vec3; orientation: string }): ReactNode {
+  const object = useMemo(() => buildPrimitive(spec), [spec])
+  useEffect(
+    () => () => {
+      object.traverse((o) => {
+        if (o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as Material).dispose()
+        }
+      })
+    },
+    [object],
+  )
+  const [sx, sy, sz] = size
+  const fit = useMemo(
+    () => orientedFit(new Box3(new Vector3(-0.5, -0.5, -0.5), new Vector3(0.5, 0.5, 0.5)), [sx, sy, sz], orientation),
+    [sx, sy, sz, orientation],
+  )
+  return (
+    <group scale={fit.scale}>
+      <group quaternion={fit.quaternion}>
+        <primitive object={object} />
+      </group>
+    </group>
+  )
+}
+
+/** Số lần gập đôi (kể cả gập túi zip) của món — trục gập mép chọn theo dáng đã trải hết. */
+function halfFoldCount(steps: PackStep[], item: number): number {
+  return steps.filter((s) => s.item === item && (s.kind === 'halfFold' || s.kind === 'zipFold')).length
+}
+
+/**
+ * Đợt 2 — file áo trải phẳng không có xương gập: dựng trong lớp dưới của khối (dày h/2, rộng gấp đôi trục gập mép),
+ * shader lật hai mép vào giữa → đúng khối đo; gập đôi / gập tư sau đó dùng chung foldPoseAt.
+ * Giãn từng trục theo số đo SKU (mô hình chỉ là dáng).
+ */
+function AutoFoldBody({ url, size, bend, axis }: { url: string; size: Vec3; bend: BendUniforms; axis: 0 | 2 }): ReactNode {
+  const gltf = useGLTF(url)
+  const root = useMemo(() => {
+    const r = gltf.scene.clone(true)
+    r.traverse((o) => {
+      if (!(o instanceof Mesh)) return
+      o.material = Array.isArray(o.material) ? o.material.map((m) => withBend(m, bend)) : withBend(o.material, bend)
+    })
+    return r
+  }, [gltf, bend])
+  const [sx, sy, sz] = size
+  const fit = useMemo(() => {
+    const box = new Box3().setFromObject(gltf.scene)
+    const b = box.getSize(new Vector3())
+    const c = box.getCenter(new Vector3())
+    const target: Vec3 = [sx * (axis === 0 ? 2 : 1), sy / 2, sz * (axis === 2 ? 2 : 1)]
+    // Xoay 90° quanh Y khi cạnh dài của file nằm khác trục với cạnh dài của mặt trải.
+    const turn = b.x >= b.z !== target[0] >= target[2]
+    const [bx, bz] = turn ? [b.z, b.x] : [b.x, b.z]
+    const scale: Vec3 = [target[0] / Math.max(bx, 1e-6), target[1] / Math.max(b.y, 1e-6), target[2] / Math.max(bz, 1e-6)]
+    return { scale, turn, center: c }
+  }, [gltf, sx, sy, sz, axis])
+  return (
+    <group position={[0, -sy / 4, 0]} scale={fit.scale}>
+      <group rotation={[0, fit.turn ? Math.PI / 2 : 0, 0]}>
+        <group position={[-fit.center.x, -fit.center.y, -fit.center.z]}>
+          <primitive object={root} />
+        </group>
+      </group>
+    </group>
+  )
+}
+
+/**
+ * Túi zip của mô hình gập tự động: khối trong suốt ôm món, hiện từ bước túi zip (mờ dần vào) và gập theo món.
+ * shortcut: túi hộp đơn giản, chưa có clip kéo khoá như file theo loại — nâng cấp khi tách được file túi chung.
+ */
+function AutoZipSleeve({ size, bend, axis, visible, fade }: { size: Vec3; bend: BendUniforms; axis: 0 | 2; visible: boolean; fade: { current: number } }): ReactNode {
+  const material = useMemo(
+    () => withBend(new MeshStandardMaterial({ color: '#dbeafe', transparent: true, opacity: 0.3, depthWrite: false }), bend),
+    [bend],
+  )
+  useEffect(() => () => material.dispose(), [material])
+  useFrame(() => {
+    setOpacity(material, 0.3 * fade.current)
+  })
+  // Trục gập mép không nới ra ngoài bản lề, nếu không mép túi bị lật theo áo.
+  const dims: Vec3 = [size[0] * (axis === 0 ? 0.995 : 1.03), size[1] * 1.06, size[2] * (axis === 2 ? 0.995 : 1.03)]
+  return (
+    <mesh visible={visible} material={material}>
+      <boxGeometry args={dims} />
+    </mesh>
+  )
+}
+
 function ModelBody({
   model,
+  orientation,
   size,
   withZip,
   role,
@@ -188,6 +354,7 @@ function ModelBody({
   bend,
 }: {
   model: ItemModel
+  orientation: string
   bend: BendUniforms
   size: Vec3
   /** Cạnh khu chuẩn bị: hàng trải phẳng lớn hơn thì co lại, gấp xong về đúng cỡ. */
@@ -220,12 +387,15 @@ function ModelBody({
     return v
   }, [rig])
   const fit = useMemo(
-    () => fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
-    [rig, sx, sy, sz, model.kind],
+    () =>
+      model.stretch
+        ? orientedFit(rig.finalBox, [sx, sy, sz], orientation)
+        : fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
+    [rig, sx, sy, sz, model.kind, model.stretch, orientation],
   )
   // Hàng cứng co đều nên thấp hơn khối được cấp: hạ xuống sát đáy khối để không lơ lửng giữa không trung.
   const sink = useMemo(() => {
-    if (model.kind !== 'rigid' || rig.finalBox.isEmpty()) return 0
+    if (model.kind !== 'rigid' || model.stretch || rig.finalBox.isEmpty()) return 0
     const { min, max } = rig.finalBox
     const turned = new Box3()
     for (const x of [min.x, max.x]) {
@@ -237,7 +407,7 @@ function ModelBody({
     }
     const height = turned.getSize(new Vector3()).y
     return -Math.max(0, sy - height) / 2
-  }, [model.kind, rig, fit, sy])
+  }, [model.kind, model.stretch, rig, fit, sy])
   const clock = useMemo(() => new StepClock(), [])
   useEffect(() => {
     clock.reset()
@@ -395,6 +565,10 @@ function PlacedItem({
   const motionRef = useRef<Group>(null)
   const squashRef = useRef<Group>(null)
   const bend = useMemo(() => makeBendUniforms(), [])
+  const model = resolveItemModel(profile)
+  const sideAxis = sideFoldAxis(size, halfFoldCount(steps, item))
+  const zipAt = steps.findIndex((s) => s.item === item && s.kind === 'zip')
+  const zipFade = useRef(1)
   const clock = useMemo(() => new StepClock(), [])
   const from = useMemo(() => new Vector3(), [])
   const to = useMemo(() => new Vector3(), [])
@@ -425,11 +599,14 @@ function PlacedItem({
     const pose = foldPoseAt(steps, index, item, size, e)
     s.scale.set(...pose.scale)
     s.position.set(...pose.position)
-    if (pose.bend) g.updateWorldMatrix(true, false)
-    setBend(bend, pose.bend ? { ...pose.bend, item: g } : null)
+    if (model?.autoFold) {
+      setSideFold(bend, sideAxis, pose.position[sideAxis], (size[sideAxis] * pose.scale[sideAxis]) / 2, pose.position[1], sideFoldAt(steps, index, item, e))
+      zipFade.current = role === 'staged' && index === zipAt ? e : 1
+    }
+    if (pose.bend || model?.autoFold) g.updateWorldMatrix(true, false)
+    setBend(bend, pose.bend, g)
   })
 
-  const model = itemModelFor(profile?.productCategory)
   const color = tint ?? categoryColor(profile?.productCategory)
   const initial = role === 'placed' ? center : staged
   // AOFP-350: ModelBody nằm TRONG khối đã trải (pose.scale) — khu chuẩn bị nó thấy phải chia cho hệ số trải,
@@ -439,11 +616,29 @@ function PlacedItem({
   return (
     <group ref={motionRef} position={initial} visible={role !== 'hidden'}>
       <group ref={squashRef}>
-        {model ? (
+        {model?.primitive ? (
+          <PrimitiveBody spec={model.primitive} size={size} orientation={placement.orientation} />
+        ) : model?.autoFold ? (
+          <ModelBoundary fallback={<Block size={size} color={color} />}>
+            <Suspense fallback={<Block size={size} color={color} wire />}>
+              <AutoFoldBody url={model.path} size={size} bend={bend} axis={sideAxis} />
+              {profile?.zipBagCode ? (
+                <AutoZipSleeve
+                  size={size}
+                  bend={bend}
+                  axis={sideAxis}
+                  fade={zipFade}
+                  visible={role === 'placing' || role === 'placed' || (role === 'staged' && zipAt >= 0 && index >= zipAt)}
+                />
+              ) : null}
+            </Suspense>
+          </ModelBoundary>
+        ) : model ? (
           <ModelBoundary fallback={<Block size={size} color={color} />}>
             <Suspense fallback={<Block size={size} color={color} wire />}>
               <ModelBody
                 model={model}
+                orientation={placement.orientation}
                 size={size}
                 withZip={Boolean(profile?.zipBagCode)}
                 role={role}

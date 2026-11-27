@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PackingItemProfile, PackingPlacement } from '../types/packing-plan'
-import { foldPoseAt, stagedSpread, type FoldPose } from './fold-pose'
+import { foldPoseAt, sideFoldAt, sideFoldAxis, stagedSpread, type FoldPose } from './fold-pose'
 import { buildPackSteps, type PackStep, type Vec3 } from './packing-layout'
 
 /**
@@ -92,3 +92,24 @@ describe('foldPoseAt — dáng gập giữ liên tục qua các bước', () => 
   })
 })
 
+
+describe('Đợt 2 — gập hai mép tự động (file áo trải phẳng)', () => {
+  const steps: PackStep[] = [
+    { kind: 'prepare' } as PackStep,
+    { kind: 'fold', item: 0 },
+    { kind: 'halfFold', item: 0 },
+    { kind: 'place', item: 0 },
+  ]
+  it('trước bước gập mép phẳng, trong bước lật trái rồi phải, sau đó giữ lật — không bung lại', () => {
+    expect(sideFoldAt(steps, 0, 0, 1)).toEqual([0, 0])
+    expect(sideFoldAt(steps, 1, 0, 0)).toEqual([0, 0])
+    expect(sideFoldAt(steps, 1, 0, 0.5)).toEqual([Math.PI, 0])
+    expect(sideFoldAt(steps, 1, 0, 1)).toEqual([Math.PI, Math.PI])
+    for (const i of [2, 3]) expect(sideFoldAt(steps, i, 0, 0)).toEqual([Math.PI, Math.PI])
+  })
+  it('trục gập mép là trục ngắn hơn sau khi trải hết các lần gập đôi', () => {
+    // 30×4×20: trải 1 lần → nhân đôi cạnh ngắn (z: 20→40) → x (30) ngắn hơn.
+    expect(sideFoldAxis([0.3, 0.04, 0.2], 1)).toBe(0)
+    expect(sideFoldAxis([0.3, 0.04, 0.2], 0)).toBe(2)
+  })
+})

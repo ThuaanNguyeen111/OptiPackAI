@@ -7,6 +7,9 @@
  * hat.glb, glasses.glb) ở đây.
  */
 
+import type { PackingItemProfile } from '../../types/packing-plan'
+import type { PrimitiveSpec } from './scene/primitives'
+
 /** Thùng seed (`CTN-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
 export const BOX_MODELS: Record<string, string> = {
   'CTN-003': '/models/sampleS.glb', // AOFP-346: mã cũ BOX-S
@@ -25,7 +28,17 @@ export const BOX_MODELS: Record<string, string> = {
  */
 export type ItemModelKind = 'garment' | 'rigid'
 
-export type ItemModel = { path: string; kind: ItemModelKind; prepStep?: 'bagPrep' | 'shoeBox' | 'caseIn' }
+export type ItemModel = {
+  path: string
+  kind: ItemModelKind
+  prepStep?: 'bagPrep' | 'shoeBox' | 'caseIn'
+  /** AOFP-352 — dựng bằng code thay cho file GLB. */
+  primitive?: PrimitiveSpec
+  /** AOFP-352 — giãn từng trục theo placement.orientation (mô hình riêng / hình cơ bản). */
+  stretch?: boolean
+  /** Đợt 2 — file áo trải phẳng, bước gập dựng bằng shader (nhãn "Bước gập tự tạo"). */
+  autoFold?: boolean
+}
 
 export const ITEM_MODELS: Record<string, ItemModel> = {
   shirt: { path: '/models/somi.glb', kind: 'garment' },
@@ -98,6 +111,23 @@ export function itemModelFor(category: string | null | undefined): ItemModel | n
   return ITEM_MODELS[category] ?? null
 }
 
+/**
+ * AOFP-352 — mô hình của một SKU trong kế hoạch: theo ảnh chụp `model`; kế hoạch cũ không có thì theo loại.
+ * Bước chuẩn bị (clip trong file) chỉ có ở mô hình theo loại. Mô hình theo loại giữ cách khớp cũ.
+ */
+export function resolveItemModel(profile: Pick<PackingItemProfile, 'productCategory' | 'model'> | undefined): ItemModel | null {
+  const byCategory = itemModelFor(profile?.productCategory)
+  const snap = profile?.model
+  if (!snap) return byCategory
+  if (snap.source === 'primitive') {
+    return snap.primitive ? { path: '', kind: 'rigid', primitive: snap.primitive, stretch: true } : null
+  }
+  if (!snap.url) return byCategory
+  if (snap.source === 'category') return { kind: snap.kind, prepStep: byCategory?.prepStep, path: snap.url }
+  if (snap.auto_fold) return { path: snap.url, kind: 'garment', autoFold: true }
+  return { path: snap.url, kind: snap.kind, stretch: snap.kind === 'rigid' }
+}
+
 export function boxModelFor(code: string): string | null {
   return BOX_MODELS[code] ?? null
 }
@@ -119,6 +149,9 @@ const CATEGORY_LABELS: Record<string, { vi: string; en: string }> = {
   accessory: { vi: 'Phụ kiện', en: 'Accessory' },
   other: { vi: 'Khác', en: 'Other' },
 }
+
+/** Mọi loại sản phẩm (khớp ProductCategory ở BE) — dùng cho bộ lọc. */
+export const PRODUCT_CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
 export function categoryLabel(category: string | null | undefined, vi: boolean): string {
   const row = category ? CATEGORY_LABELS[category] : undefined

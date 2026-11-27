@@ -94,6 +94,26 @@ _Tránh_: seal (trong UI), chốt kiện
 Ảnh chụp kiện ngay trước khi niêm phong, làm bằng chứng khi có khiếu nại; con người xem, hệ thống không tự chấm.
 _Tránh_: ảnh xác minh, AI soi ảnh
 
+**Mô hình 3D**:
+Dáng hiển thị của SKU trong hướng dẫn đóng gói 3D, chọn từ thư viện dùng chung; kích thước luôn lấy theo số đo của SKU, không ảnh hưởng chọn thùng. Hồ sơ đóng gói phải có mô hình mới được xác nhận.
+_Tránh_: model, ảnh 3D, hình sản phẩm
+
+**Mô hình theo loại**:
+Mô hình có sẵn cho cả một loại hàng (áo thun, quần dài, giày…), có bước gập và túi zip với quần áo.
+_Tránh_: model mặc định, mẫu chung
+
+**Mô hình riêng**:
+File GLB kho tải lên cho một hoặc vài SKU; quần áo phải có xương gập và túi zip, hoặc là file trải phẳng (khi đó dùng **bước gập tự tạo**).
+_Tránh_: model upload, file tự up
+
+**Bước gập tự tạo**:
+Bước gập do hệ thống dựng cho mô hình riêng quần áo trải phẳng không có xương gập: lật hai mép vào giữa, rồi gập đôi / gập tư như thường. Nhãn nguồn: "Mô hình riêng — bước gập tự tạo".
+_Tránh_: auto fold (trong UI), gập giả
+
+**Hình cơ bản**:
+Mô hình hệ thống dựng từ dáng hộp, trụ, chai hoặc tuýp với vài tỉ lệ (vai, cổ, nắp…); không dùng cho quần áo và túi xách. Hộp không bo góc gọi là **hình đại diện**.
+_Tránh_: primitive (trong UI), hình khối
+
 ## Vận chuyển và hoàn
 
 **Vận đơn**:

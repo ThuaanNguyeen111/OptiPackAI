@@ -5,7 +5,7 @@ import type {
   PackingPlan,
   PackingPlanParcel,
 } from '../types/packing-plan'
-import { itemModelFor } from '../components/packing/product-models'
+import { resolveItemModel } from '../components/packing/product-models'
 
 /**
  * Hàm thuần cho cảnh 3D hướng dẫn đóng gói.
@@ -133,7 +133,7 @@ export function buildPackSteps(
   const steps: PackStep[] = [{ kind: 'prepare', item: null }]
   placements.forEach((p, item) => {
     const profile = profileFor(profiles, p.sku)
-    const model = itemModelFor(profile?.productCategory)
+    const model = resolveItemModel(profile)
     if (model?.kind === 'garment') steps.push({ kind: 'fold', item })
     if (model?.prepStep) steps.push({ kind: model.prepStep, item })
     if (profile?.zipBagCode) {

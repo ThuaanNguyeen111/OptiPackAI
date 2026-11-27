@@ -175,7 +175,8 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   { collection: 'role_permissions', fields: ['updated_by'] }, // 12/11/2026 — phân quyền trang
   { collection: 'ai_settings', fields: ['updated_by'] }, // 13/11/2026 — cấu hình AI trên web
   { collection: 'shipping_settings', fields: ['updated_by'] },
-  { collection: 'product_master', fields: ['profile_confirmed_by'] },
+  { collection: 'product_master', fields: ['profile_confirmed_by', 'model_id'] },
+  { collection: 'product_models', fields: ['created_by', 'updated_by'] },
   { collection: 'storefront_categories', fields: ['parent_id'] },
   { collection: 'storefront_products', fields: ['category_id'] },
   { collection: 'storefront_product_variants', fields: ['product_id'] },

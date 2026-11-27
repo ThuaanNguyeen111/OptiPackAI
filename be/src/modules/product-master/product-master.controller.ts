@@ -5,7 +5,8 @@ import {
   type CatalogSyncShopOutcome,
 } from './product-master.service';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
-import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
+import { ConfirmPackagingProfileDto, SetProductModelDto } from './dto/confirm-packaging-profile.dto';
+import { toModelResponse } from '../product-models/product-models.service';
 import { ListProductMasterQueryDto, RetireProductMasterDto } from './dto/list-product-master-query.dto';
 import { ProductMaster } from './schemas/product-master.schema';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -29,6 +30,8 @@ export interface ProductMasterResponse {
   orientationRule: 'any' | 'upright_only' | null;
   maxStackLoadKg: number | null;
   productCategory: string | null;
+  /** AOFP-352 — mô hình 3D trong thư viện /product-models (null = chưa gắn). */
+  modelId: string | null;
   zipBagCode: string | null;
   zipBagFolded: boolean;
   /** (08/10/2026) Chỉ có ở PUT packaging-profile: túi zip nhỏ nhất còn vừa gói vừa đo (null = không túi nào vừa). */
@@ -87,6 +90,7 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
     orientationRule: doc.orientation_rule ?? null,
     maxStackLoadKg: doc.max_stack_load_kg ?? null,
     productCategory: doc.product_category ?? null,
+    modelId: doc.model_id ? doc.model_id.toString() : null,
     zipBagCode: doc.zip_bag_code ?? null,
     zipBagFolded: doc.zip_bag_folded ?? false,
     canFoldInHalf: doc.can_fold_in_half ?? false,
@@ -208,5 +212,20 @@ export class ProductMasterController {
       height_cm: doc.dimension?.package_height_cm ?? dto.height_cm ?? 0,
     });
     return { ...toResponse(doc), suggestedZipBagCode, warnings };
+  }
+
+  @Put(':id/model')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'AOFP-352 — đổi mô hình 3D của SKU (không phải xác nhận lại số đo).' })
+  async setModel(@Param('id') id: string, @Body() dto: SetProductModelDto): Promise<ProductMasterResponse> {
+    return toResponse(await this.productMasterService.setModel(id, dto.model_id));
+  }
+
+  @Get(':id/model-suggestions')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'AOFP-352 — gợi ý mô hình: cùng hàng ở sàn khác → cùng mã mẫu → theo loại.' })
+  async modelSuggestions(@Param('id') id: string): Promise<{ reason: string; sellerSku: string | null; model: Record<string, unknown> }[]> {
+    const rows = await this.productMasterService.modelSuggestions(id);
+    return rows.map((r) => ({ reason: r.reason, sellerSku: r.sellerSku, model: toModelResponse(r.model) }));
   }
 }

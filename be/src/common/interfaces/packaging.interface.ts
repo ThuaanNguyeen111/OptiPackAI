@@ -21,6 +21,8 @@ export interface PackableItem {
   // BỔ SUNG (21/09/2026) — chỉ dùng cho hướng dẫn/hình 3D, engine bỏ qua.
   /** Giá trị của enum ProductCategory (common/enums). */
   product_category?: string | null;
+  /** AOFP-352 — mô hình 3D của SKU (ObjectId trong product_models); chỉ để chụp vào kế hoạch, engine bỏ qua. */
+  model_id?: { toString(): string } | null;
   /** Mã túi zip bọc món này; null = không dùng túi. */
   zip_bag_code?: string | null;
   zip_bag_folded?: boolean;

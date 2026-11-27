@@ -26,6 +26,7 @@ import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ProductMasterModule } from './modules/product-master/product-master.module';
+import { ProductModelsModule } from './modules/product-models/product-models.module';
 import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
 import { PackingModule } from './modules/packing/packing.module';
@@ -90,6 +91,7 @@ import { HistoryModule } from './modules/history/history.module';
     OrdersModule,
     // MỚI (2026-09-09) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
     ProductMasterModule,
+    ProductModelsModule, // AOFP-352 — thư viện mô hình 3D
     OrderGroupsModule,
     PackagingModule,
     PackingModule,

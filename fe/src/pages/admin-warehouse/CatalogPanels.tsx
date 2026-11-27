@@ -38,6 +38,7 @@ import {
 import { listCategories, openWarehouseDocument, skuLabelsDocumentPath } from '../../api/warehouse.api'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { ModelPicker } from '../../components/packing/ModelPicker'
 import {
   Dialog,
   DialogContent,
@@ -1119,6 +1120,7 @@ function PackagingProfileForm({
   const [outer, setOuter] = useState<OuterRequirement | ''>(row?.outerRequirement ?? '')
   const [gsm, setGsm] = useState(row?.fabricGsm != null ? String(row.fabricGsm) : '')
   const [saved, setSaved] = useState<ProductMasterRow | null>(null)
+  const [modelId, setModelId] = useState<string | null>(row?.modelId ?? null)
   const canFold = FOLDABLE_CATEGORIES.has(category)
   // AOFP-318 — quần áo (6 loại gập được) có ô GSM và được bỏ trống độ dày.
   const garment = canFold
@@ -1140,6 +1142,7 @@ function PackagingProfileForm({
           return
         }
         if (gsmValue !== null && !Number.isFinite(gsmValue)) return
+        if (!modelId) return
         setSaved(null)
         void onSave({
           length_cm: length,
@@ -1155,6 +1158,7 @@ function PackagingProfileForm({
           zip_bag_folded: zipBag.trim() !== '' && zipFolded,
           can_fold_in_half: canFold ? fold : false,
           outer_requirement: outer === '' ? null : outer,
+          model_id: modelId,
         }).then((result) => {
           if (!result) return
           setSaved(result)
@@ -1282,7 +1286,16 @@ function PackagingProfileForm({
           </span>
         )}
       </label>
-      <Button type="submit" className="h-9 text-xs" disabled={busy}>
+      <ModelPicker
+        vi={vi}
+        productMasterId={row.id}
+        sellerSku={row.sellerSku}
+        category={category}
+        dimsCm={[Number(lengthCm) || 0, Number(widthCm) || 0, Number(heightCm) || 0]}
+        value={modelId}
+        onChange={setModelId}
+      />
+      <Button type="submit" className="h-9 text-xs" disabled={busy || !modelId}>
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
         {vi ? 'Lưu hồ sơ' : 'Save profile'}
       </Button>

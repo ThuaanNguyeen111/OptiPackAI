@@ -55,6 +55,7 @@ function makeService(models: {
 const ready = {
   seller_sku: 'A',
   packaging_profile_status: 'ready',
+  model_id: new Types.ObjectId(),
   is_fragile: false,
   dimension: { package_length_cm: 30, package_width_cm: 20, package_height_cm: 5, package_weight_kg: 0.4 },
 };
@@ -77,6 +78,12 @@ describe('Nhóm kẹt đóng gói vì SKU chưa đo', () => {
     const find = jest.fn(() => ({ lean: () => Promise.resolve([ready, { seller_sku: 'B', packaging_profile_status: 'needs_measurement' }]) }));
     const service = makeService({ productMasterModel: { find } });
     expect(await service.unreadyPackagingSkus(MarketplacePlatform.AURELLE, 'S1', ['A', 'B', 'C'])).toEqual(['B', 'C']);
+  });
+
+  it('AOFP-352: đủ số đo nhưng chưa có mô hình 3D → vẫn chưa sẵn sàng', async () => {
+    const find = jest.fn(() => ({ lean: () => Promise.resolve([{ ...ready, seller_sku: 'D', model_id: null }]) }));
+    const service = makeService({ productMasterModel: { find } });
+    expect(await service.unreadyPackagingSkus(MarketplacePlatform.AURELLE, 'S1', ['D'])).toEqual(['D']);
   });
 
   it('skusFromProfileFailure: đọc danh sách SKU từ lý do kế hoạch hỏng cũ', () => {
@@ -130,7 +137,7 @@ describe('Nhóm kẹt đóng gói vì SKU chưa đo', () => {
       { updateMany: planUpdateMany } as never,
     );
     await service.confirmPackagingProfile(product._id.toString(), new Types.ObjectId().toString(), {
-      length_cm: 30, width_cm: 20, height_cm: 5, weight_kg: 0.4, is_fragile: false, orientation_rule: 'any', product_category: ProductCategory.T_SHIRT,
+      length_cm: 30, width_cm: 20, height_cm: 5, weight_kg: 0.4, is_fragile: false, orientation_rule: 'any', product_category: ProductCategory.T_SHIRT, model_id: new Types.ObjectId().toString(),
     });
     expect(groupFind).toHaveBeenCalledWith(expect.objectContaining({ packing_blocked_skus: 'SLL-BRN-37', fulfillment_status: GroupFulfillmentStatus.PICKED }));
     expect(planUpdateMany).toHaveBeenCalledWith(

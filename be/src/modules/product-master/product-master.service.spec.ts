@@ -43,6 +43,7 @@ describe('ProductMasterService', () => {
       is_fragile: false,
       orientation_rule: 'any',
       product_category: ProductCategory.T_SHIRT,
+      model_id: '6745f0c2a1b2c3d4e5f60718',
       ...zip,
     };
   }

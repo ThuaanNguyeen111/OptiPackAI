@@ -144,6 +144,7 @@ function isPackagingProfileReady(
     | {
         packaging_profile_status?: string;
         is_fragile?: boolean;
+        model_id?: unknown;
         dimension?: {
           package_length_cm?: number;
           package_width_cm?: number;
@@ -157,6 +158,8 @@ function isPackagingProfileReady(
   return (
     product?.packaging_profile_status === 'ready' &&
     product.is_fragile !== undefined &&
+    // AOFP-352 — thiếu mô hình 3D cũng chặn (migrate đã gắn cho mọi SKU cũ; reason missing_model).
+    product.model_id != null &&
     d?.package_length_cm !== undefined &&
     d.package_width_cm !== undefined &&
     d.package_height_cm !== undefined &&
@@ -736,15 +739,24 @@ export class OrderGroupsService {
     const notReady = skus.filter((sku) => !isPackagingProfileReady(productMap.get(sku)));
     if (notReady.length > 0) {
       const missingMaster = notReady.some((sku) => !productMap.has(sku));
+      // Chỉ thiếu mô hình 3D (số đo đã đủ) → báo riêng để FE dẫn tới mục Mô hình 3D.
+      const onlyModel =
+        !missingMaster &&
+        notReady.every((sku) => {
+          const p = productMap.get(sku);
+          return isPackagingProfileReady({ packaging_profile_status: p?.packaging_profile_status, is_fragile: p?.is_fragile, dimension: p?.dimension, model_id: true });
+        });
       throw new AppException(
         ORD_GROUP_ERROR_CODES.PACKAGING_PROFILE_NOT_READY,
-        `SKU ${notReady.join(', ')} chưa có hồ sơ đóng gói được kho xác nhận (đủ số đo và độ nhạy).`,
+        onlyModel
+          ? `SKU ${notReady.join(', ')} chưa có mô hình 3D — chọn mô hình trong hồ sơ đóng gói.`
+          : `SKU ${notReady.join(', ')} chưa có hồ sơ đóng gói được kho xác nhận (đủ số đo và độ nhạy).`,
         HttpStatus.UNPROCESSABLE_ENTITY,
         {
           groupId,
           sku: notReady[0],
           skus: notReady,
-          reason: missingMaster ? 'missing_product_master' : 'needs_measurement',
+          reason: missingMaster ? 'missing_product_master' : onlyModel ? 'missing_model' : 'needs_measurement',
         },
       );
     }
@@ -778,6 +790,7 @@ export class OrderGroupsService {
         orientation_rule: product.orientation_rule ?? 'any',
         max_stack_load_kg: product.max_stack_load_kg ?? null,
         product_category: product.product_category ?? null,
+        model_id: product.model_id ?? null,
         zip_bag_code: product.zip_bag_code ?? null,
         zip_bag_folded: product.zip_bag_folded ?? false,
         can_fold_in_half: product.can_fold_in_half ?? false,

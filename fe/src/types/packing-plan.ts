@@ -1,3 +1,5 @@
+import type { PrimitiveSpec } from '../components/packing/scene/primitives'
+
 /** Khớp response `GET /order-groups/:groupId/packing-plan` — chỉ các field màn đóng gói đang đọc. */
 
 export type PackingMm = {
@@ -35,12 +37,27 @@ export type PackingPlacement = {
   orderId?: string | null
 }
 
+/** AOFP-352 — ảnh chụp mô hình 3D lúc tính kế hoạch (thư viện /product-models). */
+export type PackingItemModel = {
+  id: string
+  version: number
+  source: 'category' | 'upload' | 'primitive'
+  kind: 'garment' | 'rigid'
+  /** category: đường dẫn tĩnh /models/…; upload: URL Cloudinary. */
+  url: string | null
+  /** Đợt 2 — file áo trải phẳng không có xương gập: FE tự dựng bước gập. */
+  auto_fold?: boolean
+  primitive: PrimitiveSpec | null
+}
+
 /** Hồ sơ SKU chụp lúc tính kế hoạch — nối với placement theo `sku`. */
 export type PackingItemProfile = {
   sku: string
   productCategory: string | null
   zipBagCode: string | null
   zipBagFolded: boolean
+  /** null/thiếu = kế hoạch trước thư viện mô hình → dùng mô hình theo loại. */
+  model?: PackingItemModel | null
 }
 
 export type PackingPlanParcel = {

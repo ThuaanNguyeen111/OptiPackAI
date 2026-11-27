@@ -1,5 +1,6 @@
 import { Warehouse, WarehouseSchema } from '../warehouse/schemas/warehouse.schema';
 import { Module } from '@nestjs/common';
+import { ProductModelsModule } from '../product-models/product-models.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrderGroup, OrderGroupSchema } from '../order-groups/schemas/order-group.schema';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
@@ -68,6 +69,7 @@ import {
     PackagingModule,
     PackagingMaterialsModule, // thu hồi thùng khi tháo kiện
     NotificationsModule,
+    ProductModelsModule, // AOFP-352 — chụp mô hình 3D vào kế hoạch
   ],
   controllers: [PackingPlanController, PackingPlansController, PackingSettingsController],
   providers: [
