@@ -242,6 +242,8 @@ Ghi tại `utils/item-profiles.util.ts` khi tạo kế hoạch.
 | `PATCH /product-models/:id` | người tạo hoặc Admin | tên, nguồn; thông số primitive → `version + 1` |
 | `PUT /product-models/:id/file` | Admin | R12 |
 | `POST /product-models/:id/retire`, `/restore` | Admin | R13 |
+| `POST /product-models/:id/assign` `{ product_category?, from_model_id?, q?, dry_run }` | Admin | Đợt 2 — gắn hàng loạt; cần ≥ 1 bộ lọc; SKU khác loại bị bỏ qua, trả `{ matched, assigned, alreadyUsing, skipped[] }` |
+| `POST /product-models/:id/versions/:version/restore` | Admin | Đợt 2 — nội dung bản cũ thành phiên bản mới (`version + 1`), bản đang dùng vào `history` |
 | `POST /product-models/:id/preview` | quyền xác nhận hồ sơ | ảnh PNG chụp từ canvas (đi đường ảnh hiện có) |
 | `GET /product-master/:id/model-suggestions` | như form SKU | cùng `master_sku` → cùng tiền tố mẫu → theo loại |
 | `PUT /product-master/:id/model` `{ model_id }` | quyền xác nhận hồ sơ | R2, R4 |
@@ -342,10 +344,7 @@ Chạy jest sau mỗi lần merge (xung đột ngữ nghĩa không bị tsc bắ
 
 ## 8. Đợt 2 (đã thống nhất, ngoài MVP)
 
-> **Đã code 27/11/2026**, lệch so với mô tả dưới đây:
-> - Gập tự động không sinh clip mà uốn bằng shader (`PackingScene` — bản lề mép `uSide*`, hàm thuần `sideFoldAt`/`sideFoldAxis` ở `fe/src/utils/fold-pose.ts`), dùng chung gập đôi / gập tư với hàng hộp. "Trải phẳng" = trục Y ≤ 20% cạnh ngắn mặt sàn (`isFlatLayout`); không trải phẳng và không có xương → từ chối `PM3D_GARMENT_RIG_MISSING`.
-> - Túi zip của mô hình gập tự động là khối trong suốt (chưa tách file túi chung, không có clip kéo khoá).
-> - Gắn hàng loạt: `POST /product-models/:id/assign` (Admin) lọc theo loại / mô hình đang dùng / mã SKU, `dry_run` đếm trước; SKU khác loại bị bỏ qua. Lịch sử: `GET /product-models/:id` trả `history[]`, tab Mô hình 3D bấm bản cũ để xem lại. Chưa có "khôi phục bản cũ".
+> **Đã code 27/11/2026** (gập tự động, gắn hàng loạt, lịch sử có xem lại + khôi phục). Chỗ làm khác mô tả dưới đây: xem §10.
 
 - **Gập tự động** cho file quần áo trải phẳng: chia lưới theo mặt phẳng gập (hai bên ~1/4 chiều rộng → gập đôi → gập tư, khớp `MAX_FOLDS = 2`), sinh clip biến dạng; túi zip dùng file túi chung tách từ mô hình hiện có. Nhãn "Bước gập tự tạo". File không trải phẳng → từ chối.
 - Thay mô hình hàng loạt theo bộ lọc; lịch sử phiên bản có xem lại.
@@ -358,3 +357,20 @@ Chạy jest sau mỗi lần merge (xung đột ngữ nghĩa không bị tsc bắ
 - Nguồn/giấy phép của 9 mô hình theo loại hiện vẫn trống trong `CREDITS.md` — cần điền trước khi coi là "Mô hình theo loại" chính thức.
 - Đọc `orientation` thay cho ghép trục dài nhất sẽ đổi cách hiển thị **mọi** kế hoạch; cần so ảnh trước/sau trên vài kế hoạch thật.
 - `sandals` sau migrate dùng Hình đại diện (hộp) dù dép không phải hộp — chấp nhận tạm, theo dõi bằng bộ lọc.
+
+## 10. Chỗ code khác spec (cập nhật 27/11/2026)
+
+Ghi lại để người đọc spec không tìm thứ không có trong code. Cột "Vì sao" là lý do chọn; cột "Khi nào làm theo spec" là điều kiện đáng quay lại.
+
+| Spec viết | Code làm | Vì sao | Khi nào làm theo spec |
+|---|---|---|---|
+| Quyền riêng `product_models` trong `FEATURE_VALUES` (§5.2) | Không thêm khoá; `/product-models` dùng cùng `@Features` với `/product-master` (inventory, picking, packing, orders, order_groups, packaging_rules) | Role đã lưu quyền trong DB không bị khoá khỏi thư viện sau deploy | Khi cần tách quyền thư viện khỏi quyền hồ sơ SKU |
+| Đọc GLB bằng `@gltf-transform/core` (Q5, §5.5) | Tự đọc header + JSON chunk (`glb-inspect.ts`) | Chỉ cần khối bao, số mesh, tên node xương — không đáng thêm phụ thuộc | Khi cần sửa / nén file ở server |
+| `POST /product-models/:id/preview`, trường `preview_url` (§5.1–5.2) | Không có; xem trước vẽ trực tiếp bằng canvas (`ModelPreview`) | Thư viện nhỏ, vẽ trực tiếp đủ nhanh | Khi danh sách lớn làm chậm màn chọn |
+| `model_id` bắt buộc khi xác nhận hồ sơ (R1–R2) | Tuỳ chọn; thiếu thì giữ mô hình đang gắn nếu hợp loại, không thì lấy mô hình theo loại (`resolveForConfirm`) | App mobile chưa gửi `model_id` | Khi app mobile có bước chọn mô hình |
+| `PATCH /product-models/:id`: người tạo hoặc Admin | Kho + Admin sửa tên / nguồn; đổi thông số hình chỉ Admin | Không lưu "người tạo" để so khi kiểm quyền; đổi hình ảnh hưởng mọi SKU nên giữ cho Admin | Khi cần khoá sửa tên theo người tạo |
+| Viewer giãn mọi mô hình theo `orientation` (§5.4) | Chỉ mô hình riêng + hình cơ bản dùng `orientedFit`; mô hình theo loại giữ cách khớp cũ (`fitToBlock`) | Clip gập của file theo loại căn theo cách khớp cũ; đổi sẽ lệch mọi kế hoạch đang có | Sau khi so ảnh trước/sau trên kế hoạch thật |
+| Gập tự động sinh clip biến dạng (§8) | Uốn bằng shader khi vẽ: bản lề mép `uSide*` trong `PackingScene`, hàm thuần `sideFoldAt` / `sideFoldAxis` (`fe/src/utils/fold-pose.ts`); gập đôi / gập tư dùng chung `foldPoseAt`. Trải phẳng = trục Y ≤ 20% cạnh ngắn mặt sàn (`isFlatLayout`) | Chạy với mọi file, server không phải xử lý file | Khi nơi khác (app mobile) cần phát động tác gập không qua trình xem này |
+| Túi zip dùng file túi chung tách từ mô hình có sẵn (§8) | Khối trong suốt ôm món, mờ dần vào ở bước túi zip, gập theo món; không có clip kéo khoá | Chưa có SKU nào dùng gập tự động | Khi có SKU thật dùng mô hình gập tự động |
+| Lịch sử phiên bản "có xem lại" (§8) | Xem lại + Admin khôi phục: nội dung bản cũ thành phiên bản **mới** (không lùi số), bản đang dùng vào lịch sử | Kế hoạch đã chụp số phiên bản — lùi số sẽ trùng số với nội dung khác | — |
+| — | Bản ghi lịch sử từ trước khi có khôi phục (thiếu khối bao / cờ gập) bị từ chối khôi phục (`PM3D_HISTORY_INCOMPLETE`) | Thời điểm thêm chức năng chưa có lần thay file nào trên DB thật | Khi gặp thật: tải file cũ về đọc lại khối bao |

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Put,
@@ -104,6 +105,17 @@ export class ProductModelsController {
     @CurrentUser() user: AuthenticatedUser,
   ): ReturnType<ProductModelsService['bulkAssign']> {
     return this.service.bulkAssign(id, dto, user.userId);
+  }
+
+  @Post(':id/versions/:version/restore')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin khôi phục bản cũ: nội dung bản đó thành phiên bản mới; mọi SKU đang dùng đổi hình, kế hoạch đã lưu giữ hình cũ.' })
+  async restoreVersion(
+    @Param('id') id: string,
+    @Param('version', ParseIntPipe) version: number,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Record<string, unknown>> {
+    return toModelResponse(await this.service.restoreVersion(id, version, user.userId));
   }
 
   @Post(':id/retire')

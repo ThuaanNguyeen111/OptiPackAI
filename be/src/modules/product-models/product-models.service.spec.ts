@@ -43,8 +43,9 @@ describe('AOFP-352 — resolveForConfirm (app mobile chưa gửi model_id)', () 
 
 describe('Đợt 2 — gắn mô hình hàng loạt theo bộ lọc', () => {
   const bottle = { _id: new Types.ObjectId(), source: 'primitive', kind: 'rigid', has_fold_rig: false, status: 'active', primitive: { shape: 'bottle' } };
+  const assignable = { _id: new Types.ObjectId(), product_category: 'other', model_id: placeholder._id };
   const rows = [
-    { _id: new Types.ObjectId(), product_category: 'other', model_id: placeholder._id },
+    assignable,
     { _id: new Types.ObjectId(), product_category: 'other', model_id: bottle._id },
     { _id: new Types.ObjectId(), product_category: 't_shirt', model_id: tshirt._id },
     { _id: new Types.ObjectId(), product_category: 't_shirt', model_id: tshirt._id },
@@ -61,7 +62,7 @@ describe('Đợt 2 — gắn mô hình hàng loạt theo bộ lọc', () => {
     const { svc, updateMany } = make();
     const r = await svc.bulkAssign(bottle._id.toString(), { q: 'A', dry_run: true }, new Types.ObjectId().toString());
     expect(r).toMatchObject({ matched: 4, assigned: 1, alreadyUsing: 1, dryRun: true });
-    expect(r.skipped).toEqual([{ productCategory: 't_shirt', count: 2, reason: expect.any(String) }]);
+    expect(r.skipped).toEqual([{ productCategory: 't_shirt', count: 2, reason: expect.any(String) as string }]);
     expect(updateMany).not.toHaveBeenCalled();
   });
 
@@ -69,7 +70,7 @@ describe('Đợt 2 — gắn mô hình hàng loạt theo bộ lọc', () => {
     const { svc, updateMany, find } = make();
     await svc.bulkAssign(bottle._id.toString(), { from_model_id: placeholder._id.toString() }, new Types.ObjectId().toString());
     expect(find).toHaveBeenCalledWith({ model_id: placeholder._id });
-    expect(updateMany).toHaveBeenCalledWith({ _id: { $in: [rows[0]._id] } }, { $set: { model_id: bottle._id } });
+    expect(updateMany).toHaveBeenCalledWith({ _id: { $in: [assignable._id] } }, { $set: { model_id: bottle._id } });
   });
 
   it('không có bộ lọc → từ chối', async () => {
@@ -77,5 +78,53 @@ describe('Đợt 2 — gắn mô hình hàng loạt theo bộ lọc', () => {
     await expect(svc.bulkAssign(bottle._id.toString(), {}, new Types.ObjectId().toString())).rejects.toMatchObject({
       errorCode: 'PM3D_BULK_FILTER_REQUIRED',
     });
+  });
+});
+
+describe('Đợt 2 — khôi phục bản cũ', () => {
+  const file = (n: number) => ({ url: `https://cdn/v${String(n)}.glb`, public_id: `p${String(n)}`, bytes: 1, sha256: null });
+  const base = {
+    _id: new Types.ObjectId(),
+    name: 'Chai',
+    source: 'upload',
+    kind: 'rigid',
+    version: 3,
+    status: 'active',
+    file: file(3),
+    bbox_m: { x: 0.1, y: 0.2, z: 0.1 },
+    has_fold_rig: false,
+    auto_fold: false,
+    history: [
+      { version: 2, file: file(2), primitive: null, bbox_m: { x: 0.05, y: 0.2, z: 0.05 }, has_fold_rig: false, auto_fold: false, replaced_at: new Date() },
+      { version: 1, file: file(1), primitive: null, bbox_m: null, has_fold_rig: null, auto_fold: null, replaced_at: new Date() },
+    ],
+  };
+  function make(): { svc: ProductModelsService; update: jest.Mock } {
+    const lean = (v: unknown) => ({ lean: () => Promise.resolve(v) });
+    const update = jest.fn((_f: unknown, u: { $set: Record<string, unknown> }) => lean({ ...base, ...u.$set, version: 4 }));
+    const modelModel = { findById: () => lean(base), findOneAndUpdate: update };
+    return { svc: new ProductModelsService(modelModel as never, {} as never), update };
+  }
+
+  it('nội dung bản cũ thành phiên bản mới, bản đang dùng vào lịch sử; khoá lạc quan theo version', async () => {
+    const { svc, update } = make();
+    const r = await svc.restoreVersion(base._id.toString(), 2, new Types.ObjectId().toString());
+    expect(r.version).toBe(4);
+    const [filter, u] = update.mock.calls[0] as [Record<string, unknown>, Record<string, Record<string, unknown>>];
+    expect(filter).toEqual({ _id: base._id, version: 3 });
+    expect(u.$set).toMatchObject({ file: file(2), bbox_m: { x: 0.05, y: 0.2, z: 0.05 } });
+    expect(u.$inc).toEqual({ version: 1 });
+    expect(u.$push).toMatchObject({ history: { version: 3, file: file(3), bbox_m: base.bbox_m, has_fold_rig: false } });
+  });
+
+  it('bản ghi cũ thiếu thông số file → từ chối, không ghi', async () => {
+    const { svc, update } = make();
+    await expect(svc.restoreVersion(base._id.toString(), 1, new Types.ObjectId().toString())).rejects.toMatchObject({
+      errorCode: 'PM3D_HISTORY_INCOMPLETE',
+    });
+    await expect(svc.restoreVersion(base._id.toString(), 9, new Types.ObjectId().toString())).rejects.toMatchObject({
+      errorCode: 'PM3D_VERSION_NOT_FOUND',
+    });
+    expect(update).not.toHaveBeenCalled();
   });
 });

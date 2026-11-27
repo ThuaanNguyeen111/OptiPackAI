@@ -4,6 +4,7 @@ import {
   bulkAssignModel,
   createPrimitiveModel,
   getProductModel,
+  restoreModelVersion,
   listProductModels,
   replaceProductModelFile,
   setProductModelStatus,
@@ -263,11 +264,14 @@ function HistoryList({
   history,
   viewing,
   onView,
+  onRestore,
 }: {
   vi: boolean
   history: ModelHistoryEntry[]
   viewing: number | null
   onView: (version: number | null) => void
+  /** Chỉ Admin; không truyền = ẩn nút. */
+  onRestore?: (version: number) => void
 }): ReactNode {
   if (history.length === 0) return <p className="text-[11px] text-ink-muted">{vi ? 'Chưa có bản cũ.' : 'No earlier versions.'}</p>
   return (
@@ -281,6 +285,11 @@ function HistoryList({
           >
             v{h.version} · {vi ? 'thay lúc' : 'replaced'} {new Date(h.replacedAt).toLocaleString(vi ? 'vi-VN' : 'en-US')}
           </button>
+          {onRestore && viewing === h.version ? (
+            <button type="button" className="ml-2 mt-1 rounded px-2 py-1 text-[11px] text-ink underline hover:bg-surface-2" onClick={() => onRestore(h.version)}>
+              {vi ? 'Khôi phục bản này' : 'Restore this version'}
+            </button>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -639,7 +648,24 @@ export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (mes
                 {vi ? `Lịch sử phiên bản (hiện tại v${String(selected.version)})` : `Versions (current v${String(selected.version)})`}
               </p>
               {historyItems ? (
-                <HistoryList vi={vi} history={historyItems} viewing={viewing} onView={setViewing} />
+                <HistoryList
+                  vi={vi}
+                  history={historyItems}
+                  viewing={viewing}
+                  onView={setViewing}
+                  onRestore={
+                    isAdmin
+                      ? (v) => {
+                          const msg = vi
+                            ? `Khôi phục "${selected.name}" về nội dung v${String(v)}? Thành phiên bản mới v${String(selected.version + 1)}; ${String(selected.usageCount ?? 0)} SKU đang dùng đổi hình, kế hoạch đã lưu giữ hình cũ.`
+                            : `Restore v${String(v)} as a new version?`
+                          if (!window.confirm(msg)) return
+                          setViewing(null)
+                          void act(() => restoreModelVersion(selected.id, v), vi ? `Đã khôi phục nội dung v${String(v)}.` : 'Restored.')
+                        }
+                      : undefined
+                  }
+                />
               ) : (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-muted" />
               )}

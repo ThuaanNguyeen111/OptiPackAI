@@ -43,7 +43,9 @@ export interface ModelFileInput {
   size: number;
 }
 
-export function toSnapshot(m: ProductModelLean): ModelSnapshot {
+export function toSnapshot(
+  m: Pick<ProductModelLean, '_id' | 'version' | 'source' | 'kind' | 'file' | 'primitive' | 'auto_fold'>,
+): ModelSnapshot {
   return {
     id: m._id.toString(),
     version: m.version,
@@ -85,6 +87,19 @@ export function toModelResponse(m: ProductModelLean, usageCount?: number): Recor
     usageCount: usageCount ?? null,
     createdAt: m.created_at ?? null,
     updatedAt: m.updated_at ?? null,
+  };
+}
+
+/** Bản hiện tại đưa vào lịch sử trước khi bị thay — đủ thông số để khôi phục lại. */
+function historyEntry(m: ProductModelLean): Record<string, unknown> {
+  return {
+    version: m.version,
+    file: m.source === 'primitive' ? null : m.file,
+    primitive: m.source === 'primitive' ? m.primitive : null,
+    bbox_m: m.bbox_m ?? null,
+    has_fold_rig: m.has_fold_rig,
+    auto_fold: m.auto_fold ?? false,
+    replaced_at: new Date(),
   };
 }
 
@@ -155,12 +170,20 @@ export class ProductModelsService {
     return {
       ...toModelResponse(model, usedBy.length),
       // Đợt 2 — lịch sử phiên bản để xem lại hình cũ (mới nhất trước). File cũ không bị xoá khi thay.
-      history: [...(model.history ?? [])]
+      history: [...model.history]
         .sort((a, b) => b.version - a.version)
         .map((h) => ({
           version: h.version,
           replacedAt: h.replaced_at,
-          snapshot: toSnapshot({ ...model, version: h.version, file: h.file, primitive: h.primitive }),
+          snapshot: toSnapshot({
+            _id: model._id,
+            source: model.source,
+            kind: model.kind,
+            version: h.version,
+            file: h.file,
+            primitive: h.primitive,
+            auto_fold: h.auto_fold ?? false,
+          }),
         })),
       usedBy: usedBy.map((p) => ({
         id: (p as { _id: Types.ObjectId })._id.toString(),
@@ -274,7 +297,7 @@ export class ProductModelsService {
               updated_by: new Types.ObjectId(userId),
             },
             $inc: { version: 1 },
-            $push: { history: { version: model.version, file: model.file, primitive: null, replaced_at: new Date() } },
+            $push: { history: historyEntry(model) },
           },
           { returnDocument: 'after' },
         )
@@ -314,12 +337,50 @@ export class ProductModelsService {
         cap_color: dto.cap_color === undefined ? current.cap_color : dto.cap_color,
       };
       update.$inc = { version: 1 };
-      update.$push = { history: { version: model.version, file: null, primitive: current, replaced_at: new Date() } };
+      update.$push = { history: historyEntry(model) };
     }
     const updated = await this.modelModel
       .findOneAndUpdate({ _id: model._id, version: model.version }, update, { returnDocument: 'after', runValidators: true })
       .lean<ProductModelLean>();
     if (!updated) throw new AppException(E.NOT_FOUND, 'Mô hình vừa bị người khác sửa — tải lại rồi thử lại.', HttpStatus.CONFLICT, { id });
+    return updated;
+  }
+
+  /**
+   * Đợt 2 — Admin khôi phục bản cũ: nội dung bản cũ thành phiên bản MỚI (version + 1), bản đang dùng vào lịch sử.
+   * Không sửa lùi số phiên bản — kế hoạch đã lưu chụp số nào vẫn đúng số đó. File cũ không bị xoá khi thay nên còn tải được.
+   */
+  async restoreVersion(id: string, version: number, userId: string): Promise<ProductModelLean> {
+    const model = await this.findById(id);
+    const entry = model.history.find((h) => h.version === version);
+    if (!entry) {
+      throw new AppException(E.VERSION_NOT_FOUND, `Không có bản v${String(version)} trong lịch sử mô hình.`, HttpStatus.NOT_FOUND, { id, version });
+    }
+    const set: Record<string, unknown> = { updated_by: new Types.ObjectId(userId) };
+    if (model.source === 'primitive') {
+      if (!entry.primitive) throw new AppException(E.HISTORY_INCOMPLETE, 'Bản cũ không có thông số hình.', HttpStatus.UNPROCESSABLE_ENTITY, { id, version });
+      set.primitive = entry.primitive;
+    } else {
+      // shortcut: bản ghi lịch sử trước đợt 2 thiếu khối bao / cờ gập → từ chối thay vì tải file về đọc lại; thêm tải lại nếu gặp thật.
+      if (!entry.file || !entry.bbox_m || entry.has_fold_rig == null) {
+        throw new AppException(
+          E.HISTORY_INCOMPLETE,
+          'Bản cũ này lưu trước khi có chức năng khôi phục, thiếu thông số file — tải lại file đó bằng "Thay file".',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          { id, version },
+        );
+      }
+      Object.assign(set, { file: entry.file, bbox_m: entry.bbox_m, has_fold_rig: entry.has_fold_rig, auto_fold: entry.auto_fold ?? false });
+    }
+    const updated = await this.modelModel
+      .findOneAndUpdate(
+        { _id: model._id, version: model.version },
+        { $set: set, $inc: { version: 1 }, $push: { history: historyEntry(model) } },
+        { returnDocument: 'after' },
+      )
+      .lean<ProductModelLean>();
+    if (!updated) throw new AppException(E.NOT_FOUND, 'Mô hình vừa bị người khác sửa — tải lại rồi thử lại.', HttpStatus.CONFLICT, { id });
+    this.logger.log(`Khôi phục mô hình ${model.name} về nội dung v${String(version)} → v${String(updated.version)} (bởi ${userId}).`);
     return updated;
   }
 

@@ -65,6 +65,10 @@ export class ModelFileVersion {
   @Prop({ type: Number, required: true }) version!: number;
   @Prop({ type: ModelFileSchema, default: null }) file!: ModelFile | null;
   @Prop({ type: PrimitiveSpecSchema, default: null }) primitive!: PrimitiveSpec | null;
+  /** Đợt 2 — kèm thông số file để khôi phục được bản cũ. null = bản ghi trước khi có khôi phục. */
+  @Prop({ type: ModelBBoxSchema, default: null }) bbox_m!: ModelBBox | null;
+  @Prop({ type: Boolean, default: null }) has_fold_rig!: boolean | null;
+  @Prop({ type: Boolean, default: null }) auto_fold!: boolean | null;
   @Prop({ type: Date, required: true }) replaced_at!: Date;
 }
 export const ModelFileVersionSchema = SchemaFactory.createForClass(ModelFileVersion);
@@ -85,7 +89,8 @@ export class ProductModel {
   @Prop({ type: ModelBBoxSchema, default: null }) bbox_m!: ModelBBox | null;
   @Prop({ type: Boolean, default: false }) has_fold_rig!: boolean;
   /** Đợt 2 — file quần áo trải phẳng, không có xương gập: FE tự dựng bước gập (nhãn "Bước gập tự tạo"). */
-  @Prop({ type: Boolean, default: false }) auto_fold!: boolean;
+  // Tuỳ chọn: bản ghi migrate trước đợt 2 không có trường này (lean không điền default).
+  @Prop({ type: Boolean, default: false }) auto_fold?: boolean;
   @Prop({ type: ModelCreditSchema, default: null }) credit!: ModelCredit | null;
   @Prop({ type: String, enum: ['active', 'retired'], default: 'active' }) status!: 'active' | 'retired';
   @Prop({ type: [ModelFileVersionSchema], default: [] }) history!: ModelFileVersion[];

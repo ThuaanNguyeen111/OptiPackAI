@@ -98,6 +98,13 @@ export async function getProductModel(id: string): Promise<ProductModelDetail> {
   return unwrap(await apiRequest<unknown>(`/product-models/${encodeURIComponent(id)}`, { auth: true }))
 }
 
+/** Đợt 2 — Admin khôi phục bản cũ: nội dung bản đó thành phiên bản mới. */
+export async function restoreModelVersion(id: string, version: number): Promise<ProductModelRow> {
+  return unwrap(
+    await apiRequest<unknown>(`/product-models/${encodeURIComponent(id)}/versions/${String(version)}/restore`, { method: 'POST', auth: true }),
+  )
+}
+
 export type BulkAssignResult = {
   matched: number
   assigned: number
