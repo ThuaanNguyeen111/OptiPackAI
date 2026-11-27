@@ -79,14 +79,16 @@ describe('Vòng đời đơn hàng (e2e, Mongo replica set)', () => {
   async function seedCatalog(): Promise<void> {
     const now = new Date();
     // AOFP-352: SKU ready phải có mô hình 3D (cổng missing_model) — gắn hình đại diện như migrate-product-models.
-    const placeholder = await model('ProductModel').create({
+    const placeholderId = new Types.ObjectId();
+    await model('ProductModel').create({
+      _id: placeholderId,
       name: 'Hình đại diện — dựng từ kích thước',
       source: 'primitive',
       kind: 'rigid',
       primitive: { shape: 'box', corner_radius_pct: 0, body_color: '#94a3b8' },
     });
     await model('ProductMaster').create({
-      model_id: placeholder._id,
+      model_id: placeholderId,
       platform: PLATFORM,
       shop_id: SHOP,
       seller_sku: SKU,
