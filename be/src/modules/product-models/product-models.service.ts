@@ -5,9 +5,9 @@ import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import type { ProductCategory } from '../../common/enums/product-category.enum';
 import { ProductMaster, type ProductMasterDocument } from '../product-master/schemas/product-master.schema';
-import type { CreatePrimitiveModelDto, ListModelsQueryDto, UpdateModelDto, UploadModelDto } from './dto/product-model.dto';
+import type { BulkAssignModelDto, CreatePrimitiveModelDto, ListModelsQueryDto, UpdateModelDto, UploadModelDto } from './dto/product-model.dto';
 import { MAX_MODEL_SIZE_M, MIN_MODEL_SIZE_M, inspectGlb } from './glb-inspect';
-import { modelCategoryMismatch, modelSourceLabel } from './model-rules';
+import { isFlatLayout, modelCategoryMismatch, modelSourceLabel } from './model-rules';
 import { deleteModelFile, uploadModelFile } from './model-storage';
 import { PRIMITIVE_PARAM_KEYS, normalizePrimitiveParams, type PrimitiveParams } from './primitive-params';
 import { PRODUCT_MODEL_ERROR_CODES as E } from './product-models.errors';
@@ -24,6 +24,7 @@ export interface ModelSnapshot {
   source: ProductModel['source'];
   kind: ProductModel['kind'];
   url: string | null;
+  auto_fold: boolean;
   primitive: {
     shape: PrimitiveShape;
     corner_radius_pct: number | null;
@@ -49,6 +50,7 @@ export function toSnapshot(m: ProductModelLean): ModelSnapshot {
     source: m.source,
     kind: m.kind,
     url: m.file?.url ?? null,
+    auto_fold: m.auto_fold ?? false,
     primitive: m.primitive
       ? {
           shape: m.primitive.shape,
@@ -76,6 +78,7 @@ export function toModelResponse(m: ProductModelLean, usageCount?: number): Recor
     version: m.version,
     status: m.status,
     hasFoldRig: m.has_fold_rig,
+    autoFold: m.auto_fold ?? false,
     bboxM: m.bbox_m ?? null,
     credit: m.credit ?? null,
     snapshot: toSnapshot(m),
@@ -151,6 +154,14 @@ export class ProductModelsService {
       .lean();
     return {
       ...toModelResponse(model, usedBy.length),
+      // Đợt 2 — lịch sử phiên bản để xem lại hình cũ (mới nhất trước). File cũ không bị xoá khi thay.
+      history: [...(model.history ?? [])]
+        .sort((a, b) => b.version - a.version)
+        .map((h) => ({
+          version: h.version,
+          replacedAt: h.replaced_at,
+          snapshot: toSnapshot({ ...model, version: h.version, file: h.file, primitive: h.primitive }),
+        })),
       usedBy: usedBy.map((p) => ({
         id: (p as { _id: Types.ObjectId })._id.toString(),
         platform: p.platform,
@@ -182,6 +193,7 @@ export class ProductModelsService {
     buffer: Buffer;
     bbox: { x: number; y: number; z: number };
     hasFoldRig: boolean;
+    autoFold: boolean;
   } {
     if (!file || file.size === 0) throw new AppException(E.NO_FILE, 'Chọn file mô hình GLB (field "file").');
     if (file.size > MAX_MODEL_BYTES) {
@@ -205,18 +217,21 @@ export class ProductModelsService {
         { bboxM: inspected.bbox },
       );
     }
-    if (kind === 'garment' && !inspected.hasFoldRig) {
+    // Đợt 2: quần áo không có xương gập vẫn nhận nếu trải phẳng — FE tự dựng bước gập.
+    const autoFold = kind === 'garment' && !inspected.hasFoldRig && isFlatLayout(inspected.bbox);
+    if (kind === 'garment' && !inspected.hasFoldRig && !autoFold) {
       throw new AppException(
         E.GARMENT_RIG_MISSING,
-        'Mô hình quần áo cần có xương gập và clip gập + túi zip (node "zipbag_bottom") để chạy hướng dẫn gập — dùng mô hình theo loại hoặc dựng theo mẫu.',
+        'Mô hình quần áo cần có xương gập (fold_*) + túi zip, hoặc là áo/quần trải phẳng trên mặt sàn (mỏng, trục Y hướng lên) để tự tạo bước gập.',
         HttpStatus.UNPROCESSABLE_ENTITY,
+        { bboxM: inspected.bbox },
       );
     }
-    return { buffer: file.buffer, bbox: inspected.bbox, hasFoldRig: inspected.hasFoldRig };
+    return { buffer: file.buffer, bbox: inspected.bbox, hasFoldRig: inspected.hasFoldRig, autoFold };
   }
 
   async upload(file: ModelFileInput | undefined, dto: UploadModelDto, userId: string): Promise<ProductModelLean> {
-    const { buffer, bbox, hasFoldRig } = this.validateFile(file, dto.kind);
+    const { buffer, bbox, hasFoldRig, autoFold } = this.validateFile(file, dto.kind);
     const stored = await uploadModelFile(buffer);
     try {
       const created = await this.modelModel.create({
@@ -226,6 +241,7 @@ export class ProductModelsService {
         file: { url: stored.url, public_id: stored.publicId, bytes: stored.bytes, sha256: createHash('sha256').update(buffer).digest('hex') },
         bbox_m: bbox,
         has_fold_rig: hasFoldRig,
+        auto_fold: autoFold,
         credit: { type: dto.credit.type, url: dto.credit.url ?? null, license: dto.credit.license ?? null },
         created_by: new Types.ObjectId(userId),
         updated_by: new Types.ObjectId(userId),
@@ -243,7 +259,7 @@ export class ProductModelsService {
     if (model.source === 'primitive') {
       throw new AppException(E.NOT_A_FILE_MODEL, 'Mô hình dựng từ hình cơ bản không có file — sửa thông số thay vì tải file.', HttpStatus.BAD_REQUEST);
     }
-    const { buffer, bbox, hasFoldRig } = this.validateFile(file, model.kind);
+    const { buffer, bbox, hasFoldRig, autoFold } = this.validateFile(file, model.kind);
     const stored = await uploadModelFile(buffer);
     try {
       const updated = await this.modelModel
@@ -254,6 +270,7 @@ export class ProductModelsService {
               file: { url: stored.url, public_id: stored.publicId, bytes: stored.bytes, sha256: createHash('sha256').update(buffer).digest('hex') },
               bbox_m: bbox,
               has_fold_rig: hasFoldRig,
+              auto_fold: autoFold,
               updated_by: new Types.ObjectId(userId),
             },
             $inc: { version: 1 },
@@ -313,6 +330,60 @@ export class ProductModelsService {
       .findByIdAndUpdate(model._id, { $set: { status, updated_by: new Types.ObjectId(userId) } }, { returnDocument: 'after' })
       .lean<ProductModelLean>();
     return updated ?? model;
+  }
+
+  /**
+   * Đợt 2 — Admin gắn một mô hình cho mọi SKU khớp bộ lọc (loại, mô hình đang dùng, mã SKU).
+   * SKU khác loại với mô hình bị bỏ qua (cùng luật với gắn lẻ), không chặn cả lô. dry_run = chỉ đếm.
+   * Không đụng số đo / profile_confirmed_at: dáng không ảnh hưởng phép tính.
+   */
+  async bulkAssign(
+    id: string,
+    dto: BulkAssignModelDto,
+    userId: string,
+  ): Promise<{ matched: number; assigned: number; alreadyUsing: number; skipped: { productCategory: string | null; count: number; reason: string }[]; dryRun: boolean }> {
+    const model = await this.findById(id);
+    if (model.status !== 'active') {
+      throw new AppException(E.MODEL_RETIRED, 'Mô hình đã ngừng dùng — dùng lại trước khi gắn hàng loạt.', HttpStatus.UNPROCESSABLE_ENTITY, { id });
+    }
+    const filter: Record<string, unknown> = {};
+    if (dto.product_category !== undefined) filter.product_category = dto.product_category;
+    if (dto.from_model_id) filter.model_id = this.parseId(dto.from_model_id);
+    const q = dto.q?.trim();
+    if (q) filter.seller_sku = { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+    if (Object.keys(filter).length === 0) {
+      throw new AppException(E.BULK_FILTER_REQUIRED, 'Chọn ít nhất một bộ lọc (loại, mô hình đang dùng hoặc mã SKU).', HttpStatus.BAD_REQUEST);
+    }
+    const rows = await this.productMasterModel
+      .find(filter)
+      .select('product_category model_id')
+      .lean<{ _id: Types.ObjectId; product_category?: string | null; model_id?: Types.ObjectId | null }[]>();
+    const toAssign: Types.ObjectId[] = [];
+    const skippedBy = new Map<string | null, { count: number; reason: string }>();
+    let alreadyUsing = 0;
+    for (const r of rows) {
+      if (r.model_id?.equals(model._id)) {
+        alreadyUsing++;
+        continue;
+      }
+      const category = r.product_category ?? null;
+      const mismatch = modelCategoryMismatch(category, model);
+      if (!mismatch) {
+        toAssign.push(r._id);
+        continue;
+      }
+      const s = skippedBy.get(category) ?? { count: 0, reason: mismatch };
+      s.count++;
+      skippedBy.set(category, s);
+    }
+    const matched = rows.length;
+    const skipped = [...skippedBy].map(([productCategory, v]) => ({ productCategory, ...v }));
+    const dryRun = dto.dry_run ?? false;
+    if (!dryRun && toAssign.length > 0) {
+      await this.productMasterModel.updateMany({ _id: { $in: toAssign } }, { $set: { model_id: model._id } });
+      this.logger.log(`Gắn hàng loạt mô hình ${model.name} cho ${String(toAssign.length)} SKU (bởi ${userId}).`);
+    }
+    return { matched, assigned: toAssign.length, alreadyUsing, skipped, dryRun };
   }
 
   /**

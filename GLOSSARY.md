@@ -103,8 +103,12 @@ Mô hình có sẵn cho cả một loại hàng (áo thun, quần dài, giày…
 _Tránh_: model mặc định, mẫu chung
 
 **Mô hình riêng**:
-File GLB kho tải lên cho một hoặc vài SKU; quần áo phải có xương gập và túi zip mới được nhận.
+File GLB kho tải lên cho một hoặc vài SKU; quần áo phải có xương gập và túi zip, hoặc là file trải phẳng (khi đó dùng **bước gập tự tạo**).
 _Tránh_: model upload, file tự up
+
+**Bước gập tự tạo**:
+Bước gập do hệ thống dựng cho mô hình riêng quần áo trải phẳng không có xương gập: lật hai mép vào giữa, rồi gập đôi / gập tư như thường. Nhãn nguồn: "Mô hình riêng — bước gập tự tạo".
+_Tránh_: auto fold (trong UI), gập giả
 
 **Hình cơ bản**:
 Mô hình hệ thống dựng từ dáng hộp, trụ, chai hoặc tuýp với vài tỉ lệ (vai, cổ, nắp…); không dùng cho quần áo và túi xách. Hộp không bo góc gọi là **hình đại diện**.

@@ -5,6 +5,7 @@ import {
   IsHexColor,
   IsIn,
   IsInt,
+  IsMongoId,
   IsNumber,
   IsOptional,
   IsString,
@@ -25,6 +26,7 @@ import {
   type ModelSource,
   type PrimitiveShape,
 } from '../schemas/product-model.schema';
+import { PRODUCT_CATEGORY_VALUES, type ProductCategory } from '../../../common/enums/product-category.enum';
 
 export class ModelCreditDto {
   @ApiProperty({ enum: CREDIT_TYPES, description: 'self_made = tự dựng; supplier = nhà cung cấp gửi; external = tải từ nguồn ngoài' })
@@ -167,4 +169,28 @@ export class ListModelsQueryDto {
   @Min(1)
   @Max(200)
   limit?: number;
+}
+
+/** Đợt 2 — gắn một mô hình cho mọi SKU khớp bộ lọc (Admin). Cần ít nhất một bộ lọc. */
+export class BulkAssignModelDto {
+  @ApiPropertyOptional({ enum: PRODUCT_CATEGORY_VALUES, description: 'Chỉ SKU thuộc loại này' })
+  @IsOptional()
+  @IsIn(PRODUCT_CATEGORY_VALUES)
+  product_category?: ProductCategory;
+
+  @ApiPropertyOptional({ description: 'Chỉ SKU đang dùng mô hình này (thay mô hình A bằng B)' })
+  @IsOptional()
+  @IsMongoId()
+  from_model_id?: string;
+
+  @ApiPropertyOptional({ description: 'Mã SKU chứa chuỗi này' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  q?: string;
+
+  @ApiPropertyOptional({ default: false, description: 'true = chỉ đếm, không ghi' })
+  @IsOptional()
+  @IsBoolean()
+  dry_run?: boolean;
 }

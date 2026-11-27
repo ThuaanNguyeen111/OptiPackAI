@@ -1,6 +1,6 @@
 import { ProductCategory } from '../../common/enums/product-category.enum';
 import { styleCode } from '../product-master/product-master.service';
-import { modelCategoryMismatch, modelSourceLabel } from './model-rules';
+import { isFlatLayout, modelCategoryMismatch, modelSourceLabel } from './model-rules';
 import { isPlaceholderBox, normalizePrimitiveParams } from './primitive-params';
 
 const garment = { source: 'category' as const, kind: 'garment' as const, has_fold_rig: true };
@@ -50,5 +50,21 @@ describe('AOFP-352 — mã mẫu để gợi ý mô hình', () => {
     expect(styleCode('TS-BASIC-L')).toBe('TS-BASIC');
     expect(styleCode('SERUM_30ML')).toBe('SERUM');
     expect(styleCode('ABC')).toBeNull();
+  });
+});
+
+describe('Đợt 2 — gập tự động cho file quần áo trải phẳng', () => {
+  it('áo trải phẳng không có xương vẫn hợp với SKU quần áo, nhãn ghi bước gập tự tạo', () => {
+    const flat = { source: 'upload' as const, kind: 'garment' as const, has_fold_rig: false, auto_fold: true };
+    expect(modelCategoryMismatch(ProductCategory.T_SHIRT, flat)).toBeNull();
+    expect(modelCategoryMismatch(ProductCategory.OTHER, flat)).not.toBeNull();
+    expect(modelSourceLabel(flat)).toBe('Mô hình riêng — bước gập tự tạo');
+  });
+
+  it('isFlatLayout: mỏng theo trục Y so với cạnh ngắn của mặt sàn', () => {
+    expect(isFlatLayout({ x: 0.6, y: 0.02, z: 0.7 })).toBe(true);
+    expect(isFlatLayout({ x: 0.6, y: 0.13, z: 0.7 })).toBe(false); // > 20% của 0,6
+    expect(isFlatLayout({ x: 0.3, y: 0.6, z: 0.05 })).toBe(false); // áo dựng đứng
+    expect(isFlatLayout({ x: 0.3, y: 0, z: 0.3 })).toBe(false);
   });
 });

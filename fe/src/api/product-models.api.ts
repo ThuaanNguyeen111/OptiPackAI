@@ -17,6 +17,8 @@ export type ProductModelRow = {
   version: number
   status: 'active' | 'retired'
   hasFoldRig: boolean
+  /** Đợt 2 — file quần áo trải phẳng, bước gập dựng bằng code. */
+  autoFold?: boolean
   bboxM: { x: number; y: number; z: number } | null
   credit: { type: CreditType; url: string | null; license: string | null } | null
   snapshot: PackingItemModel
@@ -86,6 +88,32 @@ export async function setProductModelStatus(id: string, retired: boolean): Promi
   )
 }
 
+export type ModelHistoryEntry = { version: number; replacedAt: string; snapshot: PackingItemModel }
+export type ProductModelDetail = ProductModelRow & {
+  history: ModelHistoryEntry[]
+  usedBy: { id: string; platform: string; shopId: string; sellerSku: string; productCategory: string | null }[]
+}
+
+export async function getProductModel(id: string): Promise<ProductModelDetail> {
+  return unwrap(await apiRequest<unknown>(`/product-models/${encodeURIComponent(id)}`, { auth: true }))
+}
+
+export type BulkAssignResult = {
+  matched: number
+  assigned: number
+  alreadyUsing: number
+  skipped: { productCategory: string | null; count: number; reason: string }[]
+  dryRun: boolean
+}
+
+/** Đợt 2 — Admin gắn mô hình cho mọi SKU khớp bộ lọc. */
+export async function bulkAssignModel(
+  id: string,
+  input: { product_category?: string; from_model_id?: string; q?: string; dry_run: boolean },
+): Promise<BulkAssignResult> {
+  return unwrap(await apiRequest<unknown>(`/product-models/${encodeURIComponent(id)}/assign`, { method: 'POST', body: input, auth: true }))
+}
+
 export async function getModelSuggestions(productMasterId: string): Promise<ModelSuggestion[]> {
   return unwrap(await apiRequest<unknown>(`/product-master/${encodeURIComponent(productMasterId)}/model-suggestions`, { auth: true }))
 }
@@ -102,7 +130,7 @@ export async function setSkuModel(productMasterId: string, modelId: string): Pro
 const GARMENT_CATEGORIES = new Set(['t_shirt', 'shirt', 'jacket', 'shorts', 'trousers', 'dress'])
 
 export function modelFitsCategory(model: ProductModelRow, category: string | null | undefined): boolean {
-  if (category && GARMENT_CATEGORIES.has(category)) return model.kind === 'garment' && model.hasFoldRig && model.source !== 'primitive'
+  if (category && GARMENT_CATEGORIES.has(category)) return model.kind === 'garment' && (model.hasFoldRig || Boolean(model.autoFold)) && model.source !== 'primitive'
   if (model.kind === 'garment') return false
   if (category === 'bag') return model.source !== 'primitive'
   return true

@@ -1,6 +1,6 @@
 # Đặc tả: Mô hình 3D của sản phẩm dùng trong đóng gói
 
-> Trạng thái: **đã chốt nghiệp vụ, chưa code** (27/11/2026). Các quyết định Q1–Q19 được chốt qua phỏng vấn với chủ sản phẩm; mã quyết định ghi trong ngoặc để tra ngược.
+> Trạng thái: **MVP + đợt 2 đã code** (AOFP-352, PR #238; migrate đã chạy DB thật 27/11/2026). Chốt nghiệp vụ 27/11/2026. Các quyết định Q1–Q19 được chốt qua phỏng vấn với chủ sản phẩm; mã quyết định ghi trong ngoặc để tra ngược.
 
 ## 0. Tóm tắt một đoạn
 
@@ -335,12 +335,17 @@ Ví dụ xuyên suốt:
 | 6 | BE: ảnh chụp `item_profiles[].model` + phản hồi kế hoạch | jest AC10, AC14 |
 | 7 | FE: mục Mô hình 3D trong form SKU + xem trước | xem tay AC1–AC7 |
 | 8 | FE: tab Mô hình 3D | xem tay AC4, AC11 |
-| 9 | Chạy migrate DB thật → bật cổng R1/R3 (deploy BE + FE cùng lúc) | AC8, AC9, AC13 |
+| 9 | Chạy migrate DB thật → bật cổng R1/R3 (deploy BE + FE cùng lúc) | AC8, AC9, AC13 — migrate đã chạy 27/11 (900 SKU); SKU tạo sau đó trước khi deploy: chạy lại script (an toàn) |
 | 10 | Tài liệu: `GLOSSARY.md` (mô hình, hình đại diện, hình cơ bản), quy ước xương quần áo, cập nhật `CREDITS.md` | review |
 
 Chạy jest sau mỗi lần merge (xung đột ngữ nghĩa không bị tsc bắt).
 
 ## 8. Đợt 2 (đã thống nhất, ngoài MVP)
+
+> **Đã code 27/11/2026**, lệch so với mô tả dưới đây:
+> - Gập tự động không sinh clip mà uốn bằng shader (`PackingScene` — bản lề mép `uSide*`, hàm thuần `sideFoldAt`/`sideFoldAxis` ở `fe/src/utils/fold-pose.ts`), dùng chung gập đôi / gập tư với hàng hộp. "Trải phẳng" = trục Y ≤ 20% cạnh ngắn mặt sàn (`isFlatLayout`); không trải phẳng và không có xương → từ chối `PM3D_GARMENT_RIG_MISSING`.
+> - Túi zip của mô hình gập tự động là khối trong suốt (chưa tách file túi chung, không có clip kéo khoá).
+> - Gắn hàng loạt: `POST /product-models/:id/assign` (Admin) lọc theo loại / mô hình đang dùng / mã SKU, `dry_run` đếm trước; SKU khác loại bị bỏ qua. Lịch sử: `GET /product-models/:id` trả `history[]`, tab Mô hình 3D bấm bản cũ để xem lại. Chưa có "khôi phục bản cũ".
 
 - **Gập tự động** cho file quần áo trải phẳng: chia lưới theo mặt phẳng gập (hai bên ~1/4 chiều rộng → gập đôi → gập tư, khớp `MAX_FOLDS = 2`), sinh clip biến dạng; túi zip dùng file túi chung tách từ mô hình hiện có. Nhãn "Bước gập tự tạo". File không trải phẳng → từ chối.
 - Thay mô hình hàng loạt theo bộ lọc; lịch sử phiên bản có xem lại.

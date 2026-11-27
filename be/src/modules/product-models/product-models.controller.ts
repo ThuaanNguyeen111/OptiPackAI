@@ -21,7 +21,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { Features } from '../role-permissions/feature-scope';
-import { CreatePrimitiveModelDto, ListModelsQueryDto, UpdateModelDto, UploadModelDto } from './dto/product-model.dto';
+import { BulkAssignModelDto, CreatePrimitiveModelDto, ListModelsQueryDto, UpdateModelDto, UploadModelDto } from './dto/product-model.dto';
 import { MAX_MODEL_BYTES, ProductModelsService, toModelResponse, type ModelFileInput } from './product-models.service';
 
 /**
@@ -93,6 +93,17 @@ export class ProductModelsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<Record<string, unknown>> {
     return toModelResponse(await this.service.replaceFile(id, file, user.userId));
+  }
+
+  @Post(':id/assign')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Admin gắn mô hình cho mọi SKU khớp bộ lọc; SKU khác loại bị bỏ qua. dry_run = chỉ đếm.' })
+  bulkAssign(
+    @Param('id') id: string,
+    @Body() dto: BulkAssignModelDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): ReturnType<ProductModelsService['bulkAssign']> {
+    return this.service.bulkAssign(id, dto, user.userId);
   }
 
   @Post(':id/retire')

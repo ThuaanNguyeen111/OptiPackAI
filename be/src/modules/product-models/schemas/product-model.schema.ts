@@ -84,6 +84,8 @@ export class ProductModel {
   /** Khối bao của file (mét); null với primitive. */
   @Prop({ type: ModelBBoxSchema, default: null }) bbox_m!: ModelBBox | null;
   @Prop({ type: Boolean, default: false }) has_fold_rig!: boolean;
+  /** Đợt 2 — file quần áo trải phẳng, không có xương gập: FE tự dựng bước gập (nhãn "Bước gập tự tạo"). */
+  @Prop({ type: Boolean, default: false }) auto_fold!: boolean;
   @Prop({ type: ModelCreditSchema, default: null }) credit!: ModelCredit | null;
   @Prop({ type: String, enum: ['active', 'retired'], default: 'active' }) status!: 'active' | 'retired';
   @Prop({ type: [ModelFileVersionSchema], default: [] }) history!: ModelFileVersion[];

@@ -36,6 +36,8 @@ export type ItemModel = {
   primitive?: PrimitiveSpec
   /** AOFP-352 — giãn từng trục theo placement.orientation (mô hình riêng / hình cơ bản). */
   stretch?: boolean
+  /** Đợt 2 — file áo trải phẳng, bước gập dựng bằng shader (nhãn "Bước gập tự tạo"). */
+  autoFold?: boolean
 }
 
 export const ITEM_MODELS: Record<string, ItemModel> = {
@@ -122,6 +124,7 @@ export function resolveItemModel(profile: Pick<PackingItemProfile, 'productCateg
   }
   if (!snap.url) return byCategory
   if (snap.source === 'category') return { kind: snap.kind, prepStep: byCategory?.prepStep, path: snap.url }
+  if (snap.auto_fold) return { path: snap.url, kind: 'garment', autoFold: true }
   return { path: snap.url, kind: snap.kind, stretch: snap.kind === 'rigid' }
 }
 
@@ -146,6 +149,9 @@ const CATEGORY_LABELS: Record<string, { vi: string; en: string }> = {
   accessory: { vi: 'Phụ kiện', en: 'Accessory' },
   other: { vi: 'Khác', en: 'Other' },
 }
+
+/** Mọi loại sản phẩm (khớp ProductCategory ở BE) — dùng cho bộ lọc. */
+export const PRODUCT_CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 
 export function categoryLabel(category: string | null | undefined, vi: boolean): string {
   const row = category ? CATEGORY_LABELS[category] : undefined

@@ -45,6 +45,8 @@ export type PackingItemModel = {
   kind: 'garment' | 'rigid'
   /** category: đường dẫn tĩnh /models/…; upload: URL Cloudinary. */
   url: string | null
+  /** Đợt 2 — file áo trải phẳng không có xương gập: FE tự dựng bước gập. */
+  auto_fold?: boolean
   primitive: PrimitiveSpec | null
 }
 

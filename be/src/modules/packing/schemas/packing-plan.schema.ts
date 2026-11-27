@@ -442,6 +442,7 @@ export class PlanItemModel {
   @Prop({ type: String, required: true }) source!: string;
   @Prop({ type: String, required: true }) kind!: string;
   @Prop({ type: String, default: null }) url!: string | null;
+  @Prop({ type: Boolean, default: false }) auto_fold!: boolean;
   @Prop({ type: PlanItemPrimitiveSchema, default: null }) primitive!: PlanItemPrimitive | null;
 }
 export const PlanItemModelSchema = SchemaFactory.createForClass(PlanItemModel);

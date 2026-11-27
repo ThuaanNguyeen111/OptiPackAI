@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
+  bulkAssignModel,
   createPrimitiveModel,
+  getProductModel,
   listProductModels,
   replaceProductModelFile,
   setProductModelStatus,
   uploadProductModel,
+  type BulkAssignResult,
   type CreditType,
+  type ModelHistoryEntry,
   type PrimitiveParams,
   type ProductModelKind,
   type ProductModelRow,
 } from '../../api/product-models.api'
 import { ModelPreview } from '../../components/packing/ModelPicker'
+import { PRODUCT_CATEGORY_KEYS, categoryLabel } from '../../components/packing/product-models'
 import type { PrimitiveSpec } from '../../components/packing/scene/primitives'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -218,7 +223,7 @@ function UploadForm({ vi, onCreated }: { vi: boolean; onCreated: (m: ProductMode
         {vi ? 'Loại' : 'Kind'}
         <select className={field} value={kind} onChange={(e) => setKind(e.target.value === 'garment' ? 'garment' : 'rigid')}>
           <option value="rigid">{vi ? 'Hàng cứng' : 'Rigid'}</option>
-          <option value="garment">{vi ? 'Quần áo (cần xương gập + túi zip)' : 'Garment (needs fold rig)'}</option>
+          <option value="garment">{vi ? 'Quần áo (có xương gập, hoặc trải phẳng để tự tạo bước gập)' : 'Garment (fold rig, or laid flat for auto fold)'}</option>
         </select>
       </label>
       <label className="space-y-1 text-[11px] text-ink-muted">
@@ -252,6 +257,168 @@ function UploadForm({ vi, onCreated }: { vi: boolean; onCreated: (m: ProductMode
   )
 }
 
+/** Đợt 2 — lịch sử phiên bản: bấm một bản cũ để xem lại hình (file cũ không bị xoá khi thay). */
+function HistoryList({
+  vi,
+  history,
+  viewing,
+  onView,
+}: {
+  vi: boolean
+  history: ModelHistoryEntry[]
+  viewing: number | null
+  onView: (version: number | null) => void
+}): ReactNode {
+  if (history.length === 0) return <p className="text-[11px] text-ink-muted">{vi ? 'Chưa có bản cũ.' : 'No earlier versions.'}</p>
+  return (
+    <ul className="space-y-1 text-[11px]">
+      {history.map((h) => (
+        <li key={h.version}>
+          <button
+            type="button"
+            className={`w-full rounded px-2 py-1 text-left hover:bg-surface-2 ${viewing === h.version ? 'bg-surface-2 text-ink' : 'text-ink-muted'}`}
+            onClick={() => onView(viewing === h.version ? null : h.version)}
+          >
+            v{h.version} · {vi ? 'thay lúc' : 'replaced'} {new Date(h.replacedAt).toLocaleString(vi ? 'vi-VN' : 'en-US')}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * Đợt 2 — Admin gắn mô hình đang chọn cho mọi SKU khớp bộ lọc. Luôn đếm thử trước, rồi mới ghi.
+ * SKU khác loại với mô hình bị bỏ qua (cùng luật với gắn lẻ).
+ */
+function BulkAssignForm({
+  vi,
+  model,
+  models,
+  onDone,
+}: {
+  vi: boolean
+  model: ProductModelRow
+  models: ProductModelRow[]
+  onDone: (message: string) => void
+}): ReactNode {
+  const [category, setCategory] = useState('')
+  const [fromModel, setFromModel] = useState('')
+  const [sku, setSku] = useState('')
+  const [preview, setPreview] = useState<BulkAssignResult | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const filter = { product_category: category || undefined, from_model_id: fromModel || undefined, q: sku.trim() || undefined }
+  const hasFilter = Boolean(filter.product_category || filter.from_model_id || filter.q)
+
+  async function run(dryRun: boolean): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await bulkAssignModel(model.id, { ...filter, dry_run: dryRun })
+      if (dryRun) {
+        setPreview(r)
+      } else {
+        setPreview(null)
+        onDone(vi ? `Đã gắn "${model.name}" cho ${String(r.assigned)} SKU.` : `Assigned to ${String(r.assigned)} SKUs.`)
+      }
+    } catch (e: unknown) {
+      setError(message(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border border-hairline p-2">
+      <p className="text-[11px] font-medium text-ink">{vi ? 'Gắn hàng loạt cho SKU' : 'Bulk assign to SKUs'}</p>
+      <label className="block space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Loại sản phẩm' : 'Category'}
+        <select
+          className={field}
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value)
+            setPreview(null)
+          }}
+        >
+          <option value="">{vi ? 'Mọi loại' : 'Any'}</option>
+          {PRODUCT_CATEGORY_KEYS.map((c) => (
+            <option key={c} value={c}>
+              {categoryLabel(c, vi)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Đang dùng mô hình' : 'Currently using'}
+        <select
+          className={field}
+          value={fromModel}
+          onChange={(e) => {
+            setFromModel(e.target.value)
+            setPreview(null)
+          }}
+        >
+          <option value="">{vi ? 'Bất kỳ' : 'Any'}</option>
+          {models
+            .filter((m) => m.id !== model.id)
+            .map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+        </select>
+      </label>
+      <label className="block space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Mã SKU chứa' : 'SKU contains'}
+        <Input
+          className={field}
+          value={sku}
+          onChange={(e) => {
+            setSku(e.target.value)
+            setPreview(null)
+          }}
+        />
+      </label>
+      {preview ? (
+        <div className="space-y-1 text-[11px] text-ink">
+          <p>
+            {vi
+              ? `Khớp ${String(preview.matched)} SKU: sẽ gắn ${String(preview.assigned)}, đã dùng sẵn ${String(preview.alreadyUsing)}.`
+              : `${String(preview.matched)} matched: ${String(preview.assigned)} to assign, ${String(preview.alreadyUsing)} already using.`}
+          </p>
+          {preview.skipped.map((s) => (
+            <p key={s.productCategory ?? 'none'} className="text-amber-700">
+              {vi ? 'Bỏ qua' : 'Skipped'} {s.count} · {categoryLabel(s.productCategory, vi)}: {s.reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex gap-2">
+        <Button type="button" variant="secondary" className="h-8 text-xs" disabled={busy || !hasFilter} onClick={() => void run(true)}>
+          {vi ? 'Đếm thử' : 'Preview'}
+        </Button>
+        <Button
+          type="button"
+          className="h-8 text-xs"
+          disabled={busy || !preview || preview.assigned === 0}
+          onClick={() => {
+            const msg = vi
+              ? `Gắn "${model.name}" cho ${String(preview?.assigned ?? 0)} SKU? Kế hoạch đã lưu giữ hình cũ.`
+              : `Assign to ${String(preview?.assigned ?? 0)} SKUs?`
+            if (window.confirm(msg)) void run(false)
+          }}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          {vi ? 'Gắn' : 'Assign'}
+        </Button>
+      </div>
+      {error ? <p className="text-[11px] text-red-600">{error}</p> : null}
+    </div>
+  )
+}
+
 /** AOFP-352 — tab "Mô hình 3D": thư viện dùng chung. Thay file / ngừng dùng chỉ Admin. */
 export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (message: string) => void }): ReactNode {
   const { session } = useAuth()
@@ -263,6 +430,8 @@ export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (mes
   const [error, setError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<'primitive' | 'upload' | null>(null)
+  const [history, setHistory] = useState<{ id: string; version: number; items: ModelHistoryEntry[] } | null>(null)
+  const [viewing, setViewing] = useState<number | null>(null)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -281,6 +450,26 @@ export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (mes
   }, [load])
 
   const selected = rows.find((r) => r.id === selectedId) ?? null
+  const selectedVersion = selected?.version
+
+  useEffect(() => {
+    if (!selectedId || selectedVersion === undefined) return
+    let alive = true
+    getProductModel(selectedId)
+      .then((d) => {
+        if (alive) setHistory({ id: selectedId, version: selectedVersion, items: d.history })
+      })
+      .catch(() => {
+        if (alive) setHistory({ id: selectedId, version: selectedVersion, items: [] })
+      })
+    return () => {
+      alive = false
+    }
+  }, [selectedId, selectedVersion])
+
+  const historyItems = history && history.id === selectedId && history.version === selectedVersion ? history.items : null
+  const viewed = historyItems?.find((h) => h.version === viewing) ?? null
+  const shown: ProductModelRow | null = selected && viewed ? { ...selected, version: viewed.version, snapshot: viewed.snapshot } : selected
 
   function created(m: ProductModelRow): void {
     onNotice(vi ? `Đã thêm mô hình "${m.name}".` : `Added "${m.name}".`)
@@ -356,7 +545,10 @@ export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (mes
                 <tr
                   key={m.id}
                   className={`cursor-pointer border-t border-hairline ${m.id === selectedId ? 'bg-surface-2' : 'hover:bg-surface-2/50'}`}
-                  onClick={() => setSelectedId(m.id)}
+                  onClick={() => {
+                    setSelectedId(m.id)
+                    setViewing(null)
+                  }}
                 >
                   <td className="px-3 py-2 text-ink">
                     {m.name}
@@ -418,10 +610,15 @@ export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (mes
           </table>
         </div>
         <div className="space-y-2">
-          {selected ? (
+          {selected && shown ? (
             <>
-              <ModelPreview model={selected} dimsCm={selected.snapshot.primitive ? PREVIEW_DIMS[selected.snapshot.primitive.shape] : [0, 0, 0]} />
-              <p className="text-xs text-ink">{selected.name}</p>
+              <ModelPreview model={shown} dimsCm={shown.snapshot.primitive ? PREVIEW_DIMS[shown.snapshot.primitive.shape] : [0, 0, 0]} />
+              <p className="text-xs text-ink">
+                {selected.name}
+                {viewed ? (
+                  <span className="ml-1 text-amber-700">{vi ? `· đang xem bản cũ v${String(viewed.version)}` : `· viewing v${String(viewed.version)}`}</span>
+                ) : null}
+              </p>
               {selected.credit ? (
                 <p className="text-[11px] text-ink-muted">
                   {vi ? 'Nguồn: ' : 'Credit: '}
@@ -437,6 +634,26 @@ export function ProductModelsTab({ vi, onNotice }: { vi: boolean; onNotice: (mes
                     'self-made'
                   )}
                 </p>
+              ) : null}
+              <p className="pt-1 text-[11px] font-medium text-ink">
+                {vi ? `Lịch sử phiên bản (hiện tại v${String(selected.version)})` : `Versions (current v${String(selected.version)})`}
+              </p>
+              {historyItems ? (
+                <HistoryList vi={vi} history={historyItems} viewing={viewing} onView={setViewing} />
+              ) : (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-ink-muted" />
+              )}
+              {isAdmin && selected.status === 'active' ? (
+                <BulkAssignForm
+                  key={selected.id}
+                  vi={vi}
+                  model={selected}
+                  models={rows}
+                  onDone={(msg) => {
+                    onNotice(msg)
+                    load()
+                  }}
+                />
               ) : null}
             </>
           ) : (
