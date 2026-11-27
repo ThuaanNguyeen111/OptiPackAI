@@ -800,7 +800,7 @@ Schema `PackingPlanSchema` · `be/src/modules/packing/schemas/packing-plan.schem
 | `solver.computation_ms` | Number | mặc định 0 |  |
 | `solver.options` | Sub | req |  |
 | `solver.options.exclude_box_codes` | Array<String> | mặc định [] |  |
-| `solver.options.prefer` | String | req | enum: fewest_parcels, cheapest |
+| `solver.options.prefer` | String | req | enum: fewest_parcels, cheapest, lowest_total_vnd |
 | `solver.options.fragile_cushion_mm` | Number | mặc định 5 |  |
 | `approved_by` | ObjectId |  |  |
 | `approved_at` | Date |  |  |
@@ -852,7 +852,7 @@ Schema `PackingSettingsSchema` · `be/src/modules/packing/schemas/packing-settin
 | `version` | Number | req |  |
 | `abnormal_weight_threshold` | Number | req |  |
 | `fragile_cushion_mm` | Number | req |  |
-| `default_prefer` | String | req | enum: fewest_parcels, cheapest |
+| `default_prefer` | String | req | enum: fewest_parcels, cheapest, lowest_total_vnd |
 | `max_parcels_per_order` | Number |  |  |
 | `allow_reused_box_for_fragile` | Boolean | req |  |
 | `require_scan` | Boolean | req |  |

@@ -6,7 +6,7 @@ import {
   type ChargeRule,
 } from './objective';
 import { solveOrder } from './solve-order';
-import type { Objective, SolvePreference, SolvedParcel } from './types';
+import type { FeeEstimate, Objective, SolvePreference, SolvedParcel } from './types';
 import { formatDimsMmAsCm, formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /**
@@ -94,6 +94,8 @@ export interface CompareBoxesOptions {
   availability?: Map<string, number>;
   materials?: MaterialPlanning;
   charge?: ChargeRule;
+  /** Biểu cước ước tính (bậc tổng tiền); bỏ qua = mặc định. */
+  fee?: FeeEstimate;
   prefer?: SolvePreference;
   excludeBoxCodes?: string[];
   weights?: BoxComparisonWeights;
@@ -146,6 +148,7 @@ const TIER_LABEL: Record<keyof Objective, string> = {
   unplaced: 'số món xếp được',
   parcels: 'số kiện',
   billable_g: 'cân tính cước',
+  est_total_vnd: 'tổng tiền ước tính (cước + bao bì)',
   packaging_cost_vnd: 'giá thùng + vật tư',
   volumetric_g: 'cân quy đổi',
   folds: 'số món phải gập',
@@ -155,7 +158,7 @@ const TIER_LABEL: Record<keyof Objective, string> = {
 
 function tierValue(tier: keyof Objective, n: number): string {
   if (tier === 'billable_g' || tier === 'volumetric_g') return grams(n);
-  if (tier === 'packaging_cost_vnd') return vnd(n);
+  if (tier === 'packaging_cost_vnd' || tier === 'est_total_vnd') return vnd(n);
   if (tier === 'cog' || tier === 'imbalance') return `${String(Math.round(n * 100))}%`;
   return String(n);
 }
@@ -187,6 +190,7 @@ function evaluateAlternative(
   const solved = solveOrder(units, [box], {
     materials: options.materials,
     charge: options.charge,
+    ...(options.fee && { fee: options.fee }),
     maxEvaluations: options.maxEvaluations ?? COMPARISON_MAX_EVALUATIONS,
   });
   const skuOf = (key: string): string => units.find((u) => u.item_key === key)?.sku ?? key;
@@ -376,6 +380,7 @@ const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text
 const PREFER_RULE: Record<SolvePreference, string> = {
   fewest_parcels: 'số kiện → cân tính cước → giá thùng + vật tư → cân quy đổi → số món gập',
   cheapest: 'cân tính cước → giá thùng + vật tư → số kiện → cân quy đổi → số món gập',
+  lowest_total_vnd: 'tổng tiền ước tính (cước + bao bì + vật tư) → số kiện → cân tính cước → giá thùng + vật tư → cân quy đổi → số món gập',
 };
 
 /** Câu tóm tắt cho mục "Vì sao chọn thùng này?". */

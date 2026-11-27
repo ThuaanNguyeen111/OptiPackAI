@@ -46,6 +46,7 @@ import {
   upgradeWithCpSat,
   withFreshFillNotes,
   type MailerSolveOptions,
+  type FeeEstimate,
   type ChargeRule,
   type CompareBoxesOptions,
   type SolveResult,
@@ -80,6 +81,7 @@ import { PackerAssignmentService } from './packer-assignment.service';
 import { PackingGuideMemoryService } from './packing-guide-memory.service';
 import { diffCatalog, snapshotCatalog } from './utils/catalog-snapshot.util';
 import { formatGAsKg } from '../../common/utils/measure-format.util';
+import { type SolvePreference } from './solver/types';
 
 /**
  * Đệm hàng dễ vỡ của 1 kế hoạch (05/10/2026: lấy từ packing_settings lúc tính,
@@ -120,7 +122,8 @@ export interface CpSatTask {
   availability: Map<string, number>;
   /** AOFP-224 — cùng luật cước + ưu tiên với lúc giải BRKGA (bỏ qua = mặc định). */
   charge?: ChargeRule;
-  prefer?: 'fewest_parcels' | 'cheapest';
+  fee?: FeeEstimate;
+  prefer?: SolvePreference;
   /** AOFP-310 — danh mục có túi niêm phong lúc giải; cần khi tính lại câu lấp đầy sau CP-SAT. */
   hasMailers?: boolean;
 }
@@ -597,7 +600,7 @@ export class PackingPlanService {
         const result = solveWithMailers(
           units,
           boxes,
-          { availability: stockForOrder, materials, excludeBoxCodes: exclude, prefer, charge },
+          { availability: stockForOrder, materials, excludeBoxCodes: exclude, prefer, charge, fee: mailerOptions.fee },
           mailerOptions,
         );
         for (const p of result.parcels) remaining.set(p.box.code, (remaining.get(p.box.code) ?? 0) - 1);
@@ -624,6 +627,7 @@ export class PackingPlanService {
               availability: stockForAlternatives(stockForOrder, result.parcels, index),
               materials,
               charge,
+              fee: mailerOptions.fee,
               prefer,
               excludeBoxCodes: exclude,
             })),
@@ -643,9 +647,17 @@ export class PackingPlanService {
           excludeBoxCodes: exclude,
           prefer,
           charge,
+          fee: mailerOptions.fee,
         });
         const explanation = [...result.explanation];
         if (suggestion) explanation.push(describeSuggestion(suggestion));
+        // Audit 20/11/2026 (OPT-2): thùng tạo không nhập giá được lưu 0đ — báo để Admin nhập giá thật.
+        const unpriced = [...new Set(result.parcels.filter((p) => !p.box.price_vnd).map((p) => uncutBox(p.box).code))];
+        if (unpriced.length > 0) {
+          explanation.push(
+            `${unpriced.join(', ')} đang ghi giá 0đ — nếu chưa nhập giá thật, Admin nhập ở kho vật tư để so chi phí đúng.`,
+          );
+        }
         if (shared) {
           explanation.push(
             `Đóng chung kiện ${String(bucket.length)} đơn cùng người nhận (${bucket.map((a) => a.platform_order_id).join(', ')}) — ` +
@@ -702,6 +714,7 @@ export class PackingPlanService {
             result,
             availability: stockForOrder,
             charge,
+            fee: mailerOptions.fee,
             prefer,
             hasMailers: mailers.length > 0,
           });
@@ -2029,6 +2042,7 @@ export class PackingPlanService {
           availability: task.availability,
           materials,
           charge: task.charge,
+          fee: task.fee,
           prefer: task.prefer,
           maxUnits: packer.maxUnits,
           deterministicTimePerCombo: packer.deterministicTimePerCombo,
@@ -2062,6 +2076,7 @@ export class PackingPlanService {
         ? withFreshFillNotes(upgraded, task.hasMailers ?? false, {
             materials: ctx.materials,
             charge: task.charge,
+            fee: task.fee,
             prefer: task.prefer,
           })
         : null;
@@ -2090,6 +2105,7 @@ export class PackingPlanService {
               availability: stockForAlternatives(task.availability, replaced.parcels, i),
               materials: ctx.materials,
               charge: task.charge,
+              fee: task.fee,
               prefer: task.prefer,
               excludeBoxCodes: plan.solver.options.exclude_box_codes,
             })),

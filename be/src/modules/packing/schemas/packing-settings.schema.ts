@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
+import { SOLVE_PREFERENCES, type SolvePreference } from '../solver/types';
 
 export const GUIDE_STYLE_PROMPT_MAX_LENGTH = 4000;
 
@@ -27,8 +28,8 @@ export class PackingSettings {
   @Prop({ type: Number, required: true, min: 0, max: 50 }) fragile_cushion_mm!: number;
 
   /** Mục tiêu mặc định khi tự tính (người dùng vẫn chọn khác được lúc tính lại). */
-  @Prop({ type: String, required: true, enum: ['fewest_parcels', 'cheapest'] })
-  default_prefer!: 'fewest_parcels' | 'cheapest';
+  @Prop({ type: String, required: true, enum: SOLVE_PREFERENCES })
+  default_prefer!: SolvePreference;
 
   /** Số kiện tối đa mỗi đơn; vượt → duyệt phải ghi lý do. null = không giới hạn. */
   @Prop({ type: Number, default: null, min: 1 }) max_parcels_per_order!: number | null;

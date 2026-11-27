@@ -4,6 +4,7 @@ import {
   BoxDimensionsMm,
   BoxDimensionsMmSchema,
 } from '../../packaging-materials/schemas/box-dimensions.schema';
+import { SOLVE_PREFERENCES, type SolvePreference } from '../solver/types';
 
 /**
  * ===================================================================
@@ -284,7 +285,7 @@ export const PlanBoxComparisonRowSchema = SchemaFactory.createForClass(PlanBoxCo
  */
 @Schema({ _id: false })
 export class PlanBoxComparison {
-  @Prop({ type: String, required: true, enum: ['fewest_parcels', 'cheapest'] }) prefer!: 'fewest_parcels' | 'cheapest';
+  @Prop({ type: String, required: true, enum: SOLVE_PREFERENCES }) prefer!: SolvePreference;
   @Prop({ type: PlanBoxComparisonWeightsSchema, required: true }) weights!: PlanBoxComparisonWeights;
   @Prop({ type: [PlanBoxComparisonRowSchema], default: [] }) rows!: PlanBoxComparisonRow[];
   /** false = điểm tổng ngược thứ hạng ở ít nhất 1 cặp (điểm chỉ tham khảo). */
@@ -486,8 +487,8 @@ export const PlanActivitySchema = SchemaFactory.createForClass(PlanActivity);
 @Schema({ _id: false })
 export class PlanSolverOptions {
   @Prop({ type: [String], default: [] }) exclude_box_codes!: string[];
-  @Prop({ type: String, required: true, enum: ['fewest_parcels', 'cheapest'] })
-  prefer!: 'fewest_parcels' | 'cheapest';
+  @Prop({ type: String, required: true, enum: SOLVE_PREFERENCES })
+  prefer!: SolvePreference;
   /** Đệm hàng dễ vỡ (mm) dùng lúc tính — mọi lần dựng lại món của kế hoạch PHẢI dùng đúng số này. */
   @Prop({ type: Number, default: 5 }) fragile_cushion_mm!: number;
 }

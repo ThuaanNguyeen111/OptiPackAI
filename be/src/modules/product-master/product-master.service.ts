@@ -521,7 +521,8 @@ export class ProductMasterService implements OnModuleInit {
   }): Promise<ProductMaster[]> {
     // 22/10/2026 — mặc định bỏ SKU sàn đã ngừng bán / ngừng dùng.
     const query: Record<string, unknown> = filter.includeRetired ? {} : { ...ACTIVE_SELLER_SKU_FILTER };
-    if (filter.status) query.packaging_profile_status = filter.status;
+    // Hồ sơ tạo trước khi có mặc định không có trường này (66 SKU ngày 22/11) — engine coi là chưa đo, danh sách "cần đo" cũng phải hiện.
+    if (filter.status) query.packaging_profile_status = filter.status === 'ready' ? 'ready' : { $ne: 'ready' };
     if (filter.shopId) query.shop_id = filter.shopId;
     if (filter.search) {
       // escape ký tự đặc biệt regex — tránh lỗi/ReDoS khi user gõ "(" hay "*"

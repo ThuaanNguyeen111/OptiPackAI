@@ -5,7 +5,8 @@ import { expandToUnits } from '../src/modules/packaging/engine/units';
 import { sampleBoxes } from '../src/modules/packaging/engine/scenarios/order-scenarios';
 import type { BoxSpec } from '../src/modules/packaging/engine/types';
 import type { PackableItem } from '../src/common/interfaces/packaging.interface';
-import { validatePlan, solveOrder, SOLVER_VERSION } from '../src/modules/packing/solver';
+import { compareObjective, objectiveOf, validatePlan, solveOrder, SOLVER_VERSION } from '../src/modules/packing/solver';
+import { uncutBox } from '../src/modules/packing/solver/objective';
 import type { SolveOptions } from '../src/modules/packing/solver';
 import { generateOrder, mulberry32 } from './benchmark-orders';
 
@@ -40,6 +41,8 @@ interface CaseResult {
   computation_ms: number;
   proof: string;
   problems: string[];
+  /** Kiện xếp lại vào MỘT thùng khác cho kết quả tốt hơn (chỉ khi chạy dò). */
+  better_box: string[];
 }
 
 interface SplitMetrics {
@@ -58,6 +61,10 @@ interface EvaluationReport {
   dataset_cases: number;
   passed: number;
   failed: number;
+  /** Ca có kiện đổi được sang thùng tốt hơn (chỉ khi chạy dò). */
+  better_box_cases: number;
+  /** Ca gắn nhãn optimal_* mà dò vẫn tìm ra thùng tốt hơn — phải = 0. */
+  proof_contradictions: number;
   by_split: Record<Split, SplitMetrics>;
   cases: CaseResult[];
 }
@@ -184,7 +191,37 @@ function readDataset(path: string): PackingCase[] {
     .map((line, index) => validateCase(JSON.parse(line) as unknown, index + 1));
 }
 
-function runCase(testCase: PackingCase): CaseResult {
+/**
+ * Dò bỏ sót (audit 20/11/2026): xếp lại từng kiện vào từng thùng khác trong
+ * danh mục; kiện mới tốt hơn theo mục tiêu bậc = bộ giải chọn thùng chưa tốt.
+ */
+function probeBetterBox(
+  units: ReturnType<typeof expandToUnits>,
+  boxes: BoxSpec[],
+  result: ReturnType<typeof solveOrder>,
+  prefer: SolveOptions['prefer'],
+): string[] {
+  const byKey = new Map(units.map((unit) => [unit.item_key, unit]));
+  const found: string[] = [];
+  result.parcels.forEach((parcel, index) => {
+    const own = parcel.placements
+      .map((placement) => byKey.get(placement.item_key))
+      .filter((unit): unit is NonNullable<typeof unit> => unit !== undefined);
+    const current = objectiveOf([parcel], 0);
+    const code = uncutBox(parcel.box).code;
+    for (const box of boxes) {
+      if (box.code === code) continue;
+      const alone = solveOrder(own, [box], { ...(prefer && { prefer }), maxEvaluations: 2000 });
+      if (alone.status === 'ok' && alone.parcels.length === 1 && compareObjective(alone.objective, current, prefer) < 0) {
+        found.push(`kiện ${String(index + 1)}: ${code} → ${box.code}`);
+        break;
+      }
+    }
+  });
+  return found;
+}
+
+function runCase(testCase: PackingCase, probe = false): CaseResult {
   const options = testCase.input.solver_options;
   const units = expandToUnits(testCase.input.items, {
     fragileCushionMm: options.fragile_cushion_mm,
@@ -213,6 +250,7 @@ function runCase(testCase: PackingCase): CaseResult {
     computation_ms: Math.max(elapsed, result.stats.computation_ms),
     proof: result.proof,
     problems,
+    better_box: probe ? probeBetterBox(units, testCase.input.boxes, result, options.prefer) : [],
   };
 }
 
@@ -221,8 +259,8 @@ function percentile(values: number[], p: number): number {
   return sorted.length === 0 ? 0 : sorted[Math.ceil((p / 100) * sorted.length) - 1] ?? 0;
 }
 
-function evaluate(cases: PackingCase[]): EvaluationReport {
-  const results = cases.map(runCase);
+function evaluate(cases: PackingCase[], probe = false): EvaluationReport {
+  const results = cases.map((testCase) => runCase(testCase, probe));
   const bySplit = Object.fromEntries(
     SPLITS.map((split) => {
       const rows = results.filter((row) => row.split === split);
@@ -251,6 +289,8 @@ function evaluate(cases: PackingCase[]): EvaluationReport {
     dataset_cases: cases.length,
     passed: results.filter((row) => row.valid).length,
     failed: results.filter((row) => !row.valid).length,
+    better_box_cases: results.filter((row) => row.better_box.length > 0).length,
+    proof_contradictions: results.filter((row) => row.proof !== 'heuristic' && row.better_box.length > 0).length,
     by_split: bySplit,
     cases: results,
   };
@@ -269,8 +309,13 @@ function selfCheck(): void {
     Object.fromEntries(SPLITS.map((split) => [split, first.filter((row) => row.split === split).length])),
     { train: 14, validation: 3, test: 3 },
   );
-  const report = evaluate(first);
+  const report = evaluate(first, true);
   assert.equal(report.failed, 0, 'generated cases must satisfy the solver validator and place all items');
+  assert.equal(
+    report.proof_contradictions,
+    0,
+    `optimal proof label contradicted by a better single-box repack: ${JSON.stringify(report.cases.filter((row) => row.proof !== 'heuristic' && row.better_box.length > 0).map((row) => [row.id, row.better_box]))}`,
+  );
 }
 
 function main(): void {
@@ -291,7 +336,7 @@ function main(): void {
   if (command === 'evaluate') {
     const input = arg('input');
     if (!input) throw new Error('Thiếu --input=<file.jsonl>.');
-    const report = evaluate(readDataset(input));
+    const report = evaluate(readDataset(input), process.argv.includes('--probe'));
     const output = arg('report');
     if (output) {
       mkdirSync(dirname(output), { recursive: true });
@@ -304,6 +349,8 @@ function main(): void {
           dataset_cases: report.dataset_cases,
           passed: report.passed,
           failed: report.failed,
+          better_box_cases: report.better_box_cases,
+          proof_contradictions: report.proof_contradictions,
           by_split: report.by_split,
           ...(output ? { report: output } : {}),
         },
@@ -311,14 +358,14 @@ function main(): void {
         2,
       ),
     );
-    if (report.failed > 0) process.exitCode = 1;
+    if (report.failed > 0 || report.proof_contradictions > 0) process.exitCode = 1;
     return;
   }
   console.log(
     [
       'Packing dataset pipeline (offline; no DB access)',
       '  npm.cmd run dataset:packing -- generate --orders=300 --seed=20261117',
-      '  npm.cmd run dataset:packing -- evaluate --input=scripts/datasets/packing/v1.jsonl --report=scripts/datasets/packing/results-v1.json',
+      '  npm.cmd run dataset:packing -- evaluate --input=scripts/datasets/packing/v1.jsonl --report=scripts/datasets/packing/results-v1.json [--probe]',
       '  npm.cmd run dataset:packing -- check',
     ].join('\n'),
   );

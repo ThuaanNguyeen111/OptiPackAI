@@ -16,6 +16,7 @@ import { mulberry32 } from './prng';
 import { cheapReject } from './proof';
 import { solveOrder, validatePlan } from './solve-order';
 import type { SolveOptions, SolveResult } from './types';
+import type { BoxSpec } from '../../packaging/engine/types';
 
 jest.setTimeout(60_000);
 
@@ -285,6 +286,65 @@ describe('BRKGA (hàm tổng quát)', () => {
     const a = runBrkga(10, evaluate, (x, y) => x - y, params, mulberry32(7));
     const b = runBrkga(10, evaluate, (x, y) => x - y, params, mulberry32(7));
     expect(Array.from(b.keys)).toEqual(Array.from(a.keys));
+  });
+});
+
+/** Audit 20/11/2026 (docs/PACKING_SOLVER_AUDIT_2026-11-20.md) — danh mục giá KHÔNG tăng theo cỡ. */
+describe('audit F1/F2/F6 — chọn thùng theo cước, nhãn chứng minh trung thực', () => {
+  const priced = (code: string, inner: [number, number, number], price: number | null): BoxSpec => ({
+    ...customBox(code, inner),
+    price_vnd: price,
+  });
+  const boxy = item('BOXY', [30, 20, 15], 0.5, { category: 'other', stackKg: 5 });
+
+  it('thùng to giá rẻ không thắng thùng nhỏ vừa khít khi cước cao hơn', () => {
+    const r = solve([boxy], {}, [priced('BIG-CHEAP', [500, 400, 350], 2000), priced('SMALL-PRICY', [310, 210, 160], 6000)]);
+    expect(r.parcels.map((p) => p.box.code)).toEqual(['SMALL-PRICY']);
+    expect(r.objective.billable_g).toBeLessThan(5000);
+  });
+
+  it('thùng chưa nhập giá (coi 0đ) không hút đơn nhỏ khỏi thùng đúng cỡ', () => {
+    const boxes = [...sampleBoxes(), priced('BOX-XL', [600, 500, 400], null)];
+    for (const order of [[tee(1)], [shoebox(1)], [sunglasses(1)]]) {
+      const r = solve(order, {}, boxes);
+      expect(r.parcels.map((p) => p.box.code)).not.toContain('BOX-XL');
+    }
+  });
+
+  it('nhãn optimal_global chỉ khi không tổ hợp nào có thể cước thấp hơn', () => {
+    // Thùng nhỏ hết tồn → thùng to là tối ưu trong phần tồn còn lại; còn tồn thì nhãn đi với thùng nhỏ.
+    const boxes = [priced('BIG-CHEAP', [500, 400, 350], 2000), priced('SMALL-PRICY', [310, 210, 160], 6000)];
+    const r = solve([boxy], { availability: new Map([['BIG-CHEAP', 3], ['SMALL-PRICY', 0]]) }, boxes);
+    expect(r.parcels.map((p) => p.box.code)).toEqual(['BIG-CHEAP']);
+    expect(r.proof).toBe('optimal_global');
+    const free = solve([boxy], {}, boxes);
+    expect(free.proof).toBe('optimal_global');
+    expect(free.parcels.map((p) => p.box.code)).toEqual(['SMALL-PRICY']);
+  });
+
+  it('lowest_total_vnd tính cước bậc đầu cho MỖI kiện: 1 thùng cao thắng 2 thùng thấp rẻ hơn', () => {
+    const cartons = item('CARTON', [30, 20, 12], 1, { qty: 2, category: 'other', stackKg: 10 });
+    const boxes = [priced('S1', [310, 210, 130], 1500), priced('M2', [310, 210, 250], 4500)];
+    const cheapest = solve([cartons], { prefer: 'cheapest' }, boxes);
+    const total = solve([cartons], { prefer: 'lowest_total_vnd' }, boxes);
+    expect(cheapest.parcels.map((p) => p.box.code)).toEqual(['S1', 'S1']);
+    expect(total.parcels.map((p) => p.box.code)).toEqual(['M2']);
+    expect(total.objective.est_total_vnd).toBeLessThan(cheapest.objective.est_total_vnd);
+    expect(total.proof).toBe('heuristic');
+  });
+
+  it('lý do không vừa nói đúng nguyên nhân: luật hướng, đệm dễ vỡ', () => {
+    const tall = solveOrder(
+      expandToUnits([item('TALL', [20, 15, 40], 1, { category: 'other', upright: true })]),
+      [priced('M', [450, 250, 200], 4500)],
+    );
+    expect(tall.unplaced[0]?.code).toBe('ITEM_TOO_LARGE');
+    expect(tall.unplaced[0]?.reason).toContain('xoay hướng khác thì vừa M');
+    const vase = solveOrder(
+      expandToUnits([item('VASE', [19.5, 14.5, 9.5], 0.5, { fragile: true, category: 'other' })], { fragileCushionMm: 5 }),
+      [priced('S', [200, 150, 100], 2500)],
+    );
+    expect(vase.unplaced[0]?.reason).toContain('đệm xốp');
   });
 });
 

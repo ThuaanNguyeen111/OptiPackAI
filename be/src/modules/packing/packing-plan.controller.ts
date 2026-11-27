@@ -54,6 +54,7 @@ import {
 } from './dto/packing-session.dto';
 import { Features } from '../role-permissions/feature-scope';
 import { placementLayers } from '../packaging/engine/packing-guide';
+import { type SolvePreference } from './solver/types';
 
 interface DimsResponse {
   lengthMm: number;
@@ -80,7 +81,7 @@ export interface BoxSourcesResponse {
 
 /** (05/11/2026) Bảng so sánh thùng của 1 kiện — "vì sao thùng này mà không phải thùng khác". */
 export interface BoxComparisonResponse {
-  prefer: 'fewest_parcels' | 'cheapest';
+  prefer: SolvePreference;
   /** Trọng số điểm tổng (tổng = 1). */
   weights: { billable: number; packaging: number; fill: number; handling: number };
   /** Thùng dùng được theo thứ hạng (rank 1 = tốt nhất theo luật bậc), sau đó thùng không dùng được. */

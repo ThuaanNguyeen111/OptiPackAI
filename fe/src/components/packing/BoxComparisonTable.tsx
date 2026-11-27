@@ -23,6 +23,10 @@ const RANK_ORDER = {
     vi: ['Cân tính cước', 'Giá thùng + vật tư', 'Số kiện', 'Cân quy đổi', 'Số món gập'],
     en: ['Billable weight', 'Packaging cost', 'Parcels', 'Volumetric weight', 'Folds'],
   },
+  lowest_total_vnd: {
+    vi: ['Tổng tiền ước tính', 'Số kiện', 'Cân tính cước', 'Giá thùng + vật tư', 'Cân quy đổi', 'Số món gập'],
+    en: ['Estimated total cost', 'Parcels', 'Billable weight', 'Packaging cost', 'Volumetric weight', 'Folds'],
+  },
 } as const
 
 const fmtScore = (n: number): string => n.toFixed(1)

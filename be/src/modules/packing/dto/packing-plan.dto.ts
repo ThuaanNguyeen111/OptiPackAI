@@ -17,6 +17,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { SOLVE_PREFERENCES, type SolvePreference } from '../solver/types';
 
 /**
  * Lý do làm KHÁC gợi ý (chỉnh tay, từ chối). Mỗi mã ứng với một việc Admin
@@ -73,10 +74,10 @@ export class RecomputePlanDto {
   @IsString({ each: true, message: 'Mỗi mã thùng phải là chuỗi' })
   exclude_box_codes?: string[];
 
-  @ApiProperty({ required: false, enum: ['fewest_parcels', 'cheapest'] })
+  @ApiProperty({ required: false, enum: SOLVE_PREFERENCES })
   @IsOptional()
-  @IsIn(['fewest_parcels', 'cheapest'], { message: 'prefer chỉ nhận fewest_parcels hoặc cheapest' })
-  prefer?: 'fewest_parcels' | 'cheapest';
+  @IsIn(SOLVE_PREFERENCES, { message: 'prefer chỉ nhận fewest_parcels, cheapest hoặc lowest_total_vnd' })
+  prefer?: SolvePreference;
 }
 
 export class ApprovePlanDto extends VersionedDto {

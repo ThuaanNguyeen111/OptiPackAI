@@ -12,13 +12,14 @@ import { PackingSettings, PackingSettingsDocument } from './schemas/packing-sett
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { readCloudinaryConfig } from '../proof-photos/proof-photo.util';
 import type { UpdatePackingSettingsDto } from './dto/packing-session.dto';
+import { type SolvePreference } from './solver/types';
 
 export interface ActivePackingSettings {
   /** null = đang dùng mặc định trong code (chưa ai lưu). */
   version: number | null;
   abnormalWeightThreshold: number;
   fragileCushionMm: number;
-  defaultPrefer: 'fewest_parcels' | 'cheapest';
+  defaultPrefer: SolvePreference;
   maxParcelsPerOrder: number | null;
   allowReusedBoxForFragile: boolean;
   requireScan: boolean;
