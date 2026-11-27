@@ -111,7 +111,8 @@ export function ModelPicker({
 
   useEffect(() => {
     let alive = true
-    Promise.all([listProductModels(), getModelSuggestions(productMasterId).catch(() => [])])
+    // Lấy cả mô hình đã ngừng dùng: SKU đang gắn mô hình đã ngừng phải giữ nguyên (AC11), không bị tự đổi.
+    Promise.all([listProductModels({ status: 'all' }), getModelSuggestions(productMasterId).catch(() => [])])
       .then(([list, sugg]) => {
         if (!alive) return
         setModels(list.items)
@@ -124,7 +125,10 @@ export function ModelPicker({
     }
   }, [productMasterId])
 
-  const fitting = useMemo(() => models.filter((m) => modelFitsCategory(m, category)), [models, category])
+  const fitting = useMemo(
+    () => models.filter((m) => modelFitsCategory(m, category) && (m.status === 'active' || m.id === value)),
+    [models, category, value],
+  )
   const fittingSuggestions = useMemo(() => suggestions.filter((s) => modelFitsCategory(s.model, category)), [suggestions, category])
   const selected = models.find((m) => m.id === value) ?? suggestions.find((s) => s.model.id === value)?.model ?? null
   const selectedFits = selected ? modelFitsCategory(selected, category) : false
@@ -184,6 +188,7 @@ export function ModelPicker({
                 .map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name} · {m.sourceLabel}
+                    {m.status === 'retired' ? (vi ? ' · đã ngừng dùng' : ' · retired') : ''}
                   </option>
                 ))}
             </optgroup>
@@ -230,6 +235,13 @@ export function ModelPicker({
           {vi
             ? `Mô hình bị kéo giãn ${String(Math.round(warp * 100))}% để khớp số đo — kiểm tra hình còn giống hàng thật không.`
             : `Model stretched ${String(Math.round(warp * 100))}% to match — check it still looks right.`}
+        </p>
+      ) : null}
+      {selected?.status === 'retired' ? (
+        <p className="text-[11px] text-amber-700 dark:text-amber-300">
+          {vi
+            ? 'Đang dùng mô hình đã ngừng dùng — SKU vẫn đóng gói được; nên chọn mô hình khác khi tiện.'
+            : 'Using a retired model — still packable; pick another when convenient.'}
         </p>
       ) : null}
       {error ? <p className="text-[11px] text-red-600">{error}</p> : null}

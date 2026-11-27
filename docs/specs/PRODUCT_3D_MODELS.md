@@ -313,7 +313,7 @@ Ví dụ xuyên suốt:
 | AC4 | B: `SERUM-50ML` chọn lại "Chai tròn cổ ngắn" từ thư viện → hình giãn đúng 5 × 5 × 14; tab Mô hình 3D hiện "dùng bởi 2 SKU". |
 | AC5 | B: trong kế hoạch, nếu bộ giải đặt chai nằm (`orientation` khác `LWH`) thì hình chai cũng nằm đúng trục; nếu chai `upright_only` thì luôn đứng. |
 | AC6 | C: mở form `TS-BASIC-L` → tab Gợi ý đề xuất mô hình của `TS-BASIC-M`; chọn hình cơ bản bị ẩn; xác nhận → bước gập + túi zip chạy như hiện nay. |
-| AC7 | C: tải một GLB áo không có xương `fold_*` với `kind=garment` → lỗi `PM3D_GARMENT_RIG_MISSING`, không tạo mục thư viện. |
+| AC7 | C: tải một GLB áo không có xương `fold_*` và **không trải phẳng** với `kind=garment` → lỗi `PM3D_GARMENT_RIG_MISSING`, không tạo mục thư viện. (Từ đợt 2: áo trải phẳng không xương được nhận với bước gập tự tạo — §8, §10.) |
 | AC8 | Xác nhận hồ sơ không có `model_id` qua API → 4xx `PM_MODEL_REQUIRED`; đồng bộ sàn không bao giờ tạo SKU `ready`. |
 | AC9 | SKU `ready` bị xoá `model_id` (giả lập) → tính kế hoạch trả `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` với `reason: missing_model`, nhóm đơn có `packing_blocked_reason`. |
 | AC10 | Admin thay file mô hình B → kế hoạch đã lưu trước đó vẫn hiển thị hình cũ (ảnh chụp version cũ); kế hoạch mới dùng hình mới. |
